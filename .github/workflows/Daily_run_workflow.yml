@@ -4,6 +4,8 @@ on:
   schedule:
     # Schedule the workflow to run daily at 00:00 UTC
     - cron: '35 17 * * *'
+  workflow_dispatch:
+
 
 jobs:
   pull_issues:
