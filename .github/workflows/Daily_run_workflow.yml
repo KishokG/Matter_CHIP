@@ -25,4 +25,4 @@ jobs:
       
       - name: Run Python script
         run: |
-          python All_Issues_Pulling.py
+          python Matter_Issues_Pull/All_Issues_Pulling.py
