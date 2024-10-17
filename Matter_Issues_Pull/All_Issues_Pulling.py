@@ -32,10 +32,10 @@ g = github.Github(github_token)
 service_account_json_dict = json.loads(service_account_json)
 
 # Authenticate with Google Sheets API 
-#def authenticate_google_sheets():
-#    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
-#    client = gspread.authorize(creds)
- #   return client.open_by_key(SPREADSHEET_ID)
+def authenticate_google_sheets():
+    creds = Credentials.from_service_account_file(service_account_json_dict, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    return client.open_by_key(SPREADSHEET_ID)
 
 
 # Fetch all GitHub Issues with Pagination, excluding pull requests
