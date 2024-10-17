@@ -1,5 +1,11 @@
-import requests
+import time
+import os
+import github
 import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import yaml
+import json
+import requests
 from google.oauth2.service_account import Credentials
 import pandas as pd
 
@@ -11,7 +17,9 @@ REPOSITORIES = [
     {"name": "CHIP-Specifications/chip-test-plans", "sheet_name": "TestPlan_Issues"},  # Third repo
     # Add more repositories here
 ]
-GITHUB_TOKEN = "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"  # Replace with your GitHub token
+
+github_token = os.environ.get("GITHUB_TOKEN")
+service_account_json = os.environ.get("CREDENTIALS_JSON")
 
 # Google Sheets Settings
 SPREADSHEET_ID = "1mx9GKwpmrUVmeAEY6Q6nq__8FWoj0CjVUa6IOwm-AVE"  # Replace with your Google Sheet ID
@@ -20,12 +28,14 @@ SPREADSHEET_ID = "1mx9GKwpmrUVmeAEY6Q6nq__8FWoj0CjVUa6IOwm-AVE"  # Replace with 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
           "https://www.googleapis.com/auth/drive"]
 
+g = github.Github(github_token)
+service_account_json_dict = json.loads(service_account_json)
 
-# Authenticate with Google Sheets API
-def authenticate_google_sheets():
-    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
-    client = gspread.authorize(creds)
-    return client.open_by_key(SPREADSHEET_ID)
+# Authenticate with Google Sheets API 
+#def authenticate_google_sheets():
+#    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+#    client = gspread.authorize(creds)
+ #   return client.open_by_key(SPREADSHEET_ID)
 
 
 # Fetch all GitHub Issues with Pagination, excluding pull requests
