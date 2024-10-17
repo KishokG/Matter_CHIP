@@ -71,7 +71,6 @@ def update_google_sheet(issues, sheet):
             issue["updated_at"],
             issue["url"]
         ]
-        print()
         for issue in issues
     ]
 
