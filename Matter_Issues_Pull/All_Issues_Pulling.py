@@ -18,7 +18,7 @@ REPOSITORIES = [
     # Add more repositories here
 ]
 
-github_token = os.environ.get("GITHUB_TOKEN")
+github_token = os.environ.get("PERSONNEL_TOKEN")
 service_account_json = os.environ.get("CREDENTIALS_JSON")
 
 # Google Sheets Settings
