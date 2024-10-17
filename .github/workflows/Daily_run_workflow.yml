@@ -3,7 +3,7 @@ name: Pull GitHub Issues Daily
 on:
   schedule:
     # Schedule the workflow to run daily at 00:00 UTC
-    - cron: '35 17 * * *'
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 
