@@ -102,6 +102,10 @@ def update_google_sheet(issues, sheet, repo_name):
         for issue in issues
     ]
 
+     # Convert created_at to a string format for the sheet
+    for i in range(len(issue_data)):
+        issue_data[i][5] = issue_data[i][5].strftime("%Y-%m-%d")  # Convert created date to string format
+
     # Insert into Google Sheets
     sheet.clear()  # Clear the existing content
     sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link"]])  # Add headers
