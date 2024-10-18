@@ -78,6 +78,9 @@ def fetch_github_issues(repo_name):
 # Insert issues data into Google Sheets
 def update_google_sheet(issues, sheet, repo_name):
     repo_short_name = repo_name.split('/')[-1]
+
+    # Sort issues by issue number
+    issues.sort(key=lambda x: x["number"])  # Sort by issue number (ID)
     
     # Extract relevant fields
     issue_data = [
