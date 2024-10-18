@@ -83,6 +83,10 @@ def update_google_sheet(issues, sheet, repo_name):
     # Sort issues by issue number
     issues.sort(key=lambda x: x["number"])  # Sort by issue number (ID)
     issues.reverse()  # Reverse the list to have the last issue first
+
+    # List of authors that should get "GRLQA"
+    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane"]  # Replace with the actual author usernames
+
     
     # Extract relevant fields
     issue_data = [
@@ -97,7 +101,8 @@ def update_google_sheet(issues, sheet, repo_name):
             #issue["url"],
             f"https://github.com/{repo_name}/issues/{issue['number']}",  # Direct link to the GitHub issue
             created_at.year,  # Extract the created year
-            created_at.strftime("%b"),  # Extract the month in 3-letter format
+            created_at.strftime("%b"),  # Extract the month in 3-letter format,
+            "GRLQA" if issue["user"]["login"] in specific_authors else ""  # Check if author is in specific_authors
         ]
         for issue in issues
     ]
