@@ -11,7 +11,7 @@ import pandas as pd
 
 # GitHub Settings
 REPOSITORIES = [
-    {"name": "project-chip/connectedhomeip", "sheet_name": "ConnectedHomeIP"},  # First repo
+    {"name": "project-chip/connectedhomeip", "sheet_name": "ConnectedHomeIP_Issues"},  # First repo
     {"name": "project-chip/certification-tool", "sheet_name": "Certificationtool_Issues"},  # Second repo
     {"name": "project-chip/matter-test-scripts", "sheet_name": "Script_Issues"},  # Third repo
     {"name": "CHIP-Specifications/chip-test-plans", "sheet_name": "TestPlan_Issues"},  # Third repo
