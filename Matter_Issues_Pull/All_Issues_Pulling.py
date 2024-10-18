@@ -113,6 +113,9 @@ def update_google_sheet(issues, sheet, repo_name):
     for i in range(len(issue_data)):
         issue_data[i][5] = issue_data[i][5].strftime("%Y-%m-%d")  # Convert created date to string format
 
+    # Clear the existing content
+    sheet.clear()  # This clears the existing content from the sheet
+
      # Insert into Google Sheets
     existing_data = sheet.get_all_values()  # Get existing data
     if len(existing_data) > 1:  # Check if there are existing rows (excluding headers)
