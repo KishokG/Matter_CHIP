@@ -32,44 +32,44 @@ g = github.Github(github_token)
 service_account_json_dict = json.loads(service_account_json)
 
 # Authenticate with Google Sheets API 
-#def authenticate_google_sheets():
-#    creds = Credentials.from_service_account_file(service_account_json_dict, scopes=SCOPES)
-#    client = gspread.authorize(creds)
-#    return client.open_by_key(SPREADSHEET_ID)
 def authenticate_google_sheets():
     creds = Credentials.from_service_account_info(service_account_json_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID)
 
-# Fetch all GitHub Issues with Pagination, excluding pull requests
+# List of authors whose issues you want to pull
+AUTHORS = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "sumaky", "kvsmohan"]  # Replace with GitHub usernames of the authors
+
+# Fetch all GitHub Issues created by specific authors, excluding pull requests
 def fetch_github_issues(repo_name):
     issues = []
-    page = 1
-    while True:
-        url = f"https://api.github.com/repos/{repo_name}/issues"
-        headers = {
-            "Authorization": f"token {github_token}"
-        }
-        params = {
-            "state": "open",  # Fetch only open issues (optional, remove for all issues)
-            "per_page": 100,  # Fetch 100 issues per page (maximum allowed by GitHub API)
-            "page": page
-        }
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            page_issues = response.json()
-            if not page_issues:
-                break  # Exit the loop when no more issues are returned
+    for author in AUTHORS:
+        page = 1
+        while True:
+            url = f"https://api.github.com/repos/{repo_name}/issues"
+            headers = {
+                "Authorization": f"token {github_token}"  # Use the correct GitHub token variable
+            }
+            params = {
+                "state": "open",  # Fetch only open issues
+                "creator": author,  # Filter by issue creator (author)
+                "per_page": 100,  # Fetch 100 issues per page (maximum allowed by GitHub API)
+                "page": page
+            }
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code == 200:
+                page_issues = response.json()
+                if not page_issues:
+                    break  # Exit the loop when no more issues are returned
 
-            # Filter out pull requests by checking for the "pull_request" key
-            issues.extend([issue for issue in page_issues if "pull_request" not in issue])
+                # Filter out pull requests by checking for the "pull_request" key
+                issues.extend([issue for issue in page_issues if "pull_request" not in issue])
 
-            page += 1  # Move to the next page
-        else:
-            print(f"Failed to fetch issues for {repo_name}: {response.status_code}")
-            break
+                page += 1  # Move to the next page
+            else:
+                print(f"Failed to fetch issues for {repo_name} by author {author}: {response.status_code}")
+                break
     return issues
-
 
 # Insert issues data into Google Sheets
 def update_google_sheet(issues, sheet):
