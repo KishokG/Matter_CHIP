@@ -152,7 +152,7 @@ def main():
             clear_sheet = (repo_name == "project-chip/certification-tool")
 
             # Update Google Sheet with issues and collect issue data
-            issues_data = update_google_sheet(issues, sheet, repo_name)  # Collect issue data
+            issues_data = update_google_sheet(issues, sheet, repo_name, clear_sheet=clear_sheet)  # Pass clear_sheet argument
             all_issues_data.extend(issues_data)  # Append to the consolidated list
             print(f"Google Sheet tab '{sheet_name}' updated with {len(issues)} issues from {repo_name}!")
         else:
