@@ -93,11 +93,11 @@ def update_google_sheet(issues, sheet, repo_name):
             issue["title"],
             issue["user"]["login"],
             created_at := datetime.strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ"),  # Parse created date
-            created_at.year,  # Extract the created year
-            created_at.strftime("%b"),  # Extract the month in 3-letter format
             datetime.strptime(issue["updated_at"], "%Y-%m-%dT%H:%M:%SZ").date().isoformat(),  # Format updated date to string
             #issue["url"],
-            f"https://github.com/{repo_name}/issues/{issue['number']}"  # Direct link to the GitHub issue
+            f"https://github.com/{repo_name}/issues/{issue['number']}",  # Direct link to the GitHub issue
+            created_at.year,  # Extract the created year
+            created_at.strftime("%b"),  # Extract the month in 3-letter format
         ]
         for issue in issues
     ]
@@ -108,7 +108,7 @@ def update_google_sheet(issues, sheet, repo_name):
 
     # Insert into Google Sheets
     sheet.clear()  # Clear the existing content
-    sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link"]])  # Add headers
+    sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link", "Year", "Month"]])  # Add headers
     sheet.update("A2", issue_data)  # Add issue data
 
 
