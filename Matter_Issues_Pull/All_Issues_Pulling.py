@@ -75,24 +75,26 @@ def fetch_github_issues(repo_name):
     return issues
 
 # Insert issues data into Google Sheets
-def update_google_sheet(issues, sheet):
+def update_google_sheet(issues, sheet, repo_name):
     # Extract relevant fields
     issue_data = [
         [
+            issue["repo_name"],
             issue["number"],
+            issue["state"],
             issue["title"],
             issue["user"]["login"],
-            issue["state"],
             issue["created_at"],
             issue["updated_at"],
-            issue["url"]
+            issue["url"],
+            f"https://github.com/{repo_name}/issues/{issue['number']}"  # Direct link to the GitHub issue
         ]
         for issue in issues
     ]
 
     # Insert into Google Sheets
     sheet.clear()  # Clear the existing content
-    sheet.update("A1", [["Issue Number", "Title", "Author", "State", "Created At", "Updated At", "Issue Link"]])  # Add headers
+    sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created At", "Closed At", "Issue Link"]])  # Add headers
     sheet.update("A2", issue_data)  # Add issue data
 
 
