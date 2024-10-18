@@ -76,6 +76,8 @@ def fetch_github_issues(repo_name):
 
 # Insert issues data into Google Sheets
 def update_google_sheet(issues, sheet, repo_name):
+    repo_short_name = repo_name.split('/')[-1]
+    
     # Extract relevant fields
     issue_data = [
         [
@@ -86,7 +88,7 @@ def update_google_sheet(issues, sheet, repo_name):
             issue["user"]["login"],
             issue["created_at"],
             issue["updated_at"],
-            issue["url"],
+            #issue["url"],
             f"https://github.com/{repo_name}/issues/{issue['number']}"  # Direct link to the GitHub issue
         ]
         for issue in issues
