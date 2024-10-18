@@ -87,8 +87,8 @@ def update_google_sheet(issues, sheet, repo_name):
             issue["state"],
             issue["title"],
             issue["user"]["login"],
-            datetime.strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ").date(),  # Format created date
-            datetime.strptime(issue["updated_at"], "%Y-%m-%dT%H:%M:%SZ").date(),  # Format updated date
+            datetime.strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ").date().isoformat(),  # Format created date to string
+            datetime.strptime(issue["updated_at"], "%Y-%m-%dT%H:%M:%SZ").date().isoformat(),  # Format updated date to string
             #issue["url"],
             f"https://github.com/{repo_name}/issues/{issue['number']}"  # Direct link to the GitHub issue
         ]
