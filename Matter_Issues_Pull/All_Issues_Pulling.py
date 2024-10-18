@@ -81,7 +81,7 @@ def update_google_sheet(issues, sheet, repo_name):
     # Extract relevant fields
     issue_data = [
         [
-            repo_name,  # Add repository name
+            repo_short_name,  # Add repository name
             issue["number"],
             issue["state"],
             issue["title"],
