@@ -116,11 +116,16 @@ def update_google_sheet(issues, sheet, repo_name):
     sheet.clear()  # Clear the existing content
     sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link", "Year", "Month"]])  # Add headers
     sheet.update("A2", issue_data)  # Add issue data
+    
+    return issue_data  # Return the issue data for the consolidated sheet
 
 
 def main():
     # Authenticate Google Sheets
     client = authenticate_google_sheets()
+
+    all_issues_data = []  # List to hold all issues data for the consolidated sheet
+
 
     for repo in REPOSITORIES:
         repo_name = repo["name"]
@@ -141,6 +146,17 @@ def main():
             print(f"Google Sheet tab '{sheet_name}' updated with {len(issues)} issues from {repo_name}!")
         else:
             print(f"No issues found or failed to fetch issues for {repo_name}.")
+
+     # Create or get the consolidated sheet
+    try:
+        consolidated_sheet = client.worksheet("All_Issues")  # If the sheet already exists
+    except gspread.exceptions.WorksheetNotFound:
+        consolidated_sheet = client.add_worksheet(title="All_Issues", rows="1000", cols="20")  # Create new sheet if not found
+
+    # Update consolidated sheet with all issues
+    consolidated_sheet.clear()  # Clear the existing content
+    consolidated_sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Created Year", "Created Month", "Closed Date", "Issue Link", "GRLQA", "Team"]])  # Add headers
+    consolidated_sheet.update("A2", all_issues_data)  # Add all issues data
 
 
 if __name__ == "__main__":
