@@ -132,8 +132,6 @@ def main():
     client = authenticate_google_sheets()
 
     all_issues_data = []  # List to hold all issues data for the consolidated sheet
-    certification_tool_issues = []  # List to hold issues from the certification tool repo
-    chip_specifications_issues = []  # List to hold issues from the chip specifications repo
 
 
     for repo in REPOSITORIES:
@@ -148,27 +146,26 @@ def main():
             try:
                 sheet = client.worksheet(sheet_name)  # If the sheet already exists
             except gspread.exceptions.WorksheetNotFound:
-                sheet = client.add_worksheet(title=sheet_name, rows="2000", cols="20")  # Create new sheet if not found
-                # Update Google Sheet with issues
-                update_google_sheet(issues, sheet, repo_name)
-                print(f"Google Sheet tab '{sheet_name}' updated with {len(issues)} issues from {repo_name}!")
+                sheet = client.add_worksheet(title=sheet_name, rows="1000", cols="20")  # Create new sheet if not found
 
-    # Combine and sort issues for Certificationtool_Issues
-    combined_issues = certification_tool_issues + chip_specifications_issues
-    combined_issues.sort(key=lambda x: x[1], reverse=True)  # Sort by issue number (ID) in descending order
+            # Update Google Sheet with issues and collect issue data
+            issues_data = update_google_sheet(issues, sheet, repo_name)  # Collect issue data
+            all_issues_data.extend(issues_data)  # Append to the consolidated list
+            print(f"Google Sheet tab '{sheet_name}' updated with {len(issues)} issues from {repo_name}!")
+        else:
+            print(f"No issues found or failed to fetch issues for {repo_name}.")
 
-    # Get or create the Certificationtool_Issues sheet
+     # Create or get the consolidated sheet
     try:
-        cert_sheet = client.worksheet("Certificationtool_Issues")  # If the sheet already exists
+        consolidated_sheet = client.worksheet("All_Issues")  # If the sheet already exists
     except gspread.exceptions.WorksheetNotFound:
-        cert_sheet = client.add_worksheet(title="Certificationtool_Issues", rows="1000", cols="20")  # Create new sheet if not found
+        consolidated_sheet = client.add_worksheet(title="All_Issues", rows="1000", cols="20")  # Create new sheet if not found
 
-    # Update the Certificationtool_Issues sheet
-    cert_sheet.clear()  # Clear the existing content
-    cert_sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link", "Year", "Month", "GRLQA", "Team"]])  # Add headers
-    cert_sheet.update("A2", combined_issues)  # Add combined issues data
+    # Update consolidated sheet with all issues
+    consolidated_sheet.clear()  # Clear the existing content
+    consolidated_sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Created Year", "Created Month", "Closed Date", "Issue Link", "GRLQA", "Team"]])  # Add headers
+    consolidated_sheet.update("A2", all_issues_data)  # Add all issues data
 
-    print(f"Google Sheet tab 'Certificationtool_Issues' updated with {len(combined_issues)} issues!")
 
 if __name__ == "__main__":
     main()
