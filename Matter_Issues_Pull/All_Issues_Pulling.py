@@ -102,7 +102,8 @@ def update_google_sheet(issues, sheet, repo_name):
             f"https://github.com/{repo_name}/issues/{issue['number']}",  # Direct link to the GitHub issue
             created_at.year,  # Extract the created year
             created_at.strftime("%b"),  # Extract the month in 3-letter format,
-            "GRLQA" if issue["user"]["login"] in specific_authors else ""  # Check if author is in specific_authors
+            "GRLQA" if issue["user"]["login"] in specific_authors else "",  # Check if author is in specific_authors
+            "GRLTEAM"
         ]
         for issue in issues
     ]
