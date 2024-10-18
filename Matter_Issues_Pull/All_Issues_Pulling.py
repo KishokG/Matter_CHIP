@@ -78,7 +78,7 @@ def fetch_github_issues(repo_name):
     return issues
 
 # Insert issues data into Google Sheets
-def update_google_sheet(issues, sheet, repo_name, clear_sheet=False):
+def update_google_sheet(issues, sheet, repo_name):
     repo_short_name = repo_name.split('/')[-1]
 
     # Sort issues by issue number
@@ -113,16 +113,14 @@ def update_google_sheet(issues, sheet, repo_name, clear_sheet=False):
     for i in range(len(issue_data)):
         issue_data[i][5] = issue_data[i][5].strftime("%Y-%m-%d")  # Convert created date to string format
 
-    # Conditionally clear the sheet
-    if clear_sheet:
-        sheet.clear()  # Clear the existing content
-
-    # Get existing data from the sheet (excluding headers) and append the new data
-    existing_data = sheet.get_all_values()
+     # Insert into Google Sheets
+    existing_data = sheet.get_all_values()  # Get existing data
     if len(existing_data) > 1:  # Check if there are existing rows (excluding headers)
         issue_data = existing_data[1:] + issue_data  # Append new data to existing data
 
-    # Insert data into Google Sheets
+
+    # Clear the existing content
+    sheet.clear()  # Clear the existing content
     sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link", "Year", "Month"]])  # Add headers
     sheet.update("A2", issue_data)  # Add issue data
     
@@ -135,7 +133,8 @@ def main():
 
     all_issues_data = []  # List to hold all issues data for the consolidated sheet
 
-    for repo_index, repo in enumerate(REPOSITORIES):
+
+    for repo in REPOSITORIES:
         repo_name = repo["name"]
         sheet_name = repo["sheet_name"]
 
@@ -149,17 +148,14 @@ def main():
             except gspread.exceptions.WorksheetNotFound:
                 sheet = client.add_worksheet(title=sheet_name, rows="1000", cols="20")  # Create new sheet if not found
 
-            # Clear the sheet only for the first repository processed for Certificationtool_Issues
-            clear_sheet = (repo_name == "project-chip/certification-tool")
-
             # Update Google Sheet with issues and collect issue data
-            issues_data = update_google_sheet(issues, sheet, repo_name, clear_sheet=clear_sheet)  # Pass clear_sheet
+            issues_data = update_google_sheet(issues, sheet, repo_name)  # Collect issue data
             all_issues_data.extend(issues_data)  # Append to the consolidated list
             print(f"Google Sheet tab '{sheet_name}' updated with {len(issues)} issues from {repo_name}!")
         else:
             print(f"No issues found or failed to fetch issues for {repo_name}.")
 
-    # Update the consolidated sheet with all issues
+     # Create or get the consolidated sheet
     try:
         consolidated_sheet = client.worksheet("All_Issues")  # If the sheet already exists
     except gspread.exceptions.WorksheetNotFound:
@@ -170,3 +166,6 @@ def main():
     consolidated_sheet.update("A1", [["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Created Year", "Created Month", "Closed Date", "Issue Link", "GRLQA", "Team"]])  # Add headers
     consolidated_sheet.update("A2", all_issues_data)  # Add all issues data
 
+
+if __name__ == "__main__":
+    main()
