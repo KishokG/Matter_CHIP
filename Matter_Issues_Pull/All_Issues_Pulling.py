@@ -51,7 +51,7 @@ def fetch_github_issues(repo_name):
                 "Authorization": f"token {github_token}"  # Use the correct GitHub token variable
             }
             params = {
-                "state": "open",  # Fetch only open issues
+                "state": "all",  # Fetch only open issues
                 "creator": author,  # Filter by issue creator (author)
                 "per_page": 100,  # Fetch 100 issues per page (maximum allowed by GitHub API)
                 "page": page
@@ -62,8 +62,11 @@ def fetch_github_issues(repo_name):
                 if not page_issues:
                     break  # Exit the loop when no more issues are returned
 
+                # Include both issues and pull requests
+                issues.extend(page_issues)
+
                 # Filter out pull requests by checking for the "pull_request" key
-                issues.extend([issue for issue in page_issues if "pull_request" not in issue])
+                #issues.extend([issue for issue in page_issues if "pull_request" not in issue])
 
                 page += 1  # Move to the next page
             else:
