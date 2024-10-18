@@ -141,8 +141,9 @@ def main():
             except gspread.exceptions.WorksheetNotFound:
                 sheet = client.add_worksheet(title=sheet_name, rows="1000", cols="20")  # Create new sheet if not found
 
-            # Update Google Sheet with issues
-            update_google_sheet(issues, sheet, repo_name)
+            # Update Google Sheet with issues and collect issue data
+            issues_data = update_google_sheet(issues, sheet, repo_name)  # Collect issue data
+            all_issues_data.extend(issues_data)  # Append to the consolidated list
             print(f"Google Sheet tab '{sheet_name}' updated with {len(issues)} issues from {repo_name}!")
         else:
             print(f"No issues found or failed to fetch issues for {repo_name}.")
