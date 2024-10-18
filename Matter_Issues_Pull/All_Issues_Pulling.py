@@ -81,6 +81,7 @@ def update_google_sheet(issues, sheet, repo_name):
 
     # Sort issues by issue number
     issues.sort(key=lambda x: x["number"])  # Sort by issue number (ID)
+    issues.reverse()  # Reverse the list to have the last issue first
     
     # Extract relevant fields
     issue_data = [
