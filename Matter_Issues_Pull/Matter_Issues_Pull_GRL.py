@@ -52,7 +52,7 @@ def fetch_github_issues(repo_name):
         while True:
             url = f"https://api.github.com/repos/{repo_name}/issues"
             headers = {
-                "Authorization": f"token {GITHUB_TOKEN}"
+                "Authorization": f"token {github_token}"
             }
             params = {
                 "state": "all",  # Fetch only open issues (optional, remove for all issues)
