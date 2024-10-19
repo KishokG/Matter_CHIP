@@ -1,7 +1,14 @@
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
+from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import calendar
+import time
+import os
+import github
+import yaml
+import json
 import pandas as pd
 
 # GitHub Settings
@@ -14,7 +21,9 @@ REPOSITORIES = [
     {"name": "CHIP-Specifications/chip-test-plans", "sheet_name": "TestPlan_Issues"},  # Third repo
     # Add more repositories here
 ]
-GITHUB_TOKEN = "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"  # Replace with your GitHub token
+
+github_token = os.environ.get("PERSONNEL_TOKEN")
+service_account_json = os.environ.get("CREDENTIALS_JSON")
 
 # Google Sheets Settings
 SPREADSHEET_ID = "1mx9GKwpmrUVmeAEY6Q6nq__8FWoj0CjVUa6IOwm-AVE"  # Replace with your Google Sheet ID
@@ -26,7 +35,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
 
 # Authenticate with Google Sheets API
 def authenticate_google_sheets():
-    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+    creds = Credentials.from_service_account_info(service_account_json_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID)
 
@@ -38,7 +47,7 @@ def fetch_github_issues(repo_name):
     while True:
         url = f"https://api.github.com/repos/{repo_name}/issues"
         headers = {
-            "Authorization": f"token {GITHUB_TOKEN}"
+            "Authorization": f"token {github_token}"
         }
         params = {
             "state": "open",  # Fetch only open issues (optional, remove for all issues)
