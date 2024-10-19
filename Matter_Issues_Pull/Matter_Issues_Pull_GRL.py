@@ -37,7 +37,7 @@ service_account_json_dict = json.loads(service_account_json)
 
 # Authenticate with Google Sheets API
 def authenticate_google_sheets():
-    creds = Credentials.from_service_account_file(service_account_json_dict, scopes=SCOPES)
+    creds = Credentials.from_service_account_info(service_account_json_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID)
     
