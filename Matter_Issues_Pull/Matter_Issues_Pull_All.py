@@ -39,6 +39,8 @@ def authenticate_google_sheets():
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID)
 
+g = github.Github(github_token)
+service_account_json_dict = json.loads(service_account_json)
 
 # Fetch all GitHub Issues and Pull Requests with Pagination
 def fetch_github_issues(repo_name):
