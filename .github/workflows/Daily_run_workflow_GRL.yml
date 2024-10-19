@@ -1,4 +1,4 @@
-name: Pull GitHub Issues Daily
+name: Pull GitHub Issues Daily_GRL
 
 on:
   schedule:
