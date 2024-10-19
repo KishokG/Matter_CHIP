@@ -2,6 +2,12 @@ import requests
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import calendar
+import time
+import os
+import github
+import yaml
+import json
 import pandas as pd
 
 # GitHub Settings
@@ -14,7 +20,9 @@ REPOSITORIES = [
     {"name": "CHIP-Specifications/chip-test-plans", "sheet_name": "TestPlan_Issues"},  # Third repo
     # Add more repositories here
 ]
-GITHUB_TOKEN = "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"  # Replace with your GitHub token
+
+github_token = os.environ.get("PERSONNEL_TOKEN")
+service_account_json = os.environ.get("CREDENTIALS_JSON")
 
 # Google Sheets Settings
 SPREADSHEET_ID = "1qHYCQqg17gd1gRF-CjjKlSi1NrOgEllJtk_1kayz_tc"  # Replace with your Google Sheet ID
@@ -23,12 +31,15 @@ SPREADSHEET_ID = "1qHYCQqg17gd1gRF-CjjKlSi1NrOgEllJtk_1kayz_tc"  # Replace with 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
           "https://www.googleapis.com/auth/drive"]
 
+g = github.Github(github_token)
+service_account_json_dict = json.loads(service_account_json)
 
 # Authenticate with Google Sheets API
 def authenticate_google_sheets():
-    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+    creds = Credentials.from_service_account_file(service_account_json_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID)
+    
 # List of authors whose issues you want to pull
 AUTHORS = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "sumaky", "kvsmohan"]  # Replace with GitHub usernames of the authors
 
