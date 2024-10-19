@@ -31,4 +31,4 @@ jobs:
       
       - name: Run Python script
         run: |
-          python Matter_Issues_Pull/All_Issues_Pulling.py
+          python Matter_Issues_Pull/Matter_Issues_Pull_GRL.py
