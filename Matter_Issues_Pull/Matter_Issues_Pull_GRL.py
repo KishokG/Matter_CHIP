@@ -82,7 +82,7 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
     issues.reverse()  # Reverse the list to have the last issue first
 
     # List of authors that should get "GRLQA"
-    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL"]  # Replace with the actual author usernames
+    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL", "sumaky", "kvsmohan", "sowmyassp", "somu1710", "Survensa"]  # Replace with the actual author usernames
 
     # Extract relevant fields with datetime conversion to string
     issue_data = [
