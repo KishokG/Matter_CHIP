@@ -83,11 +83,11 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
     # Sort issues by issue number
     issues.sort(key=lambda x: x["number"])  # Sort by issue number (ID)
     issues.reverse()  # Reverse the list to have the last issue first
-    with open('Matter_Issues_Pull/Authors_ID.yaml', 'r') as file:
-        specific_authors_data = yaml.safe_load(file)
+    #with open('Matter_Issues_Pull/Authors_ID.yaml', 'r') as file:
+     #   specific_authors_data = yaml.safe_load(file)
 
-    specific_authors = specific_authors_data['specific_authors']  # Load the list of specific authors
-    # specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL", "sumaky", "kvsmohan", "sowmyassp", "somu1710", "Survensa"]
+    #specific_authors = specific_authors_data['specific_authors']  # Load the list of specific authors
+    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL", "sumaky", "kvsmohan", "sowmyassp", "somu1710", "Survensa"]
     
     # Extract relevant fields with datetime conversion to string
     issue_data = [
