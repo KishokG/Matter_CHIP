@@ -42,7 +42,7 @@ def authenticate_google_sheets():
     return client.open_by_key(SPREADSHEET_ID)
     
 # List of authors whose issues you want to pull
-AUTHORS = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "sumaky", "kvsmohan"]  # Replace with GitHub usernames of the authors
+AUTHORS = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "sumaky", "kvsmohan", "Saravana-kr22", "Harshith-GRL"]  # Replace with GitHub usernames of the authors
 
 # Fetch all GitHub Issues and Pull Requests with Pagination
 def fetch_github_issues(repo_name):
@@ -82,7 +82,7 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
     issues.reverse()  # Reverse the list to have the last issue first
 
     # List of authors that should get "GRLQA"
-    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane"]  # Replace with the actual author usernames
+    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL"]  # Replace with the actual author usernames
 
     # Extract relevant fields with datetime conversion to string
     issue_data = [
