@@ -2,6 +2,15 @@ import requests
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
+import calendar
+import time
+import os
+import github
+import yaml
+import json
+import pandas as pd
 
 # GitHub Settings
 REPOSITORIES = [
