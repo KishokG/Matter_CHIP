@@ -47,6 +47,7 @@ with open('Matter_Issues_Pull/Authors_ID.yaml', 'r') as file:
 
 AUTHORS = authors_data['AUTHORS']  # Load the list of authors
 
+
 # Fetch all GitHub Issues and Pull Requests with Pagination
 def fetch_github_issues(repo_name):
     issues = []
@@ -75,6 +76,11 @@ def fetch_github_issues(repo_name):
                 break
     return issues
 
+with open('Matter_Issues_Pull/Authors_ID.yaml', 'r') as file:
+    authors_data = yaml.safe_load(file)
+
+AUTHORS = authors_data['AUTHORS']  # Load the list of authors
+specific_authors = [author.lower().strip() for author in authors_data['specific_authors']]  # Normalize specific_authors
 
 # Insert issues data into Google Sheets
 def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
@@ -83,11 +89,8 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
     # Sort issues by issue number
     issues.sort(key=lambda x: x["number"])  # Sort by issue number (ID)
     issues.reverse()  # Reverse the list to have the last issue first
-    #with open('Matter_Issues_Pull/Authors_ID.yaml', 'r') as file:
-     #   specific_authors_data = yaml.safe_load(file)
-
-    #specific_authors = specific_authors_data['specific_authors']  # Load the list of specific authors
-    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL", "sumaky", "kvsmohan", "sowmyassp", "somu1710", "Survensa"]
+    
+    #specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL", "sumaky", "kvsmohan", "sowmyassp", "somu1710", "Survensa"]
     
     # Extract relevant fields with datetime conversion to string
     issue_data = [
@@ -105,7 +108,8 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
             f"https://github.com/{repo_name}/{'pull' if 'pull_request' in issue else 'issues'}/{issue['number']}",
             created_at.year,  # Extract the created year
             created_at.strftime("%b"),  # Extract the month in 3-letter format
-            "GRLQA" if issue["user"]["login"] in specific_authors else "",  # Check if author is in specific_authors
+            #"GRLQA" if issue["user"]["login"] in specific_authors else "",  
+            "GRLQA" if issue["user"]["login"].lower().strip() in specific_authors else "",
             "GRLTEAM",
             "PR" if "pull_request" in issue else "Issue",  # Check if it's a pull request or issue
         ]
