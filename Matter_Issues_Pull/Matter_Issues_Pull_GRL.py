@@ -42,7 +42,7 @@ def authenticate_google_sheets():
     return client.open_by_key(SPREADSHEET_ID)
     
 # Load authors from YAML file
-with open('Authors_ID.yaml', 'r') as file:
+with open('Matter_Issues_Pull/Authors_ID.yaml', 'r') as file:
     authors_data = yaml.safe_load(file)
 
 AUTHORS = authors_data['AUTHORS']  # Load the list of authors
