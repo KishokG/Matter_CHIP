@@ -91,7 +91,10 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
     issues.reverse()  # Reverse the list to have the last issue first
     
     #specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL", "sumaky", "kvsmohan", "sowmyassp", "somu1710", "Survensa"]
-    
+    def clean_string(s):
+        # Remove extra spaces and any invisible characters
+         return s.strip().replace('\u200b', '').replace('\u200c', '')
+        
     # Extract relevant fields with datetime conversion to string
     issue_data = [
         [
@@ -99,7 +102,8 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
             issue["number"],
             issue["state"],
             issue["title"],
-            issue["user"]["login"],
+            #issue["user"]["login"],
+            str(clean_string(issue["user"]["login"])),
             (created_at := datetime.strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ")).strftime("%Y-%m-%d %H:%M:%S"),
             # Convert datetime to string
             datetime.strptime(issue["updated_at"], "%Y-%m-%dT%H:%M:%SZ").date().isoformat(),
