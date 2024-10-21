@@ -46,8 +46,6 @@ with open('Matter_Issues_Pull/Authors_ID.yaml', 'r') as file:
     authors_data = yaml.safe_load(file)
 
 AUTHORS = authors_data['AUTHORS']  # Load the list of authors
-specific_authors = authors_data['specific_authors']  # Load the list of specific authors
-
 
 # Fetch all GitHub Issues and Pull Requests with Pagination
 def fetch_github_issues(repo_name):
@@ -85,6 +83,10 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
     # Sort issues by issue number
     issues.sort(key=lambda x: x["number"])  # Sort by issue number (ID)
     issues.reverse()  # Reverse the list to have the last issue first
+with open('Matter_Issues_Pull/Authors_ID.yaml', 'r') as file:
+    authors_data = yaml.safe_load(file)
+
+specific_authors = authors_data['specific_authors']  # Load the list of specific authors
 
     # Extract relevant fields with datetime conversion to string
     issue_data = [
