@@ -42,7 +42,7 @@ def authenticate_google_sheets():
     return client.open_by_key(SPREADSHEET_ID)
     
 # List of authors whose issues you want to pull
-AUTHORS = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "sumaky", "kvsmohan", "Saravana-kr22", "Harshith-GRL"]  # Replace with GitHub usernames of the authors
+AUTHORS = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "sumaky", "kvsmohan", "Saravana-kr22", "Harshith-GRL", "manjunath-grl", "sowmyassp", "kowsisoundhar12", "somu1710", "aswathygrl", "kvikrambhat", "Survensa", "sethunk", "Sivaramgrl", "Srinivasan-78", "pramodhg123"]  # Replace with GitHub usernames of the authors
 
 # Fetch all GitHub Issues and Pull Requests with Pagination
 def fetch_github_issues(repo_name):
