@@ -163,9 +163,9 @@ def main():
 
             # For Open Issues Tab
             try:
-                open_issues_sheet = client.worksheet("Open_Issues_In_Last_7Days")  # If the sheet already exists
+                open_issues_sheet = client.worksheet("Open_Issues")  # If the sheet already exists
             except gspread.exceptions.WorksheetNotFound:
-                open_issues_sheet = client.add_worksheet(title="Open_Issues_In_Last_7Days", rows="1000",
+                open_issues_sheet = client.add_worksheet(title="Open_Issues", rows="1000",
                                                          cols="20")  # Create new sheet if not found
             update_google_sheet(open_issues, open_issues_sheet, "Open")
 
