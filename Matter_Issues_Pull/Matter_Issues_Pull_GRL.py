@@ -104,6 +104,7 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
             issue["title"],
             #issue["user"]["login"],
             str(clean_string(issue["user"]["login"])),
+            ", ".join(label["name"] for label in issue.get("labels", [])),
             (created_at := datetime.strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ")).strftime("%Y-%m-%d %H:%M:%S"),
             # Convert datetime to string
             datetime.strptime(issue["updated_at"], "%Y-%m-%dT%H:%M:%SZ").date().isoformat(),
@@ -122,7 +123,7 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
         # Insert into Google Sheets
     sheet.clear()  # Clear the existing content
     print("Cleared existing data's.")
-    sheet.update(range_name="A1", values=[["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link",
+    sheet.update(range_name="A1", values=[["Repository Name", "Issue Number", "State", "Title", "Author", "Label", "Created Date", "Closed Date", "Issue Link",
              "Year", "Month", "Ref_1", "Ref_2", "Type"]])  # Add headers
     sheet.update(range_name="A2", values=issue_data)  # Add issue data
 
