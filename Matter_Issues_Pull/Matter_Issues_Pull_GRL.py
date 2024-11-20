@@ -158,7 +158,7 @@ def main():
 
     # Update the "All_repo_Issues" tab with combined data from all repositories
     if all_issues_data:
-        all_issues_data_sorted = sorted(all_issues_data, key=lambda x: datetime.strptime(x[5], "%Y-%m-%d %H:%M:%S"), reverse=True)
+        all_issues_data_sorted = sorted(all_issues_data, key=lambda x: datetime.strptime(x[6], "%Y-%m-%d %H:%M:%S"), reverse=True)
         try:
             all_issues_sheet = client.worksheet("All_repo_Issues")  # If the sheet already exists
         except gspread.exceptions.WorksheetNotFound:
