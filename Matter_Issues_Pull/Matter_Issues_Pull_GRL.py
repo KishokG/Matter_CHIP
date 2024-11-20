@@ -169,7 +169,7 @@ def main():
         all_issues_sheet.clear()  # Clear the existing content
         print("Cleared All_repo_Issues existing data's.")
         all_issues_sheet.update(range_name="A1", values=[
-                ["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link",
+                ["Repository Name", "Issue Number", "State", "Title", "Author", "Label", "Created Date", "Closed Date", "Issue Link",
              "Year", "Month", "Ref_1", "Ref_2", "Type"]])  # Add headers
         all_issues_sheet.update(range_name="A2", values=all_issues_data_sorted)  # Add all issues data
 
