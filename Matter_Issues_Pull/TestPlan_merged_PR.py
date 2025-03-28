@@ -2,15 +2,15 @@ import requests
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
-import pandas as pd
+#import pandas as pd
 
 # GitHub Settings
 REPOSITORIES = [
-    {"name": "CHIP-Specifications/chip-test-plans"},  # Example repo
+   {"name": "CHIP-Specifications/chip-test-plans"},  # Example repo
     # Add more repositories here
 ]
 
-github_token = "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"  # Replace with your GitHub token
+github_token = "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"  # Replace with your GitHub token
 
 # Google Sheets Settings
 SPREADSHEET_ID = "16H9QlG3SiwAlMbkz7sWbI30f4_PtpBNUrQIuk6QXrCc"  # Replace with your Google Sheet ID
