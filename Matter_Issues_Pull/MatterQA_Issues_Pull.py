@@ -72,7 +72,7 @@ def update_google_sheet(issues, sheet, repo_name):
     issues.sort(key=lambda x: x["number"])  # Sort by issue number (ID)
     issues.reverse()  # Reverse the list to have the last issue first
 
-    # List of authors that should get "GRLQA"
+    # List of authors that should get "GRL"
     specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane"]  # Replace with the actual author usernames
 
     # Extract relevant fields with datetime conversion to string
@@ -103,9 +103,6 @@ def update_google_sheet(issues, sheet, repo_name):
              "Year", "Month", "GRL/Others", "Type"]])  # Add headers
     sheet.update(range_name="A2", values=issue_data)  # Add issue data
 
-    # Add the issue data to the global all_issues_data list (if provided)
-    if all_issues_data is not None:
-        all_issues_data.extend(issue_data)  # Append the current repo's issues
 
 def main():
     # Authenticate Google Sheets
