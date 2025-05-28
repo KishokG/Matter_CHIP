@@ -65,7 +65,7 @@ def fetch_github_issues(repo_name):
 
 
 # Insert issues data into Google Sheets
-def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
+def update_google_sheet(issues, sheet, repo_name):
     repo_short_name = repo_name.split('/')[-1]
 
     # Sort issues by issue number
@@ -110,7 +110,6 @@ def update_google_sheet(issues, sheet, repo_name, all_issues_data=None):
 def main():
     # Authenticate Google Sheets
     client = authenticate_google_sheets()
-    all_issues_data = []  # This will store all issues from all repositories
 
     for repo in REPOSITORIES:
         repo_name = repo["name"]
@@ -127,31 +126,10 @@ def main():
                 sheet = client.add_worksheet(title=sheet_name, rows="1000", cols="20")  # Create new sheet if not found
 
             # Update Google Sheet with issues
-            update_google_sheet(issues, sheet, repo_name, all_issues_data)
+            update_google_sheet(issues, sheet, repo_name)
             print(f"Google Sheet tab '{sheet_name}' updated with {len(issues)} issues from {repo_name}!")
         else:
             print(f"No issues found or failed to fetch issues for {repo_name}.")
-
-    # Update the "All_repo_Issues" tab with combined data from all repositories
-    if all_issues_data:
-        all_issues_data_sorted = sorted(all_issues_data, key=lambda x: datetime.strptime(x[5], "%Y-%m-%d %H:%M:%S"), reverse=True)
-        try:
-            all_issues_sheet = client.worksheet("All_repo_Issues")  # If the sheet already exists
-        except gspread.exceptions.WorksheetNotFound:
-            all_issues_sheet = client.add_worksheet(title="All_repo_Issues", rows="3000",
-                                                    cols="20")  # Create new sheet if not found
-
-            # Clear and update the All_repo_Issues sheet with combined data
-        all_issues_sheet.clear()  # Clear the existing content
-        print("Cleared All_repo_Issues existing data's.")
-        all_issues_sheet.update(range_name="A1", values=[
-                ["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link",
-             "Year", "Month", "GRL/Others", "Type"]])  # Add headers
-        all_issues_sheet.update(range_name="A2", values=all_issues_data_sorted)  # Add all issues data
-
-        print(f"Google Sheet tab 'All_repo_Issues' updated with {len(all_issues_data_sorted)} total issues from all repositories, sorted by Created Date!")
-    else:
-        print("No issues found in any repository.")
 
 if __name__ == "__main__":
     main()
