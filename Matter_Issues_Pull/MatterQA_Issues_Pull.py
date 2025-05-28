@@ -73,7 +73,7 @@ def update_google_sheet(issues, sheet, repo_name):
     issues.reverse()  # Reverse the list to have the last issue first
 
     # List of authors that should get "GRL"
-    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane"]  # Replace with the actual author usernames
+    specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL","Survensa", "sankarselvam"]  # Replace with the actual author usernames
 
     # Extract relevant fields with datetime conversion to string
     issue_data = [
@@ -94,8 +94,7 @@ def update_google_sheet(issues, sheet, repo_name):
             created_at.year,  # Extract the created year
             created_at.strftime("%b"),  # Extract the month in 3-letter format
             #"GRLQA" if issue["user"]["login"] in specific_authors else "",  
-            "GRL" if issue["user"]["login"].lower().strip() in specific_authors else "",
-            "Others",
+            "GRL" if issue["user"]["login"].lower().strip() in specific_authors else "Others",
             "PR" if "pull_request" in issue else "Issue",  # Check if it's a pull request or issue
         ]
         for issue in issues
