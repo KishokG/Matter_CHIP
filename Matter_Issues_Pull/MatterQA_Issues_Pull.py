@@ -82,7 +82,9 @@ def update_google_sheet(issues, sheet, repo_name):
             issue["number"],
             issue["state"],
             issue["title"],
-            issue["user"]["login"],
+            #issue["user"]["login"],
+            str(clean_string(issue["user"]["login"])),
+            ", ".join(label["name"] for label in issue.get("labels", [])),
             (created_at := datetime.strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ")).strftime("%Y-%m-%d %H:%M:%S"),
             # Convert datetime to string
             datetime.strptime(issue["updated_at"], "%Y-%m-%dT%H:%M:%SZ").date().isoformat(),
@@ -91,7 +93,9 @@ def update_google_sheet(issues, sheet, repo_name):
             f"https://github.com/{repo_name}/{'pull' if 'pull_request' in issue else 'issues'}/{issue['number']}",
             created_at.year,  # Extract the created year
             created_at.strftime("%b"),  # Extract the month in 3-letter format
-            "GRLQA" if issue["user"]["login"] in specific_authors else "",  # Check if author is in specific_authors
+            #"GRLQA" if issue["user"]["login"] in specific_authors else "",  
+            "GRL" if issue["user"]["login"].lower().strip() in specific_authors else "",
+            "Others",
             "PR" if "pull_request" in issue else "Issue",  # Check if it's a pull request or issue
         ]
         for issue in issues
@@ -99,7 +103,7 @@ def update_google_sheet(issues, sheet, repo_name):
         # Insert into Google Sheets
     sheet.clear()  # Clear the existing content
     print("Cleared existing data's.")
-    sheet.update(range_name="A1", values=[["Repository Name", "Issue Number", "State", "Title", "Author", "Created Date", "Closed Date", "Issue Link",
+    sheet.update(range_name="A1", values=[["Repository Name", "Issue Number", "State", "Title", "Author", "Label", "Created Date", "Closed Date", "Issue Link",
              "Year", "Month", "GRL/Others", "Type"]])  # Add headers
     sheet.update(range_name="A2", values=issue_data)  # Add issue data
 
