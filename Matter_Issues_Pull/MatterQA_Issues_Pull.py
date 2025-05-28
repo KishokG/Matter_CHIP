@@ -47,7 +47,7 @@ def fetch_github_issues(repo_name):
             "Authorization": f"token {github_token}"
         }
         params = {
-            "state": "open",  # Fetch only open issues (optional, remove for all issues)
+            "state": "all",  # Fetch only open issues (optional, remove for all issues)
             "per_page": 100,  # Fetch 100 issues per page (maximum allowed by GitHub API)
             "page": page
         }
