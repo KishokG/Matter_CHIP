@@ -98,7 +98,7 @@ def update_google_sheet(issues, sheet, repo_name):
             created_at.year,  # Extract the created year
             created_at.strftime("%b"),  # Extract the month in 3-letter format
             #"GRLQA" if issue["user"]["login"] in specific_authors else "",  
-            "GRL" if issue["user"]["login"].lower().strip() in specific_authors else "Others"
+            "GRL" if issue["user"]["login"].lower().strip() in specific_authors else "Others",
             "PR" if "pull_request" in issue else "Issue",  # Check if it's a pull request or issue
         ]
         for issue in issues
