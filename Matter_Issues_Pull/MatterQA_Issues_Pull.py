@@ -75,6 +75,11 @@ def update_google_sheet(issues, sheet, repo_name):
     # List of authors that should get "GRL"
     specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL","Survensa", "sankarselvam"]  # Replace with the actual author usernames
 
+    #specific_authors = ["Ashwinigrl", "KishokG", "Rajashreekalmane", "Saravana-kr22", "Harshith-GRL", "sumaky", "kvsmohan", "sowmyassp", "somu1710", "Survensa"]
+    def clean_string(s):
+        # Remove extra spaces and any invisible characters
+         return s.strip().replace('\u200b', '').replace('\u200c', '')
+
     # Extract relevant fields with datetime conversion to string
     issue_data = [
         [
