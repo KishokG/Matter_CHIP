@@ -2,10 +2,8 @@ name: Script_Weekly_Summary
 
 on:
   schedule:
-    # Schedule the workflow to run daily at 00:00 UTC
-    - cron: '0 3 * * 1'
+    - cron: '0 3 * * 1'  # Every Monday at 03:00 UTC
   workflow_dispatch:
-
 
 jobs:
   pull_issues:
@@ -14,7 +12,9 @@ jobs:
     env:
       PERSONNEL_TOKEN: ${{ secrets.PERSONNEL_TOKEN }}
       CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
-      
+      ACTIONS_STEP_DEBUG: true
+      ACTIONS_RUNNER_DEBUG: true
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -22,13 +22,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10.11'
-      
+          python-version: '3.10'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install gspread pandas oauth2client google-auth requests google-auth-oauthlib google-auth-httplib2 PyYAML PyGithub
-      
+
       - name: Run Python script
-        run: |
-          python Matter_Issues_Pull/Script_Issue_Weekly_Summary.py
+        run: python Matter_Issues_Pull/Script_Issue_Weekly_Summary.py
