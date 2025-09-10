@@ -1,6 +1,0 @@
-credentials_file: "credentials.json"
-sheet_url: "https://docs.google.com/spreadsheets/d/13Pgom27-yQ-Wyvuh4wTeBEr_R2SEt9evhJGiUVnc4p0/edit?gid=954426961#gid=954426961"
-worksheet_name: "1.5 TE2"
-json_file: "Matter_PICS__TC_Mapping_V_43_1.5 TE2.json"
-output_file: "comparison_log.txt"
-
