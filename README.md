@@ -78,6 +78,8 @@ This project provides a Python script to **review the Matter test case mapping J
      ```  
    - Paste this email into the Sheet’s share dialog and grant at least **Viewer** access (or **Editor**)  
 
+---
+
 ## ▶️ Running the Script
 
 1. **Activate your virtual environment** (if not already active):  
