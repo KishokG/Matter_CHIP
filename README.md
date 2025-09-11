@@ -12,27 +12,32 @@ This project provides a Python script to **review the Matter test case mapping J
 
 ## 🚀 Setup Instructions
 
-#### 1. Clone the repository: 
-- git clone https://github.com/KishokG/Matter_CHIP.git
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/KishokG/Matter_CHIP.git
+   
+2. **Navigate to the directory:**
+   ```bash
+   cd Matter_CHIP/TC_MappingFile_Review/
 
-#### 2. Navigate to the directory:
-- cd Matter_CHIP/TC_MappingFile_Review/
+3. **Create a virtual environment (folder .venv inside project):**
+   ```bash
+   python3 -m venv .venv
 
-#### 3. Create a virtual environment (folder .venv inside project):
-- python3 -m venv .venv
+4. **Activate it:**
+   ```bash
+   source .venv/bin/activate
 
-#### 4. Activate it:
-- source .venv/bin/activate
-
-#### 5. Install dependencies:
-- pip install -r requirements.txt
+5. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
 
 ---
 
 ## ⚙️ Configuration
 
 1. All configurable values are stored in **`config.yaml`**.  
-2. Before running the script, update the config file with the correct values for:  
+2. **Before running the script, update the config file with the correct values for:**  
    - Google Sheets credentials file (`credentials_file`)  
    - Google Sheet URL (`sheet_url`)  
    - Worksheet/tab name (`worksheet_name`)  
@@ -73,4 +78,11 @@ This project provides a Python script to **review the Matter test case mapping J
      ```  
    - Paste this email into the Sheet’s share dialog and grant at least **Viewer** access (or **Editor**)  
 
+## ▶️ Running the Script
 
+1. **Activate your virtual environment** (if not already active):  
+   ```bash
+   source .venv/bin/activate
+2. **Run the script**
+   ```bash
+   python3 JSON_comparision.py
