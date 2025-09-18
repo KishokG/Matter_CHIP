@@ -27,6 +27,15 @@ This project provides a Python script to **review the Matter test case mapping J
    - Inside `"PICS": [ ... ]` blocks, checks for forbidden characters:
      - `,  &  (  )  {  }  -`
    - Logs invalid entries with test case ID and line number.
+
+ℹ️ **Note on point 2 & point 3 checks**  
+>
+> The script intentionally performs **two levels of CertificationStatus validation**:  
+> 1. **Internal JSON consistency check** – "Point 2" verifies that `"CertificationStatus"` and the following `"cert"` value match correctly within the JSON file itself.  
+> 2. **Google Sheet vs JSON check** – "Point 3" validates that **Column F (Certification Status)** in the Google Sheet matches the JSON mapping (including the correct `"cert"` value).  
+>
+> Because of this, the same issue may appear in **both sections of the log**.  
+> This is **not a duplication error**, but a safety measure to ensure both the JSON structure and the Sheet alignment are correct.
      
 ---
 
