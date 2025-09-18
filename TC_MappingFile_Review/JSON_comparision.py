@@ -30,9 +30,19 @@ client = gspread.authorize(creds)
 sheet = client.open_by_url(sheet_url)
 worksheet = sheet.worksheet(worksheet_name)
 
-# Get all rows (skip header row) and take only Column D (index 3, since Python is 0-based)
+# Get all rows
 rows = worksheet.get_all_values()
+
+# Column D → Test Case IDs
 txt_tcs = {row[3].strip() for row in rows[1:] if len(row) > 3 and row[3].strip()}
+
+# Column F → Certification Status mapping
+sheet_cert_status = {}
+for row in rows[1:]:
+    if len(row) > 5 and row[3].strip():
+        tc_id = row[3].strip()
+        cert_val = row[5].strip()
+        sheet_cert_status[tc_id] = cert_val
 
 # Compare sets
 missing_in_json = sorted(txt_tcs - json_tcs)
@@ -41,6 +51,7 @@ extra_in_json = sorted(json_tcs - txt_tcs)
 # Track issues
 cert_status_issues = []
 cert_mismatch_issues = []
+cert_sheet_mismatch_issues = []
 pics_invalid_issues = []
 
 # Forbidden characters for PICS entries (underscore _ allowed)
@@ -54,8 +65,15 @@ lines = []
 with open(json_file, "r") as f:
     lines = f.readlines()
 
+# Map Certification Status from Sheet to expected JSON values
+cert_map = {
+    "Executable": ("Executable", '"cert": "true"'),
+    "Provisional": ("Provisional", '"cert": "false"'),
+    "Blocked": ("Blocked", '"cert": "false"')
+}
+
 for num, line in enumerate(lines, start=1):
-    # Detect test case IDs (lines ending with ": {")
+    # Detect test case IDs
     tc_match = re.match(r'\s*"([^"]+)":\s*{', line)
     if tc_match:
         current_tc_id = tc_match.group(1)
@@ -75,13 +93,32 @@ for num, line in enumerate(lines, start=1):
             expected_cert = '"cert": "false"'
 
         if expected_cert:
-            # Look ahead at next line
             if num < len(lines):
                 next_line = lines[num].strip().rstrip(",")
                 if expected_cert not in next_line:
                     cert_mismatch_issues.append(
                         (num + 1, current_tc_id, status_val, expected_cert, next_line)
                     )
+
+        # Cross-check with Google Sheet Column F
+        if current_tc_id in sheet_cert_status:
+            sheet_status = sheet_cert_status[current_tc_id]
+            expected_status, expected_cert_from_sheet = cert_map.get(sheet_status, (None, None))
+
+            # Compare CertificationStatus itself
+            if expected_status and status_val != expected_status:
+                cert_sheet_mismatch_issues.append(
+                    (num, current_tc_id, sheet_status, status_val)
+                )
+
+            # Compare "cert" value
+            if expected_cert_from_sheet:
+                if num < len(lines):
+                    next_line = lines[num].strip().rstrip(",")
+                    if expected_cert_from_sheet not in next_line:
+                        cert_sheet_mismatch_issues.append(
+                            (num + 1, current_tc_id, f"{sheet_status} → {expected_cert_from_sheet}", next_line)
+                        )
 
     # Detect start/end of PICS block
     if '"PICS": [' in line:
@@ -129,6 +166,18 @@ with open(output_file, "w") as log:
                 f"Line {line_num}: In test case {tc_id}, CertificationStatus='{status_val}' "
                 f"and expected cert value is {expected_cert}, but found: {found_line}\n"
             )
+
+    if cert_sheet_mismatch_issues:
+        log.write("\n--- Google Sheet vs JSON CertificationStatus Issues ---\n")
+        for issue in cert_sheet_mismatch_issues:
+            if len(issue) == 4:
+                line_num, tc_id, sheet_status, json_status = issue
+                log.write(f"Line {line_num}: In test case {tc_id}, "
+                          f"Sheet says '{sheet_status}', but JSON has '{json_status}'\n")
+            else:
+                line_num, tc_id, expected, found_line = issue
+                log.write(f"Line {line_num}: In test case {tc_id}, expected {expected}, "
+                          f"but found: {found_line}\n")
 
     if pics_invalid_issues:
         log.write("\n--- PICS Invalid Character Issues ---\n")
