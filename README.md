@@ -2,12 +2,32 @@
 
 This project provides a Python script to **review the Matter test case mapping JSON files** against a reference list of test cases stored in a **Google Sheet(TC_List)**.  
 
-#### It checks for:
-- Missing or extra test cases
-- Empty or invalid `CertificationStatus` fields
-- Consistency between `CertificationStatus` and `cert` fields
-- Invalid characters inside `PICS` entries
+### 🔍 It performs the following checks:
 
+1. **Test Case List Validation**
+   - Compares **Column D** in the Google Sheet with JSON test case IDs.
+   - Reports:
+     - Test cases present in the sheet but missing in JSON.
+     - Extra/unwanted test cases in JSON not listed in the sheet.
+
+2. **Certification Status Checks**
+   - Detects empty `"CertificationStatus": ""` entries.
+   - Ensures consistency:
+     - If `"CertificationStatus": "Executable"`, the next line must be `"cert": "true"`.
+     - If `"CertificationStatus": "Provisional"` or `"Blocked"`, the next line must be `"cert": "false"`.
+
+3. **Google Sheet vs JSON (Column F Validation)**
+   - **Column F (“Certification Status”)** in the sheet is compared against JSON:
+     - Sheet = **Executable** → JSON must be `"CertificationStatus": "Executable"` and `"cert": "true"`.
+     - Sheet = **Provisional** → JSON must be `"CertificationStatus": "Provisional"` and `"cert": "false"`.
+     - Sheet = **Blocked** → JSON must be `"CertificationStatus": "Blocked"` and `"cert": "false"`.
+   - Any mismatch between the sheet and JSON is logged with line number + test case ID.
+
+4. **PICS Validation**
+   - Inside `"PICS": [ ... ]` blocks, checks for forbidden characters:
+     - `,  &  (  )  {  }  -`
+   - Logs invalid entries with test case ID and line number.
+     
 ---
 
 ## 🚀 Setup Instructions
