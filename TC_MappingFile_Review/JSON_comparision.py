@@ -126,13 +126,47 @@ for num, line in enumerate(lines, start=1):
     elif inside_pics and '],' in line:
         inside_pics = False
 
-    # If inside PICS block, check for forbidden characters
+    # Regex for valid PICS naming pattern
+    #valid_pics_pattern = re.compile(
+     #   r"^[A-Z0-9]+\.([SC])\.(F\d{2}|A\d{4}|E\d{2}|C\d{2}(\.Rsp)?|[A-Z0-9]+(\.[A-Z0-9]+)*)$"
+    #)
+
+    # If inside PICS block, check for forbidden characters and invalid patterns
     if inside_pics:
         pics_match = re.search(r'"([^"]+)"', line)
         if pics_match:
-            value = pics_match.group(1)
-            if re.search(forbidden_chars, value):
-                pics_invalid_issues.append((num, value, current_tc_id))
+            raw_value = pics_match.group(1)
+            # Split by separators like comma, pipe, or OR (|) and trim spaces
+            sub_values = re.split(r"[|,]", raw_value)
+            for value in map(str.strip, sub_values):
+                if not value:
+                    continue
+
+                # Check forbidden symbols
+                if re.search(forbidden_chars, value):
+                    pics_invalid_issues.append((num, value, current_tc_id))
+                    continue
+
+                # Check for clearly invalid words
+                invalid_keywords = [
+                    "CurrentSessions", "AttributeList", "EventList",
+                    "CommandList", "FeatureMap", "ClusterRevision"
+                ]
+                if any(bad_word in value for bad_word in invalid_keywords):
+                    pics_invalid_issues.append((num, value, current_tc_id))
+                    continue
+
+                # Catch invalid patterns like A0000 followed by letters, or random suffix after Fxx/Cxx/Exx
+                if re.search(r"A\d{4}[A-Za-z]+", value) or re.search(r"F\d{2}[A-Za-z]+", value) or re.search(
+                        r"C\d{2}[A-Za-z]+", value):
+                    pics_invalid_issues.append((num, value, current_tc_id))
+
+                #  Additional validation for .Rsp and .Txt endings
+                if ".S.C" in value or ".C.C" in value:
+                    # Match cases like .Rsp or .Txt followed by extra characters (invalid)
+                    if re.search(r"\.(Rsp|Txt)(?=[A-Za-z0-9])", value):
+                        # Example: matches DGGEN.S.C00.RspExtra or WEBRTCR.S.C00.TxtSomething
+                        pics_invalid_issues.append((num, value, current_tc_id))
 
 # Write results to log file
 with open(output_file, "w") as log:
@@ -185,3 +219,4 @@ with open(output_file, "w") as log:
             log.write(f"Line {line_num}: Invalid PICS entry '{value}' in test case {tc_id}\n")
 
 print(f"✅ Test case mapping file review & summary log saved to {output_file}")
+
