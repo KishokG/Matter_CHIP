@@ -155,17 +155,26 @@ for num, line in enumerate(lines, start=1):
                     continue
 
                 # Catch invalid patterns like A0000 followed by letters, or random suffix after Fxx/Cxx/Exx
-                if re.search(r"A\d{4}[A-Za-z]+", value) or re.search(r"F\d{2}[A-Za-z]+", value) or re.search(
-                        r"C\d{2}[A-Za-z]+", value):
+                if (
+                        re.search(r"A\d{4}[A-Za-z]+", value)
+                        or re.search(r"F\d{2}[A-Za-z]+", value)
+                        or re.search(r"C\d{2}[A-Za-z]+", value)
+                ):
                     pics_invalid_issues.append((num, value, current_tc_id))
+                    continue
 
-                #  Additional validation for .Rsp and .Txt endings
+                # ✅ New check: invalid Exx suffixes like DISHALM.S.E00Current (should end at E00)
+                if re.search(r"\.E\d{2}[A-Za-z]+$", value):
+                    pics_invalid_issues.append((num, value, current_tc_id))
+                    continue
+
+                # Additional validation for .Rsp and .Txt endings
                 if ".S.C" in value or ".C.C" in value:
                     # Match cases like .Rsp or .Txt followed by extra characters (invalid)
                     if re.search(r"\.(Rsp|Txt)(?=[A-Za-z0-9])", value):
                         # Example: matches DGGEN.S.C00.RspExtra or WEBRTCR.S.C00.TxtSomething
                         pics_invalid_issues.append((num, value, current_tc_id))
-
+                        
 # Write results to log file
 with open(output_file, "w") as log:
     log.write(f"Total test cases available in JSON: {len(json_tcs)}\n")
