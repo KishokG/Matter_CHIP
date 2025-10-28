@@ -2,6 +2,7 @@ import json
 import re
 import yaml
 import gspread
+import os, datetime
 from oauth2client.service_account import ServiceAccountCredentials
 
 # Load config from YAML
@@ -13,7 +14,9 @@ credentials_file = config["credentials_file"]
 sheet_url = config["sheet_url"]
 worksheet_name = config["worksheet_name"]
 json_file = config["json_file"]
-output_file = config["output_file"]
+os.makedirs("logs", exist_ok=True)
+timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+output_file = os.path.join("logs", f"comparison_log_{timestamp}.txt")
 
 # Load JSON test case IDs
 with open(json_file, "r") as f:
@@ -125,11 +128,6 @@ for num, line in enumerate(lines, start=1):
         inside_pics = True
     elif inside_pics and '],' in line:
         inside_pics = False
-
-    # Regex for valid PICS naming pattern
-    #valid_pics_pattern = re.compile(
-     #   r"^[A-Z0-9]+\.([SC])\.(F\d{2}|A\d{4}|E\d{2}|C\d{2}(\.Rsp)?|[A-Z0-9]+(\.[A-Z0-9]+)*)$"
-    #)
 
     # If inside PICS block, check for forbidden characters and invalid patterns
     if inside_pics:
