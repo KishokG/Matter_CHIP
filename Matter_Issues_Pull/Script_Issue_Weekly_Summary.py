@@ -72,7 +72,7 @@ def fetch_github_issues(repo_name):
 def update_google_sheet(issues, sheet, category, repo_name):
     repo_short_name = repo_name.split('/')[-1]
     headers = [
-        ["Repository Name", "Issue Number", "State", "Issue Title", "Author/Raised By", "Issue URL", "Type"]
+        ["Repository Name", "Issue Number", "State", "Issue Title", "Author/Raised By", "Issue URL", "Type", "Created Date"]
     ]
 
     # Sort issues by issue number in descending order (most recent first)
@@ -87,6 +87,7 @@ def update_google_sheet(issues, sheet, category, repo_name):
             issue["user"]["login"],
             f"https://github.com/{repo_name}/{'pull' if 'pull_request' in issue else 'issues'}/{issue['number']}",
             "PR" if "pull_request" in issue else "Issue",  # Determine if it's a pull request or an issue
+            (created_at := datetime.strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ")).strftime("%Y-%m-%d %H:%M:%S"),
         ]
         for issue in issues
     ]
