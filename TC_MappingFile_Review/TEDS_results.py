@@ -67,7 +67,7 @@ def apply_yellow_for_sections(sheet):
         data = sheet.get_all_values()
         for i, row in enumerate(data, start=1):
             if row and row[0].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED]:
-                sheet.format(f"A{i}:E{i}", {
+                sheet.format(f"A{i}:F{i}", {
                     "backgroundColor": {"red": 1, "green": 1, "blue": 0.6},
                     "textFormat": {"bold": True},
                     "horizontalAlignment": "CENTER",
@@ -212,7 +212,7 @@ try:
         elif passes:
             summary_data[tcid]["Pass"] += 1
         elif fails:
-            summary_data[tcid]["Fail"] += len(results["Fail"])
+            summary_data[tcid]["Fail"] += 1
         if not_tested:
             summary_data[tcid]["NotTested"] += not_tested
 
@@ -229,11 +229,10 @@ try:
         # [Test Case, Total, Total Pass+Fail, Pass, Fail, Not Tested]
         row = [tc, counts["Pass"], counts["Fail"], counts["NotTested"], total_all, total_pf]
 
-        if counts["Pass"] == 0:
-            # If no pass at all (even if fail or not tested), mark as "Not Executed Yet"
+        if counts["Pass"] == 0 and counts["Fail"] == 0:
+            # Only mark as "Not Executed" if there are no passes AND no fails
             never_executed.append(row)
         elif counts["Pass"] < 3:
-            # Has passes, but less than 3
             low_pass.append(row)
         else:
             others.append(row)
