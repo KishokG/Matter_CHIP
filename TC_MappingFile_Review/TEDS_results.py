@@ -18,7 +18,7 @@ COL_TEST_RESULT = 9
 
 # Section headers
 SECTION_NOT_EXECUTED = "---- Not Executed Yet----"
-SECTION_LOW_PASS = "---- Pass Count < 3 ----"
+SECTION_LOW_PASS = "---- Pass Count < Required ----"
 SECTION_PASSED = "---- Passed Rule of Three ----"
 
 # === GOOGLE SHEETS AUTH ===
@@ -67,8 +67,8 @@ def apply_yellow_for_sections(sheet):
         data = sheet.get_all_values()
         for i, row in enumerate(data, start=1):
             if row and row[0].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED]:
-                sheet.format(f"A{i}:F{i}", {
-                    "backgroundColor": {"red": 1, "green": 1, "blue": 0.6},
+                sheet.format(f"A{i}:H{i}", {  # Extended to cover new columns
+                    "backgroundColor": {"red": 0.85, "green": 0.75, "blue": 0.95},
                     "textFormat": {"bold": True},
                     "horizontalAlignment": "CENTER",
                 })
@@ -76,19 +76,87 @@ def apply_yellow_for_sections(sheet):
         print(f"⚠️ Warning: Could not apply yellow highlighting: {e}")
 
 
+def apply_certification_colors(sheet):
+    """Apply green for Certifiable, orange for Provisional, yellow for New Changes - Provisional."""
+    try:
+        data = sheet.get_all_values()
+        if not data:
+            return
+        # Find the "Certification Status" column index
+        header = data[0]
+        try:
+            cert_col_idx = header.index("Certification Status")  # 0-based
+        except ValueError:
+            print("⚠️ Warning: 'Certification Status' column not found for coloring.")
+            return
+
+        cert_col_letter = col_to_letter(cert_col_idx + 1)
+
+        for i, row in enumerate(data[1:], start=2):
+            if len(row) <= cert_col_idx:
+                continue
+            status = row[cert_col_idx].strip()
+            if status == "Certifiable":
+                color = {"red": 0.7, "green": 0.93, "blue": 0.7}
+            elif status == "Provisional":
+                color = {"red": 1.0, "green": 0.85, "blue": 0.6}
+            elif status == "New Changes - Provisional":
+                color = {"red": 1.0, "green": 1.0, "blue": 0.6}
+            else:
+                continue
+            sheet.format(f"{cert_col_letter}{i}", {"backgroundColor": color})
+    except Exception as e:
+        print(f"⚠️ Warning: Could not apply certification colors: {e}")
+
+
+def get_certification_status(pass_count, runs_required):
+    """
+    Determine certification status based on pass count and required runs.
+    - runs_required == 3: need >= 3 passes for Certifiable, else Provisional
+    - runs_required == 1: need >= 1 pass for Certifiable, else New Changes - Provisional
+    - Other values: treat same as runs_required == 3 (safe default)
+    """
+    try:
+        runs = int(runs_required)
+    except (ValueError, TypeError):
+        runs = 3  # Default to 3 if not parseable
+
+    if runs == 1:
+        return "Certifiable" if pass_count >= 1 else "New Changes - Provisional"
+    else:
+        # Covers runs_required == 3 and any other value
+        return "Certifiable" if pass_count >= runs else "Provisional"
+
+
 def read_summary_data(sheet):
     try:
         data = sheet.get_all_values()
         summary = {}
-        for row in data[1:]:
-            if len(row) >= 5 and row[0] and row[1].isdigit():
-                summary[row[0]] = {
+        if not data:
+            return summary
+        header = data[0]
+        # Find column indices dynamically
+        try:
+            pass_idx = header.index("Pass Count")
+            fail_idx = header.index("Fail Count")
+            nt_idx = header.index("Not Tested Count")
+            total_idx = header.index("Total")
+        except ValueError:
+            # Fallback to positional (old format)
+            pass_idx, fail_idx, nt_idx, total_idx = 1, 2, 3, 4
 
-                    "Pass": int(row[1]),
-                    "Fail": int(row[2]),
-                    "NotTested": int(row[3]),
-                    "Total": int(row[4])
-                }
+        for row in data[1:]:
+            if len(row) > max(pass_idx, fail_idx, nt_idx, total_idx) and row[0]:
+                try:
+                    if row[pass_idx].isdigit():
+                        summary[row[0]] = {
+                            "Pass": int(row[pass_idx]),
+                            "Fail": int(row[fail_idx]),
+                            "NotTested": int(row[nt_idx]),
+                            "Total": int(row[total_idx])
+                        }
+                except (ValueError, IndexError):
+                    continue
         return summary
     except Exception as e:
         print(f"⚠️ Warning: Could not read summary data: {e}")
@@ -97,7 +165,7 @@ def read_summary_data(sheet):
 
 def compare_deltas(old, new, filtered_cases):
     deltas = [["Test Case Name", "Old Pass", "New Pass", "Old Fail", "New Fail",
-                 "Old Not Tested", "New Not Tested", "Old Total", "New Total", "Status"]]
+                "Old Not Tested", "New Not Tested", "Old Total", "New Total", "Status"]]
     for tc in filtered_cases:
         o = old.get(tc, {"Total": 0, "Pass": 0, "Fail": 0, "NotTested": 0})
         n = new.get(tc, {"Total": 0, "Pass": 0, "Fail": 0, "NotTested": 0})
@@ -135,6 +203,46 @@ def apply_delta_colors(sheet):
                 sheet.format(f"A{i}:J{i}", {"backgroundColor": color})
     except Exception as e:
         print(f"⚠️ Warning: Could not apply delta colors: {e}")
+        
+def apply_pass_count_colors(sheet):
+    try:
+        data = sheet.get_all_values()
+        if not data:
+            return
+        header = data[0]
+        try:
+            pass_idx = header.index("Pass Count")          # Column B (0-based index)
+            runs_idx = header.index("Number of runs required")
+        except ValueError:
+            print("⚠️ Warning: Required columns not found for pass count coloring.")
+            return
+
+        pass_col_letter = col_to_letter(pass_idx + 1)
+
+        for i, row in enumerate(data[1:], start=2):
+            if len(row) <= max(pass_idx, runs_idx):
+                continue
+            # Skip section header rows
+            if row[0].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED, ""]:
+                continue
+
+            try:
+                pass_count = int(row[pass_idx])
+                runs_required = int(row[runs_idx]) if row[runs_idx].isdigit() else 3
+            except (ValueError, IndexError):
+                continue
+
+            if pass_count == 0:
+                color = {"red": 1.0, "green": 0.7, "blue": 0.7}
+            elif pass_count < runs_required:
+                color = {"red": 1.0, "green": 1.0, "blue": 0.6}
+            else:
+                color = {"red": 0.7, "green": 0.93, "blue": 0.7}
+
+            sheet.format(f"{pass_col_letter}{i}", {"backgroundColor": color})
+
+    except Exception as e:
+        print(f"⚠️ Warning: Could not apply pass count colors: {e}")
 
 
 # === MAIN EXECUTION ===
@@ -145,7 +253,7 @@ try:
         old_summary_data = read_summary_data(summary_ws)
         clear_backgrounds_except_header(summary_ws)
     except gspread.exceptions.WorksheetNotFound:
-        summary_ws = spreadsheet.add_worksheet(title=SUMMARY_SHEET_NAME, rows=2000, cols=6)
+        summary_ws = spreadsheet.add_worksheet(title=SUMMARY_SHEET_NAME, rows=2000, cols=8)
         old_summary_data = {}
 
     try:
@@ -154,9 +262,24 @@ try:
     except gspread.exceptions.WorksheetNotFound:
         delta_ws = spreadsheet.add_worksheet(title=DELTA_SHEET_NAME, rows=2000, cols=10)
 
-    # Read test data
+    # Read test data from MASTER_TC_SHEET
+    # Column A = TC ID, Column B = Number of runs required
     tc_list_ws = spreadsheet.worksheet(MASTER_TC_SHEET)
-    all_test_cases = tc_list_ws.col_values(1)[1:]
+    tc_raw = tc_list_ws.get_all_values()
+
+    all_test_cases = []
+    runs_required_map = {}  # { tcid: runs_required }
+
+    for row in tc_raw[1:]:  # Skip header
+        if not row:
+            continue
+        tcid = row[0].strip() if len(row) > 0 else ""
+        runs_req = row[1].strip() if len(row) > 1 else "3"  # Default to 3 if missing
+        if tcid:
+            all_test_cases.append(tcid)
+            runs_required_map[tcid] = runs_req if runs_req else "3"
+
+    print(f"📋 Loaded {len(all_test_cases)} test cases from master list.")
 
     results_ws = spreadsheet.worksheet(SOURCE_SHEET_NAME)
     rows = results_ws.get_all_values()[1:]  # Skip header
@@ -165,6 +288,7 @@ try:
     unique_results = set()
     filtered_rows = []
     duplicates_removed = 0
+    duplicate_details = []
 
     for row in rows:
         if len(row) < max(COL_MATTER_CASE, COL_TEST_RESULT):
@@ -186,8 +310,14 @@ try:
             filtered_rows.append((company, dut, tcid, result))
         else:
             duplicates_removed += 1
+            duplicate_details.append((company, dut, tcid, result))
 
     print(f"🧹 Removed {duplicates_removed} duplicate results (same company/DUT/test/result).")
+    if duplicate_details:
+        print("   Duplicate entries removed:")
+        for company, dut, tcid, result in duplicate_details:
+            print(f"   ⚠️  [{result}] {tcid} | Company: {company} | DUT: {dut}")
+    print()
 
     # Dedup logic per company
     company_tc_results = defaultdict(lambda: {"Pass": set(), "Fail": set(), "NotTested": 0})
@@ -212,27 +342,40 @@ try:
         elif passes:
             summary_data[tcid]["Pass"] += 1
         elif fails:
-            summary_data[tcid]["Fail"] += 1
+            summary_data[tcid]["Fail"] += 1  # Fixed: count by company, not DUT count
         if not_tested:
             summary_data[tcid]["NotTested"] += not_tested
 
     # Build final summary
-    output_data = [["Test Case Name", "Pass Count", "Fail Count", "Not Tested Count", "Total", "Total Pass+Fail"]]
+    # Columns: Test Case Name | Pass Count | Fail Count | Not Tested Count | Total | Total Pass+Fail | Runs Required | Certification Status
+    output_data = [[
+        "Test Case Name", "Pass Count", "Fail Count", "Not Tested Count",
+        "Total", "Total Pass+Fail", "Number of runs required", "Certification Status"
+    ]]
     never_executed, low_pass, others = [], [], []
 
     for tc in all_test_cases:
         counts = summary_data.get(tc, {"Pass": 0, "Fail": 0, "NotTested": 0})
         total_pf = counts["Pass"] + counts["Fail"]
         total_all = counts["Pass"] + counts["Fail"] + counts["NotTested"]
+        runs_req = runs_required_map.get(tc, "3")
+        cert_status = get_certification_status(counts["Pass"], runs_req)
 
-        # Columns:
-        # [Test Case, Total, Total Pass+Fail, Pass, Fail, Not Tested]
-        row = [tc, counts["Pass"], counts["Fail"], counts["NotTested"], total_all, total_pf]
+        row = [
+            tc,
+            counts["Pass"],
+            counts["Fail"],
+            counts["NotTested"],
+            total_all,
+            total_pf,
+            runs_req,
+            cert_status
+        ]
 
+        # ✅ Fixed categorization: only "Not Executed" if no Pass AND no Fail
         if counts["Pass"] == 0 and counts["Fail"] == 0:
-            # Only mark as "Not Executed" if there are no passes AND no fails
             never_executed.append(row)
-        elif counts["Pass"] < 3:
+        elif counts["Pass"] < int(runs_req) if runs_req.isdigit() else counts["Pass"] < 3:
             low_pass.append(row)
         else:
             others.append(row)
@@ -240,7 +383,7 @@ try:
     output_data += [[SECTION_NOT_EXECUTED]]
     output_data += never_executed or [["All test cases executed at least once"]]
     output_data += [[""], [SECTION_LOW_PASS]]
-    output_data += low_pass or [["No test cases with Pass Count < 3"]]
+    output_data += low_pass or [["No test cases below required pass count"]]
     output_data += [[""], [SECTION_PASSED]]
     output_data += others or [["No remaining test cases"]]
 
@@ -248,6 +391,10 @@ try:
     summary_ws.clear()
     summary_ws.update(range_name="A1", values=output_data)
     apply_yellow_for_sections(summary_ws)
+    apply_certification_colors(summary_ws)
+    apply_pass_count_colors(summary_ws)
+
+    print("✅ Certification Status column populated successfully.")
 
     # Delta comparison
     new_summary_data = read_summary_data(summary_ws)
