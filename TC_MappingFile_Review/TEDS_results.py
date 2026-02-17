@@ -61,6 +61,31 @@ def clear_backgrounds_except_header(sheet):
     except Exception as e:
         print(f"⚠️ Warning: Could not clear backgrounds: {e}")
 
+def apply_font_to_sheet(sheet, spreadsheet, font_family="Times New Roman"):
+    """Apply font to the entire sheet in one batch call."""
+    try:
+        sheet_id = sheet._properties['sheetId']
+        spreadsheet.batch_update({
+            "requests": [{
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id
+                        # No startRowIndex/endRowIndex = covers entire sheet
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "textFormat": {
+                                "fontFamily": font_family
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat.textFormat.fontFamily"
+                }
+            }]
+        })
+        print(f"✅ Applied '{font_family}' font to entire sheet.")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not apply font: {e}")
 
 def apply_purple_for_sections(sheet, spreadsheet):
     try:
@@ -478,6 +503,7 @@ try:
     # Update summary sheet
     summary_ws.clear()
     summary_ws.update(range_name="A1", values=output_data)
+    apply_font_to_sheet(summary_ws, spreadsheet)
     apply_purple_for_sections(summary_ws, spreadsheet)
     apply_delta_colors(delta_ws, spreadsheet)
     apply_certification_colors(summary_ws, spreadsheet)
