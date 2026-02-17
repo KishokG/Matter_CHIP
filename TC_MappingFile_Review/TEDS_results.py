@@ -104,7 +104,10 @@ def apply_certification_colors(sheet):
                 color = {"red": 1.0, "green": 1.0, "blue": 0.6}
             else:
                 continue
-            sheet.format(f"{cert_col_letter}{i}", {"backgroundColor": color})
+            sheet.format(f"{cert_col_letter}{i}", {
+                "backgroundColor": color,
+                "horizontalAlignment": "CENTER",
+            })
     except Exception as e:
         print(f"⚠️ Warning: Could not apply certification colors: {e}")
 
