@@ -62,7 +62,7 @@ def clear_backgrounds_except_header(sheet):
         print(f"⚠️ Warning: Could not clear backgrounds: {e}")
 
 
-def apply_yellow_for_sections(sheet):
+def apply_purple_for_sections(sheet):
     try:
         data = sheet.get_all_values()
         for i, row in enumerate(data, start=1):
@@ -390,7 +390,7 @@ try:
     # Update summary sheet
     summary_ws.clear()
     summary_ws.update(range_name="A1", values=output_data)
-    apply_yellow_for_sections(summary_ws)
+    apply_purple_for_sections(summary_ws)
     apply_certification_colors(summary_ws)
     apply_pass_count_colors(summary_ws)
 
