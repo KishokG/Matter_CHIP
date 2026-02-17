@@ -62,18 +62,38 @@ def clear_backgrounds_except_header(sheet):
         print(f"⚠️ Warning: Could not clear backgrounds: {e}")
 
 
-def apply_purple_for_sections(sheet):
+def apply_purple_for_sections(sheet, spreadsheet):
     try:
         data = sheet.get_all_values()
-        for i, row in enumerate(data, start=1):
+        sheet_id = sheet._properties['sheetId']
+        requests = []
+
+        for i, row in enumerate(data, start=0):  # 0-based for API
             if row and row[0].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED]:
-                sheet.format(f"A{i}:H{i}", {  # Extended to cover new columns
-                    "backgroundColor": {"red": 0.85, "green": 0.75, "blue": 0.95},
-                    "textFormat": {"bold": True},
-                    "horizontalAlignment": "CENTER",
+                requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": i,
+                            "endRowIndex": i + 1,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 8
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 0.85, "green": 0.75, "blue": 0.95},
+                                "textFormat": {"bold": True},
+                                "horizontalAlignment": "CENTER"
+                            }
+                        },
+                        "fields": "userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment"
+                    }
                 })
+
+        if requests:
+            spreadsheet.batch_update({"requests": requests})
     except Exception as e:
-        print(f"⚠️ Warning: Could not apply yellow highlighting: {e}")
+        print(f"⚠️ Warning: Could not apply purple highlighting: {e}")
 
 
 def apply_certification_colors(sheet, spreadsheet):
@@ -209,22 +229,45 @@ def compare_deltas(old, new, filtered_cases):
     return deltas
 
 
-def apply_delta_colors(sheet):
+def apply_delta_colors(sheet, spreadsheet):
     try:
         data = sheet.get_all_values()
-        for i, row in enumerate(data[1:], start=2):
+        sheet_id = sheet._properties['sheetId']
+        requests = []
+
+        for i, row in enumerate(data[1:], start=1):  # 0-based for API
             if len(row) < 10:
                 continue
             status = row[9].strip()
-            color = None
             if status == "Updated":
-                color = {"red": 0.8, "green": 1, "blue": 0.8}
+                color = {"red": 0.8, "green": 1.0, "blue": 0.8}
             elif status == "Reduced":
-                color = {"red": 1, "green": 1, "blue": 0.6}
+                color = {"red": 1.0, "green": 1.0, "blue": 0.6}
             elif status == "Changed":
                 color = {"red": 0.9, "green": 0.9, "blue": 0.9}
-            if color:
-                sheet.format(f"A{i}:J{i}", {"backgroundColor": color})
+            else:
+                continue
+
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": i,
+                        "endRowIndex": i + 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 10
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": color
+                        }
+                    },
+                    "fields": "userEnteredFormat.backgroundColor"
+                }
+            })
+
+        if requests:
+            spreadsheet.batch_update({"requests": requests})
     except Exception as e:
         print(f"⚠️ Warning: Could not apply delta colors: {e}")
         
@@ -435,7 +478,8 @@ try:
     # Update summary sheet
     summary_ws.clear()
     summary_ws.update(range_name="A1", values=output_data)
-    apply_purple_for_sections(summary_ws)
+    apply_purple_for_sections(summary_ws, spreadsheet)
+    apply_delta_colors(delta_ws, spreadsheet)
     apply_certification_colors(summary_ws, spreadsheet)
     apply_pass_count_colors(summary_ws, spreadsheet)
 
