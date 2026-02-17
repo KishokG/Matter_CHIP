@@ -76,26 +76,27 @@ def apply_purple_for_sections(sheet):
         print(f"⚠️ Warning: Could not apply yellow highlighting: {e}")
 
 
-def apply_certification_colors(sheet):
-    """Apply green for Certifiable, orange for Provisional, yellow for New Changes - Provisional."""
+def apply_certification_colors(sheet, spreadsheet):
+    """Apply green/orange/yellow to Certification Status column - single batch API call."""
     try:
         data = sheet.get_all_values()
         if not data:
             return
-        # Find the "Certification Status" column index
         header = data[0]
         try:
-            cert_col_idx = header.index("Certification Status")  # 0-based
+            cert_col_idx = header.index("Certification Status")
         except ValueError:
             print("⚠️ Warning: 'Certification Status' column not found for coloring.")
             return
 
-        cert_col_letter = col_to_letter(cert_col_idx + 1)
+        sheet_id = sheet._properties['sheetId']
+        requests = []
 
-        for i, row in enumerate(data[1:], start=2):
+        for i, row in enumerate(data[1:], start=1):
             if len(row) <= cert_col_idx:
                 continue
             status = row[cert_col_idx].strip()
+
             if status == "Certifiable":
                 color = {"red": 0.7, "green": 0.93, "blue": 0.7}
             elif status == "Provisional":
@@ -104,10 +105,30 @@ def apply_certification_colors(sheet):
                 color = {"red": 1.0, "green": 1.0, "blue": 0.6}
             else:
                 continue
-            sheet.format(f"{cert_col_letter}{i}", {
-                "backgroundColor": color,
-                "horizontalAlignment": "CENTER",
+
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": i,       # 0-based
+                        "endRowIndex": i + 1,
+                        "startColumnIndex": cert_col_idx,
+                        "endColumnIndex": cert_col_idx + 1
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": color,
+                            "horizontalAlignment": "CENTER"
+                        }
+                    },
+                    "fields": "userEnteredFormat.backgroundColor,userEnteredFormat.horizontalAlignment"
+                }
             })
+
+        if requests:
+            spreadsheet.batch_update({"requests": requests})
+            print(f"✅ Applied certification colors to {len(requests)} rows in one batch.")
+
     except Exception as e:
         print(f"⚠️ Warning: Could not apply certification colors: {e}")
 
@@ -207,25 +228,26 @@ def apply_delta_colors(sheet):
     except Exception as e:
         print(f"⚠️ Warning: Could not apply delta colors: {e}")
         
-def apply_pass_count_colors(sheet):
+def apply_pass_count_colors(sheet, spreadsheet):
+    """Color Column B (Pass Count) - single batch API call."""
     try:
         data = sheet.get_all_values()
         if not data:
             return
         header = data[0]
         try:
-            pass_idx = header.index("Pass Count")          # Column B (0-based index)
+            pass_idx = header.index("Pass Count")
             runs_idx = header.index("Number of runs required")
         except ValueError:
             print("⚠️ Warning: Required columns not found for pass count coloring.")
             return
 
-        pass_col_letter = col_to_letter(pass_idx + 1)
+        sheet_id = sheet._properties['sheetId']
+        requests = []
 
-        for i, row in enumerate(data[1:], start=2):
+        for i, row in enumerate(data[1:], start=1):
             if len(row) <= max(pass_idx, runs_idx):
                 continue
-            # Skip section header rows
             if row[0].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED, ""]:
                 continue
 
@@ -236,13 +258,33 @@ def apply_pass_count_colors(sheet):
                 continue
 
             if pass_count == 0:
-                color = {"red": 1.0, "green": 0.7, "blue": 0.7}
+                color = {"red": 1.0, "green": 0.8, "blue": 0.8}
             elif pass_count < runs_required:
                 color = {"red": 1.0, "green": 1.0, "blue": 0.6}
             else:
                 color = {"red": 0.7, "green": 0.93, "blue": 0.7}
 
-            sheet.format(f"{pass_col_letter}{i}", {"backgroundColor": color})
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": i,       # 0-based
+                        "endRowIndex": i + 1,
+                        "startColumnIndex": pass_idx,
+                        "endColumnIndex": pass_idx + 1
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": color
+                        }
+                    },
+                    "fields": "userEnteredFormat.backgroundColor"
+                }
+            })
+
+        if requests:
+            spreadsheet.batch_update({"requests": requests})
+            print(f"✅ Applied pass count colors to {len(requests)} rows in one batch.")
 
     except Exception as e:
         print(f"⚠️ Warning: Could not apply pass count colors: {e}")
@@ -394,8 +436,8 @@ try:
     summary_ws.clear()
     summary_ws.update(range_name="A1", values=output_data)
     apply_purple_for_sections(summary_ws)
-    apply_certification_colors(summary_ws)
-    apply_pass_count_colors(summary_ws)
+    apply_certification_colors(summary_ws, spreadsheet)
+    apply_pass_count_colors(summary_ws, spreadsheet)
 
     print("✅ Certification Status column populated successfully.")
 
