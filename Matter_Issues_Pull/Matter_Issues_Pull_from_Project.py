@@ -11,6 +11,14 @@ import json
 
 github_token = os.environ.get("PERSONNEL_TOKEN")
 service_account_json = os.environ.get("CREDENTIALS_JSON")
+
+if not github_token:
+    raise ValueError("PERSONNEL_TOKEN is missing")
+
+if not service_account_json:
+    raise ValueError("CREDENTIALS_JSON is missing")
+
+service_account_json_dict = json.loads(service_account_json)
 PROJECT_ORG = "project-chip"
 PROJECT_NUMBER = 142
 PROJECT_SHEET_NAME = "Project_142_Issues"
