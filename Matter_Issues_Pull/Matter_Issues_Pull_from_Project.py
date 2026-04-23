@@ -46,7 +46,7 @@ FILTER_CONFIG = {
     "1.6_TE2_Issues": {
         "field": "Found In",
         "value": "1.6 TE2"
-    }
+    },
     "1.6_SVE_Issues": {
         "field": "Found In",
         "value": "1.6 SVE"
