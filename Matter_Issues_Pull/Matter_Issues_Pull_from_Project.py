@@ -232,7 +232,8 @@ def main():
             fields.get("Fix Required For"),
             fields.get("PR"),
             fields.get("Comments"),
-            item["url"]
+            item["url"],
+            fields.get("Fix Priority"),
         ]
 
         all_rows.append(row)
@@ -255,7 +256,7 @@ def main():
         "Repo", "Number", "State", "Title", "Author",
         "Created", "Updated", "Status", "Domain", "Feature Area",
         "Found In", "Fix Required For", "PR",
-        "Comments", "URL"
+        "Comments", "URL", Fix Priority
     ]
 
     # Main sheet
