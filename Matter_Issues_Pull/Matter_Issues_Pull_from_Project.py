@@ -256,7 +256,7 @@ def main():
         "Repo", "Number", "State", "Title", "Author",
         "Created", "Updated", "Status", "Domain", "Feature Area",
         "Found In", "Fix Required For", "PR",
-        "Comments", "URL", Fix Priority
+        "Comments", "URL", "Fix Priority"
     ]
 
     # Main sheet
