@@ -1,4 +1,5 @@
 import gspread
+import re as _re
 from google.oauth2.service_account import Credentials
 from collections import defaultdict
 from sve_html_report import generate_html_report
@@ -7,8 +8,8 @@ from sve_html_report import generate_html_report
 SERVICE_ACCOUNT_FILE = "credentials.json"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30/edit?gid=0#gid=0"
 SOURCE_SHEET_NAME = "1.6_SVE_Results"
-MASTER_TC_SHEET = "SVE_TC_List"
-SUMMARY_SHEET_NAME = "Summary"
+MASTER_TC_SHEET = "1.5_SVE_TC_List"
+SUMMARY_SHEET_NAME = "1.5_Summary"
 DELTA_SHEET_NAME = "Summary Changes"
 
 # === HTML SUMMARY CONFIGURATION
@@ -92,7 +93,42 @@ def apply_font_to_sheet(sheet, spreadsheet, font_family="Times New Roman"):
         print(f"✅ Applied '{font_family}' font to entire sheet.")
     except Exception as e:
         print(f"⚠️ Warning: Could not apply font: {e}")
-
+        
+def apply_header_formatting(sheet, spreadsheet):
+    """Apply gold background, bold, centered, white text to the header row."""
+    try:
+        sheet_id = sheet._properties['sheetId']
+        header = sheet.row_values(1)
+        last_col = len(header)
+        spreadsheet.batch_update({
+            "requests": [{
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": 0,
+                        "endRowIndex": 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": last_col
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {"red": 0.98, "green": 0.75, "blue": 0.2},
+                            "textFormat": {
+                                "bold": True,
+                                "foregroundColor": {"red": 0.1, "green": 0.1, "blue": 0.1}
+                            },
+                            "horizontalAlignment": "CENTER",
+                            "verticalAlignment": "MIDDLE",
+                            "wrapStrategy": "WRAP"
+                        }
+                    },
+                    "fields": "userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.foregroundColor,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment,userEnteredFormat.wrapStrategy"
+                }
+            }]
+        })
+        print("✅ Applied header row formatting.")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not apply header formatting: {e}")
 
 def apply_purple_for_sections(sheet, spreadsheet):
     try:
@@ -101,7 +137,7 @@ def apply_purple_for_sections(sheet, spreadsheet):
         requests = []
 
         for i, row in enumerate(data, start=0):  # 0-based for API
-            if row and row[0].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED]:
+            if row and len(row) > 2 and row[2].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED]:
                 requests.append({
                     "repeatCell": {
                         "range": {
@@ -109,7 +145,7 @@ def apply_purple_for_sections(sheet, spreadsheet):
                             "startRowIndex": i,
                             "endRowIndex": i + 1,
                             "startColumnIndex": 0,
-                            "endColumnIndex": 12  # Extended to cover new Comments column
+                            "endColumnIndex": 14  # Extended to cover new Comments column
                         },
                         "cell": {
                             "userEnteredFormat": {
@@ -224,11 +260,12 @@ def read_summary_data(sheet):
         except ValueError:
             pass_idx, fail_idx, nt_idx, total_idx = 1, 2, 3, 4
 
+        tc_name_idx = header.index("Test Case Name") if "Test Case Name" in header else 2
         for row in data[1:]:
-            if len(row) > max(pass_idx, fail_idx, nt_idx, total_idx) and row[0]:
+            if len(row) > max(pass_idx, fail_idx, nt_idx, total_idx) and row[tc_name_idx]:
                 try:
                     if row[pass_idx].isdigit():
-                        summary[row[0]] = {
+                        summary[row[tc_name_idx]] = {
                             "Pass": int(row[pass_idx]),
                             "Fail": int(row[fail_idx]),
                             "NotTested": int(row[nt_idx]),
@@ -407,7 +444,8 @@ def apply_pass_count_colors(sheet, spreadsheet):
         for i, row in enumerate(data[1:], start=1):
             if len(row) <= max(pass_idx, runs_idx):
                 continue
-            if row[0].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED, ""]:
+            section_val = row[2].strip() if len(row) > 2 else ""
+            if section_val in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED, ""]:
                 continue
 
             try:
@@ -475,7 +513,8 @@ def apply_final_runs_colors(sheet, spreadsheet):
         for i, row in enumerate(data[1:], start=1):
             if len(row) <= col_idx:
                 continue
-            if row[0].strip() in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED, ""]:
+            section_val = row[2].strip() if len(row) > 2 else ""
+            if section_val in [SECTION_NOT_EXECUTED, SECTION_LOW_PASS, SECTION_PASSED, ""]:
                 continue
             cell_val = row[col_idx].strip()
             if not cell_val.lstrip("-").isdigit():
@@ -510,7 +549,53 @@ def apply_final_runs_colors(sheet, spreadsheet):
     except Exception as e:
         print(f"⚠️ Warning: Could not apply final runs required colors: {e}")
 
+def apply_column_alignments(sheet, spreadsheet):
+    """Apply specific horizontal alignments to data rows by column name."""
+    try:
+        sheet_id = sheet._properties['sheetId']
+        data = sheet.get_all_values()
+        if not data:
+            return
+        header = data[0]
+        last_row = len(data)
 
+        col_alignments = {
+            "Matter Focus Area":        "CENTER",
+            "Test Case ID":             "CENTER",
+            "Test Case Name":           "LEFT",
+            "New/Legacy":               "CENTER",
+            "Comments":                 "CENTER",
+        }
+
+        requests = []
+        for col_name, alignment in col_alignments.items():
+            if col_name not in header:
+                continue
+            col_idx = header.index(col_name)
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": 1,        # skip header row
+                        "endRowIndex": last_row,
+                        "startColumnIndex": col_idx,
+                        "endColumnIndex": col_idx + 1
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "horizontalAlignment": alignment
+                        }
+                    },
+                    "fields": "userEnteredFormat.horizontalAlignment"
+                }
+            })
+
+        if requests:
+            spreadsheet.batch_update({"requests": requests})
+            print("✅ Applied column alignments.")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not apply column alignments: {e}")
+        
 def safe_int(value, default=0):
     """Safely convert a string to int, returning default if blank or invalid."""
     try:
@@ -551,7 +636,8 @@ try:
     runs_required_map = {}   # { tcid: runs_required (str) }
     th_run_map = {}          # { tcid: 0 or 1 }          — "Can TH run be counted?"
     prev_sve_map = {}        # { tcid: int }              — "Number of runs in previous SVE"
-    new_legacy_map = {}      # { tcid: str }              — "New/Legacy"
+    new_legacy_map = {}           # { tcid: str }              — "New/Legacy"
+    matter_focus_area_map = {}    # { tcid: str }              — "Matter Focus Area"
 
     for row in tc_raw[1:]:  # Skip header
         if not row:
@@ -560,7 +646,8 @@ try:
         runs_req   = row[1].strip() if len(row) > 1 else "3"
         th_run     = row[2].strip() if len(row) > 2 else "0"
         prev_sve   = row[3].strip() if len(row) > 3 else "0"
-        new_legacy = row[4].strip() if len(row) > 4 else ""
+        new_legacy         = row[4].strip() if len(row) > 4 else ""
+        matter_focus_area  = row[5].strip() if len(row) > 5 else ""
 
         if not tcid:
             continue
@@ -569,8 +656,9 @@ try:
         runs_required_map[tcid] = runs_req if runs_req else "3"
         th_run_map[tcid]        = 1 if safe_int(th_run, default=0) >= 1 else 0
         prev_sve_map[tcid]      = safe_int(prev_sve, default=0)
-        new_legacy_map[tcid]    = new_legacy
-
+        new_legacy_map[tcid]       = new_legacy
+        matter_focus_area_map[tcid] = matter_focus_area
+        
     print(f"📋 Loaded {len(all_test_cases)} test cases from master list.")
 
     results_ws = spreadsheet.worksheet(SOURCE_SHEET_NAME)
@@ -644,7 +732,7 @@ try:
     #   Total Pass+Fail | Number of runs required | Final # runs required | Certification Status | New/Legacy | Comments
     # ─────────────────────────────────────────────────────────────────────────
     output_data = [[
-        "Test Case Name", "Pass Count", "Can TH run be counted?", "Fail Count", "Not Tested Count",
+        "Matter Focus Area", "Test Case ID", "Test Case Name", "Pass Count", "Can TH run be counted?", "Fail Count", "Not Tested Count",
         "Total", "Total Pass+Fail", "Number of runs required",
         "Final # runs required", "Certification Status", "New/Legacy", "Comments"
     ]]
@@ -674,7 +762,12 @@ try:
         else:
             comment = ""
 
+        _m = _re.search(r'\[(TC-[^\]]+)\]', tc)
+        tc_id = _m.group(1) if _m else ""
+
         row = [
+            matter_focus_area_map.get(tc, ""),
+            tc_id,
             tc,
             counts["Pass"],
             th_run,              # TH Run Count — shown separately
@@ -697,34 +790,23 @@ try:
         else:
             others.append(row)
 
-    output_data += [[SECTION_NOT_EXECUTED]]
-    output_data += never_executed or [["All test cases executed at least once"]]
-    output_data += [[""], [SECTION_LOW_PASS]]
-    output_data += low_pass or [["No test cases below required pass count"]]
-    output_data += [[""], [SECTION_PASSED]]
-    output_data += others or [["No remaining test cases"]]
+    output_data += [["", "", SECTION_NOT_EXECUTED]]
+    output_data += never_executed or [["", "", "All test cases executed at least once"]]
+    output_data += [[""], ["", "", SECTION_LOW_PASS]]
+    output_data += low_pass or [["", "", "No test cases below required pass count"]]
+    output_data += [[""], ["", "", SECTION_PASSED]]
+    output_data += others or [["", "", "No remaining test cases"]]
 
     # Update summary sheet
     summary_ws.clear()
     summary_ws.update(range_name="A1", values=output_data)
     apply_font_to_sheet(summary_ws, spreadsheet)
+    apply_header_formatting(summary_ws, spreadsheet)
     apply_purple_for_sections(summary_ws, spreadsheet)
     apply_certification_colors(summary_ws, spreadsheet)
     apply_pass_count_colors(summary_ws, spreadsheet)
     apply_final_runs_colors(summary_ws, spreadsheet)
-
-    # Center align New/Legacy and Comments columns
-    try:
-        header = output_data[0]
-        for col_name in ["New/Legacy", "Comments"]:
-            if col_name in header:
-                col_letter = col_to_letter(header.index(col_name) + 1)
-                last_row = len(output_data)
-                summary_ws.format(f"{col_letter}2:{col_letter}{last_row}",
-                                  {"horizontalAlignment": "CENTER"})
-        print("✅ Center aligned New/Legacy and Comments columns.")
-    except Exception as e:
-        print(f"⚠️ Warning: Could not center align columns: {e}")
+    apply_column_alignments(summary_ws, spreadsheet)
 
     print("✅ Certification Status and Comments columns populated successfully.")
 
