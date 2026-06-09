@@ -58,13 +58,13 @@ def generate_html_report(
     }
     current = None
     for row in rows:
-        if not row or not row[0]:
+        if not row:
             continue
-        key = section_map.get(row[0].strip())
+        key = next((section_map[str(cell)] for cell in row if str(cell).strip() in section_map), None)
         if key:
             current = key
             continue
-        if current and len(row) >= len(header):
+        if current and len(row) >= 3:
             sections[current]["rows"].append(row)
 
     # ── Quick stats ────────────────────────────────────────────────────────
@@ -176,6 +176,20 @@ def generate_html_report(
         out += "</summary>\n"
         out += '<div class="table-wrap">\n'
         out += '<table class="data-table">\n'
+        out += (
+            "<colgroup>"
+            '<col style="width:30%"/>'
+            '<col style="width:5%"/>'
+            '<col style="width:4%"/>'
+            '<col style="width:5%"/>'
+            '<col style="width:6%"/>'
+            '<col style="width:6%"/>'
+            '<col style="width:6%"/>'
+            '<col style="width:14%"/>'
+            '<col style="width:10%"/>'
+            '<col style="width:14%"/>'
+            "</colgroup>"
+        )
         out += "<thead><tr>"
         for th in ["Test Case", "Pass", "TH", "Fail", "Not Tested",
                    "Runs Req", "Final Runs", "Status", "Type", "Comments"]:
@@ -243,24 +257,26 @@ def generate_html_report(
         ".sec-label { font-weight: 600; font-size: 13px; flex: 1; }",
         ".sec-count { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); background: rgba(0,0,0,.06); padding: 2px 8px; border-radius: 20px; }",
         ".table-wrap { overflow-x: auto; }",
-        ".data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }",
+        ".data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }",
         ".data-table thead tr { background: #f8f9fb; border-bottom: 2px solid var(--border); }",
-        ".data-table th { padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); white-space: nowrap; cursor: pointer; user-select: none; }",
+        ".data-table th { padding: 10px 12px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); white-space: normal; word-break: break-word; cursor: pointer; user-select: none; }",
+        ".data-table th.tc-name-h { text-align: left; }",
         ".data-table th:hover { color: var(--accent); }",
         ".data-table th.sorted-asc::after  { content: ' \u2191'; color: var(--accent); }",
         ".data-table th.sorted-desc::after { content: ' \u2193'; color: var(--accent); }",
         ".data-table tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }",
         ".data-table tbody tr:hover { background: var(--accent-soft); }",
         ".data-table tbody tr:last-child { border-bottom: none; }",
-        ".data-table td { padding: 9px 12px; vertical-align: middle; }",
-        ".tc-name { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; max-width: 340px; word-break: break-word; }",
+        ".data-table td { padding: 9px 12px; vertical-align: middle; text-align: center; }",
+        ".data-table td.tc-name { text-align: left; }",
+        ".tc-name { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; word-break: break-word; white-space: normal; }",
         ".tc-name-h { min-width: 260px; }",
         ".num { text-align: center; font-family: 'IBM Plex Mono', monospace; }",
         ".muted { color: var(--muted); }",
         ".th-col { color: #2563eb; font-weight: 600; }",
         ".comment-col { font-size: 11.5px; color: var(--muted); font-style: italic; max-width: 200px; }",
         ".placeholder-row td { text-align: center; padding: 16px; color: var(--muted); font-style: italic; font-size: 12px; }",
-        ".badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }",
+        ".badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: normal; word-break: break-word; text-align: center; }",
         ".badge-cert { background: var(--cert-bg); color: var(--cert-fg); }",
         ".badge-prov { background: var(--prov-bg); color: var(--prov-fg); }",
         ".badge-new  { background: var(--newp-bg); color: var(--newp-fg); }",
