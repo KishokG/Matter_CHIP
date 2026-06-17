@@ -43,6 +43,10 @@ FILTER_CONFIG = {
         "field": "Fix Required For",
         "value": "Needs to be fixed for 1.7 release"
     },
+    "1.6.1_Issues_Tracking": {
+        "field": "Fix Required For",
+        "value": "Needs to be fixed for 1.6.1 release"
+    },
     "1.6_TE2_Issues": {
         "field": "Found In",
         "value": "1.6 TE2"
