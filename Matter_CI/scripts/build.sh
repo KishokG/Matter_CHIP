@@ -140,10 +140,21 @@ sdk_bootstrap() {
 # =============================================================================
 activate_env() {
     cd "${SDK_DIR}"
-    log "Activating Matter environment (source scripts/activate.sh)..."
-    # shellcheck disable=SC1091
-    source scripts/activate.sh
-    ok "Environment activated. pigweed/gn/ninja in PATH."
+    log "Activating Matter environment..."
+
+    # Set PW_ENVIRONMENT_ROOT if not already set — required by activate.sh
+    export PW_ENVIRONMENT_ROOT="${SDK_DIR}/.environment"
+
+    # Also set CIPD cache dir to avoid permission issues in CI
+    export CIPD_CACHE_DIR="${SDK_DIR}/.cipd-cache"
+
+    if [[ -f "scripts/activate.sh" ]]; then
+        # shellcheck disable=SC1091
+        source scripts/activate.sh
+        ok "Environment activated."
+    else
+        fail "scripts/activate.sh not found in ${SDK_DIR}"
+    fi
 }
 
 # =============================================================================
