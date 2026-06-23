@@ -86,6 +86,13 @@ jobs:
           echo "SSH config written:"
           cat ~/.ssh/config
 
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
       - name: Verify SSH connection
         run: |
           ssh rpi "echo Connected to \$(hostname) as \$(whoami) && uname -a"
