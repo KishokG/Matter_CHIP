@@ -1,12 +1,12 @@
 # =============================================================================
 # .github/workflows/matter_build.yml
 #
-# Lives at: Matter_CHIP/.github/workflows/matter_build.yml
+# Lives at:  Matter_CHIP/.github/workflows/matter_build.yml
 # CI files:  Matter_CHIP/Matter_CI/config/build_config.yaml
-#            Matter_CHIP/Matter_CI/scripts/build.sh  etc.
+#            Matter_CHIP/Matter_CI/scripts/*.sh etc.
 #
 # Required GitHub Secrets:
-#   SSH_PRIVATE_KEY   — private key whose public key is in RPi authorized_keys
+#   SSH_PRIVATE_KEY   — private key (public key must be in RPi authorized_keys)
 #   RPI_HOST          — Tailscale IP or hostname of the Raspberry Pi
 #   RPI_USER          — SSH login user (e.g. ubuntu)
 # Optional:
@@ -71,44 +71,72 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # ── Set up SSH ──────────────────────────────────────────
+      # ── Set up SSH ────────────────────────────────────────────
       - name: Set up SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           RPI_HOST: ${{ secrets.RPI_HOST }}
-          RPI_PORT: ${{ secrets.RPI_PORT || '22' }}
+          RPI_USER: ${{ secrets.RPI_USER }}
+          RPI_PORT: ${{ secrets.RPI_PORT }}
         run: |
+          # Default port to 22 if RPI_PORT secret is not set
+          PORT="${RPI_PORT:-22}"
+
+          # ── Debug: confirm secrets are present (values stay hidden) ──
+          echo "RPI_HOST     set: $([ -n "${RPI_HOST}" ]     && echo YES || echo '*** NO — add secret ***')"
+          echo "RPI_USER     set: $([ -n "${RPI_USER}" ]     && echo YES || echo '*** NO — add secret ***')"
+          echo "SSH_KEY      set: $([ -n "${SSH_PRIVATE_KEY}" ] && echo YES || echo '*** NO — add secret ***')"
+          echo "PORT              : ${PORT}"
+
+          # ── Fail fast with clear message if any secret is missing ──
+          if [ -z "${SSH_PRIVATE_KEY}" ]; then
+            echo "::error::SSH_PRIVATE_KEY secret is not set. Go to Settings > Secrets > Actions and add it."
+            exit 1
+          fi
+          if [ -z "${RPI_HOST}" ]; then
+            echo "::error::RPI_HOST secret is not set. Add your Tailscale IP (e.g. 100.64.125.51)."
+            exit 1
+          fi
+          if [ -z "${RPI_USER}" ]; then
+            echo "::error::RPI_USER secret is not set. Add value: ubuntu"
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
+          # Write private key (printf preserves newlines correctly)
           printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/rpi_key
           chmod 600 ~/.ssh/rpi_key
 
-          ssh-keyscan -p "${RPI_PORT}" -H "${RPI_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+          # Scan host key to avoid interactive prompt
+          ssh-keyscan -p "${PORT}" -H "${RPI_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-          cat >> ~/.ssh/config << SSHEOF
-          Host rpi
-            HostName ${RPI_HOST}
-            User ${{ secrets.RPI_USER }}
-            Port ${RPI_PORT}
-            IdentityFile ~/.ssh/rpi_key
-            ServerAliveInterval 30
-            ServerAliveCountMax 20
-            ConnectTimeout 30
-            StrictHostKeyChecking no
-          SSHEOF
+          # Write SSH client config — no indentation inside heredoc
+          cat > ~/.ssh/config << SSHEOF
+Host rpi
+  HostName ${RPI_HOST}
+  User ${RPI_USER}
+  Port ${PORT}
+  IdentityFile ~/.ssh/rpi_key
+  ServerAliveInterval 30
+  ServerAliveCountMax 20
+  ConnectTimeout 30
+  StrictHostKeyChecking no
+SSHEOF
 
-      # ── Verify connection ────────────────────────────────────
+          echo "✅ SSH config written successfully"
+
+      # ── Verify connection ──────────────────────────────────────
       - name: Verify SSH connection
         run: |
-          ssh rpi "echo '✅ Connected to' \$(hostname) 'as' \$(whoami); uname -a"
+          ssh rpi "echo '✅ Connected to' \$(hostname) 'as' \$(whoami) && uname -a"
 
-      # ── Sync only the Matter_CI subfolder to RPi ─────────────
+      # ── Sync Matter_CI subfolder to RPi ───────────────────────
       - name: Sync Matter_CI to RPi
         run: |
           ssh rpi "mkdir -p ~/Matter_CI"
 
-          # Only sync the Matter_CI subfolder — not the whole repo
           rsync -avz --progress \
             --exclude='.git/' \
             --exclude='connectedhomeip/' \
@@ -118,7 +146,7 @@ jobs:
 
           echo "✅ Sync complete"
 
-      # ── Override enabled apps if provided via dispatch ────────
+      # ── Override enabled apps if provided via dispatch ─────────
       - name: Apply target_apps override
         if: ${{ github.event.inputs.target_apps != '' }}
         run: |
@@ -135,14 +163,14 @@ jobs:
           print('Enabled apps overridden to:', target)
           PY"
 
-      # ── Install PyYAML on RPi (apt, safe for Ubuntu 24.04) ───
+      # ── Install PyYAML on RPi (apt, safe for Ubuntu 24.04) ────
       - name: Install Python deps on RPi
         run: |
           ssh rpi "python3 -c 'import yaml' 2>/dev/null \
             && echo '✅ PyYAML already present' \
             || (sudo apt-get install -y python3-yaml && echo '✅ PyYAML installed')"
 
-      # ── Run the build ────────────────────────────────────────
+      # ── Run the build ──────────────────────────────────────────
       - name: Run build.sh on RPi
         run: |
           SKIP_FLAG=""
@@ -164,7 +192,7 @@ jobs:
             bash scripts/build.sh ${SKIP_FLAG}
           "
 
-      # ── Collect build summary ────────────────────────────────
+      # ── Collect build summary ──────────────────────────────────
       - name: Collect build info
         if: always()
         run: |
@@ -175,7 +203,7 @@ jobs:
           " > artifacts/build_summary.txt 2>&1 || true
           cat artifacts/build_summary.txt
 
-      # ── Upload artifact ──────────────────────────────────────
+      # ── Upload artifact ────────────────────────────────────────
       - name: Upload build summary
         if: always()
         uses: actions/upload-artifact@v4
@@ -184,7 +212,7 @@ jobs:
           path: artifacts/
           retention-days: 14
 
-      # ── GitHub job summary ───────────────────────────────────
+      # ── GitHub job summary ─────────────────────────────────────
       - name: Write job summary
         if: always()
         run: |
