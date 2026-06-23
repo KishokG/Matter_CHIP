@@ -261,19 +261,23 @@ build_python_controller() {
         return
     fi
 
-    local install_venv_name
+    local install_venv_name extra_args
     install_venv_name=$(cfg_get python_controller install_venv_name)
+    extra_args=$(cfg_get python_controller extra_args)   # optional — empty string if not set
 
     # activate.sh MUST be sourced before build_python.sh
     activate_env
     cd "${SDK_DIR}"
 
-    log "Command: scripts/build_python.sh -m platform -d true -i ${install_venv_name}"
+    log "Command: scripts/build_python.sh -m platform -d true -i ${install_venv_name} ${extra_args}"
 
+    # extra_args intentionally unquoted so multiple args split correctly
+    # e.g. "--enable_thread_meshcop true" becomes two separate args
     scripts/build_python.sh \
         -m platform \
         -d true \
-        -i "${install_venv_name}"
+        -i "${install_venv_name}" \
+        ${extra_args}
 
     ok "Python controller built and installed into: ${SDK_DIR}/${install_venv_name}"
 }
