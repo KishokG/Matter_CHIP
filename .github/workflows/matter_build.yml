@@ -1,29 +1,6 @@
-# =============================================================================
-# .github/workflows/matter_build.yml
-#
-# Lives at:  Matter_CHIP/.github/workflows/matter_build.yml
-# CI files:  Matter_CHIP/Matter_CI/config/build_config.yaml
-#            Matter_CHIP/Matter_CI/scripts/*.sh etc.
-#
-# Required GitHub Secrets:
-#   SSH_PRIVATE_KEY   — private key (public key must be in RPi authorized_keys)
-#   RPI_HOST          — Tailscale IP or hostname of the Raspberry Pi
-#   RPI_USER          — SSH login user (e.g. ubuntu)
-# Optional:
-#   RPI_PORT          — SSH port (default: 22)
-# =============================================================================
-
 name: Matter — Build on RPi
 
 on:
-  push:
-    branches: [main, master]
-    paths:
-      - 'Matter_CI/config/build_config.yaml'
-      - 'Matter_CI/scripts/build.sh'
-      - '.github/workflows/matter_build.yml'
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
     inputs:
       skip_sdk_clone:
@@ -34,11 +11,17 @@ on:
         description: "Comma-separated app names to build (empty = use config)"
         required: false
         default: ""
+  push:
+    branches: [main, master]
+    paths:
+      - 'Matter_CI/config/build_config.yaml'
+      - 'Matter_CI/scripts/build.sh'
+      - '.github/workflows/matter_build.yml'
 
 jobs:
-  # ──────────────────────────────────────────────────────────
-  # Job 1: Validate config (runs on GitHub runner, not RPi)
-  # ──────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────
+  # Job 1: Validate config on GitHub runner (fast, no RPi)
+  # ────────────────────────────────────────────────────────
   validate:
     name: Validate Config
     runs-on: ubuntu-latest
@@ -58,9 +41,9 @@ jobs:
         run: |
           python3 Matter_CI/scripts/validate_config.py Matter_CI/config/build_config.yaml
 
-  # ──────────────────────────────────────────────────────────
-  # Job 2: Build on RPi via SSH
-  # ──────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────
+  # Job 2: Build on Raspberry Pi via SSH
+  # ────────────────────────────────────────────────────────
   build:
     name: Build on Raspberry Pi
     runs-on: ubuntu-latest
@@ -71,7 +54,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # ── Set up SSH ────────────────────────────────────────────
       - name: Set up SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -79,131 +61,99 @@ jobs:
           RPI_USER: ${{ secrets.RPI_USER }}
           RPI_PORT: ${{ secrets.RPI_PORT }}
         run: |
-          # Default port to 22 if RPI_PORT secret is not set
           PORT="${RPI_PORT:-22}"
 
-          # ── Debug: confirm secrets are present (values stay hidden) ──
-          echo "RPI_HOST     set: $([ -n "${RPI_HOST}" ]     && echo YES || echo '*** NO — add secret ***')"
-          echo "RPI_USER     set: $([ -n "${RPI_USER}" ]     && echo YES || echo '*** NO — add secret ***')"
-          echo "SSH_KEY      set: $([ -n "${SSH_PRIVATE_KEY}" ] && echo YES || echo '*** NO — add secret ***')"
-          echo "PORT              : ${PORT}"
+          echo "RPI_HOST set: $([ -n "${RPI_HOST}" ] && echo YES || echo NO)"
+          echo "RPI_USER set: $([ -n "${RPI_USER}" ] && echo YES || echo NO)"
+          echo "SSH_KEY  set: $([ -n "${SSH_PRIVATE_KEY}" ] && echo YES || echo NO)"
+          echo "PORT        : ${PORT}"
 
-          # ── Fail fast with clear message if any secret is missing ──
-          if [ -z "${SSH_PRIVATE_KEY}" ]; then
-            echo "::error::SSH_PRIVATE_KEY secret is not set. Go to Settings > Secrets > Actions and add it."
-            exit 1
-          fi
-          if [ -z "${RPI_HOST}" ]; then
-            echo "::error::RPI_HOST secret is not set. Add your Tailscale IP (e.g. 100.64.125.51)."
-            exit 1
-          fi
-          if [ -z "${RPI_USER}" ]; then
-            echo "::error::RPI_USER secret is not set. Add value: ubuntu"
-            exit 1
-          fi
+          if [ -z "${SSH_PRIVATE_KEY}" ]; then echo "::error::SSH_PRIVATE_KEY secret is not set"; exit 1; fi
+          if [ -z "${RPI_HOST}" ]; then echo "::error::RPI_HOST secret is not set"; exit 1; fi
+          if [ -z "${RPI_USER}" ]; then echo "::error::RPI_USER secret is not set"; exit 1; fi
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Write private key (printf preserves newlines correctly)
           printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/rpi_key
           chmod 600 ~/.ssh/rpi_key
 
-          # Scan host key to avoid interactive prompt
           ssh-keyscan -p "${PORT}" -H "${RPI_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-          # Write SSH client config — no indentation inside heredoc
-          cat > ~/.ssh/config << SSHEOF
-Host rpi
-  HostName ${RPI_HOST}
-  User ${RPI_USER}
-  Port ${PORT}
-  IdentityFile ~/.ssh/rpi_key
-  ServerAliveInterval 30
-  ServerAliveCountMax 20
-  ConnectTimeout 30
-  StrictHostKeyChecking no
-SSHEOF
+          printf 'Host rpi\n  HostName %s\n  User %s\n  Port %s\n  IdentityFile ~/.ssh/rpi_key\n  ServerAliveInterval 30\n  ServerAliveCountMax 20\n  ConnectTimeout 30\n  StrictHostKeyChecking no\n' \
+            "${RPI_HOST}" "${RPI_USER}" "${PORT}" > ~/.ssh/config
 
-          echo "✅ SSH config written successfully"
+          echo "SSH config written:"
+          cat ~/.ssh/config
 
-      # ── Verify connection ──────────────────────────────────────
       - name: Verify SSH connection
         run: |
-          ssh rpi "echo '✅ Connected to' \$(hostname) 'as' \$(whoami) && uname -a"
+          ssh rpi "echo Connected to \$(hostname) as \$(whoami) && uname -a"
 
-      # ── Sync Matter_CI subfolder to RPi ───────────────────────
       - name: Sync Matter_CI to RPi
         run: |
           ssh rpi "mkdir -p ~/Matter_CI"
-
-          rsync -avz --progress \
+          rsync -avz \
             --exclude='.git/' \
             --exclude='connectedhomeip/' \
             --exclude='out/' \
             --exclude='.venv/' \
             Matter_CI/ rpi:~/Matter_CI/
+          echo "Sync complete"
 
-          echo "✅ Sync complete"
-
-      # ── Override enabled apps if provided via dispatch ─────────
       - name: Apply target_apps override
         if: ${{ github.event.inputs.target_apps != '' }}
+        env:
+          RPI_USER: ${{ secrets.RPI_USER }}
+          TARGET_APPS: ${{ github.event.inputs.target_apps }}
         run: |
           ssh rpi "python3 - << 'PY'
           import yaml
-          path = '/home/${{ secrets.RPI_USER }}/Matter_CI/config/build_config.yaml'
+          import os
+          path = os.path.expanduser('~/Matter_CI/config/build_config.yaml')
           with open(path) as f:
               cfg = yaml.safe_load(f)
-          target = [t.strip() for t in '${{ github.event.inputs.target_apps }}'.split(',') if t.strip()]
+          target = [t.strip() for t in '${TARGET_APPS}'.split(',') if t.strip()]
           for app in cfg['apps']:
               app['enabled'] = app['name'] in target
           with open(path, 'w') as f:
               yaml.dump(cfg, f, default_flow_style=False)
-          print('Enabled apps overridden to:', target)
+          print('Enabled apps set to:', target)
           PY"
 
-      # ── Install PyYAML on RPi (apt, safe for Ubuntu 24.04) ────
-      - name: Install Python deps on RPi
+      - name: Install PyYAML on RPi
         run: |
           ssh rpi "python3 -c 'import yaml' 2>/dev/null \
-            && echo '✅ PyYAML already present' \
-            || (sudo apt-get install -y python3-yaml && echo '✅ PyYAML installed')"
+            && echo 'PyYAML already present' \
+            || (sudo apt-get install -y python3-yaml && echo 'PyYAML installed')"
 
-      # ── Run the build ──────────────────────────────────────────
       - name: Run build.sh on RPi
         run: |
           SKIP_FLAG=""
           if [[ "${{ github.event.inputs.skip_sdk_clone }}" == "true" ]]; then
             SKIP_FLAG="--skip-sdk"
           fi
-
           ssh rpi "
             set -euo pipefail
             cd ~/Matter_CI
             chmod +x scripts/build.sh
-
             export MATTER_SDK_DIR=\$(python3 -c \"
           import yaml
           cfg = yaml.safe_load(open('config/build_config.yaml'))
           print(cfg['rpi']['sdk_dir'])
           \")
-            echo \"SDK_DIR=\${MATTER_SDK_DIR}\"
+            echo SDK_DIR=\${MATTER_SDK_DIR}
             bash scripts/build.sh ${SKIP_FLAG}
           "
 
-      # ── Collect build summary ──────────────────────────────────
       - name: Collect build info
         if: always()
         run: |
           mkdir -p artifacts
-          ssh rpi "
-            cd ~/Matter_CI
-            python3 scripts/collect_build_info.py config/build_config.yaml
-          " > artifacts/build_summary.txt 2>&1 || true
+          ssh rpi "cd ~/Matter_CI && python3 scripts/collect_build_info.py config/build_config.yaml" \
+            > artifacts/build_summary.txt 2>&1 || true
           cat artifacts/build_summary.txt
 
-      # ── Upload artifact ────────────────────────────────────────
       - name: Upload build summary
         if: always()
         uses: actions/upload-artifact@v4
@@ -212,21 +162,18 @@ SSHEOF
           path: artifacts/
           retention-days: 14
 
-      # ── GitHub job summary ─────────────────────────────────────
       - name: Write job summary
         if: always()
         run: |
-          echo "## 🔨 Matter Build — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Matter Build — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| RPi Host | ${{ secrets.RPI_HOST }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Ref | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Skip SDK clone | ${{ github.event.inputs.skip_sdk_clone || 'false' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           if [[ -f artifacts/build_summary.txt ]]; then
-            echo "### Build Output" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             cat artifacts/build_summary.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
