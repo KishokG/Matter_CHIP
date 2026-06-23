@@ -1,0 +1,93 @@
+# ============================================================
+# Matter Build Configuration
+# ============================================================
+
+sdk:
+  repo: "https://github.com/project-chip/connectedhomeip.git"
+  branch: "master"
+  sha: ""           # Leave empty for branch HEAD, or pin: e.g. "a1b2c3d"
+  bootstrap: true   # Run scripts/bootstrap.sh after a fresh clone
+
+# ============================================================
+# Reference Apps
+#
+# Built using the real SDK helper:
+#   scripts/examples/gn_build_example.sh <source_dir> <build_dir> [extra_gn_args]
+#
+# extra_gn_args are passed directly — no quoting needed in the value.
+# ============================================================
+apps:
+  - name: "all-clusters-app"
+    enabled: true
+    source_dir: "examples/all-clusters-app/linux"
+    build_dir:  "examples/all-clusters-app/linux/out/all-clusters-app"
+    binary_name: "chip-all-clusters-app"
+    # Exact args from your working manual command:
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+  - name: "lighting-app"
+    enabled: false
+    source_dir: "examples/lighting-app/linux"
+    build_dir:  "out/lighting-app"
+    binary_name: "chip-lighting-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+  - name: "lock-app"
+    enabled: false
+    source_dir: "examples/lock-app/linux"
+    build_dir:  "out/lock-app"
+    binary_name: "chip-lock-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+  - name: "thermostat-app"
+    enabled: false
+    source_dir: "examples/thermostat/linux"
+    build_dir:  "out/thermostat-app"
+    binary_name: "chip-thermostat-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+  - name: "bridge-app"
+    enabled: false
+    source_dir: "examples/bridge-app/linux"
+    build_dir:  "out/bridge-app"
+    binary_name: "chip-bridge-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+# ============================================================
+# chip-tool
+#
+# Manual command equivalent:
+#   scripts/examples/gn_build_example.sh \
+#       examples/chip-tool \
+#       out/chip-tool \
+#       'chip_mdns="platform" chip_inet_config_enable_ipv4=false'
+# ============================================================
+chip_tool:
+  enabled: false
+  source_dir: "examples/chip-tool"
+  build_dir:  "out/chip-tool"
+  binary_name: "chip-tool"
+  extra_gn_args: 'chip_mdns="platform" chip_inet_config_enable_ipv4=false'
+
+# ============================================================
+# Python Controller
+#
+# Manual command equivalent:
+#   source scripts/activate.sh
+#   scripts/build_python.sh -m platform -d true -i python_env
+#
+# install_venv_name: the -i argument — venv created inside the SDK dir
+# ============================================================
+python_controller:
+  enabled: false
+  install_venv_name: "python_env"   # SDK creates <sdk_dir>/python_env/
+
+# ============================================================
+# Raspberry Pi target
+# Actual values come from GitHub Secrets — these are just defaults/docs
+# ============================================================
+rpi:
+  user: "ubuntu"
+  host: "192.168.0.128"
+  port: 22
+  sdk_dir: "/home/ubuntu/connectedhomeip"
