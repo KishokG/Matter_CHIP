@@ -1,0 +1,205 @@
+# =============================================================================
+# .github/workflows/matter_build.yml
+#
+# Lives at: Matter_CHIP/.github/workflows/matter_build.yml
+# CI files:  Matter_CHIP/Matter_CI/config/build_config.yaml
+#            Matter_CHIP/Matter_CI/scripts/build.sh  etc.
+#
+# Required GitHub Secrets:
+#   SSH_PRIVATE_KEY   — private key whose public key is in RPi authorized_keys
+#   RPI_HOST          — Tailscale IP or hostname of the Raspberry Pi
+#   RPI_USER          — SSH login user (e.g. ubuntu)
+# Optional:
+#   RPI_PORT          — SSH port (default: 22)
+# =============================================================================
+
+name: Matter — Build on RPi
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'Matter_CI/config/build_config.yaml'
+      - 'Matter_CI/scripts/build.sh'
+      - '.github/workflows/matter_build.yml'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      skip_sdk_clone:
+        description: "Skip SDK clone/bootstrap (use existing SDK on RPi)"
+        type: boolean
+        default: false
+      target_apps:
+        description: "Comma-separated app names to build (empty = use config)"
+        required: false
+        default: ""
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Job 1: Validate config (runs on GitHub runner, not RPi)
+  # ──────────────────────────────────────────────────────────
+  validate:
+    name: Validate Config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyYAML
+        run: pip install pyyaml --quiet
+
+      - name: Validate build_config.yaml
+        run: |
+          python3 Matter_CI/scripts/validate_config.py Matter_CI/config/build_config.yaml
+
+  # ──────────────────────────────────────────────────────────
+  # Job 2: Build on RPi via SSH
+  # ──────────────────────────────────────────────────────────
+  build:
+    name: Build on Raspberry Pi
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ── Set up SSH ──────────────────────────────────────────
+      - name: Set up SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          RPI_HOST: ${{ secrets.RPI_HOST }}
+          RPI_PORT: ${{ secrets.RPI_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/rpi_key
+          chmod 600 ~/.ssh/rpi_key
+
+          ssh-keyscan -p "${RPI_PORT}" -H "${RPI_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+
+          cat >> ~/.ssh/config << SSHEOF
+          Host rpi
+            HostName ${RPI_HOST}
+            User ${{ secrets.RPI_USER }}
+            Port ${RPI_PORT}
+            IdentityFile ~/.ssh/rpi_key
+            ServerAliveInterval 30
+            ServerAliveCountMax 20
+            ConnectTimeout 30
+            StrictHostKeyChecking no
+          SSHEOF
+
+      # ── Verify connection ────────────────────────────────────
+      - name: Verify SSH connection
+        run: |
+          ssh rpi "echo '✅ Connected to' \$(hostname) 'as' \$(whoami); uname -a"
+
+      # ── Sync only the Matter_CI subfolder to RPi ─────────────
+      - name: Sync Matter_CI to RPi
+        run: |
+          ssh rpi "mkdir -p ~/Matter_CI"
+
+          # Only sync the Matter_CI subfolder — not the whole repo
+          rsync -avz --progress \
+            --exclude='.git/' \
+            --exclude='connectedhomeip/' \
+            --exclude='out/' \
+            --exclude='.venv/' \
+            Matter_CI/ rpi:~/Matter_CI/
+
+          echo "✅ Sync complete"
+
+      # ── Override enabled apps if provided via dispatch ────────
+      - name: Apply target_apps override
+        if: ${{ github.event.inputs.target_apps != '' }}
+        run: |
+          ssh rpi "python3 - << 'PY'
+          import yaml
+          path = '/home/${{ secrets.RPI_USER }}/Matter_CI/config/build_config.yaml'
+          with open(path) as f:
+              cfg = yaml.safe_load(f)
+          target = [t.strip() for t in '${{ github.event.inputs.target_apps }}'.split(',') if t.strip()]
+          for app in cfg['apps']:
+              app['enabled'] = app['name'] in target
+          with open(path, 'w') as f:
+              yaml.dump(cfg, f, default_flow_style=False)
+          print('Enabled apps overridden to:', target)
+          PY"
+
+      # ── Install PyYAML on RPi (apt, safe for Ubuntu 24.04) ───
+      - name: Install Python deps on RPi
+        run: |
+          ssh rpi "python3 -c 'import yaml' 2>/dev/null \
+            && echo '✅ PyYAML already present' \
+            || (sudo apt-get install -y python3-yaml && echo '✅ PyYAML installed')"
+
+      # ── Run the build ────────────────────────────────────────
+      - name: Run build.sh on RPi
+        run: |
+          SKIP_FLAG=""
+          if [[ "${{ github.event.inputs.skip_sdk_clone }}" == "true" ]]; then
+            SKIP_FLAG="--skip-sdk"
+          fi
+
+          ssh rpi "
+            set -euo pipefail
+            cd ~/Matter_CI
+            chmod +x scripts/build.sh
+
+            export MATTER_SDK_DIR=\$(python3 -c \"
+          import yaml
+          cfg = yaml.safe_load(open('config/build_config.yaml'))
+          print(cfg['rpi']['sdk_dir'])
+          \")
+            echo \"SDK_DIR=\${MATTER_SDK_DIR}\"
+            bash scripts/build.sh ${SKIP_FLAG}
+          "
+
+      # ── Collect build summary ────────────────────────────────
+      - name: Collect build info
+        if: always()
+        run: |
+          mkdir -p artifacts
+          ssh rpi "
+            cd ~/Matter_CI
+            python3 scripts/collect_build_info.py config/build_config.yaml
+          " > artifacts/build_summary.txt 2>&1 || true
+          cat artifacts/build_summary.txt
+
+      # ── Upload artifact ──────────────────────────────────────
+      - name: Upload build summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-summary-${{ github.run_number }}
+          path: artifacts/
+          retention-days: 14
+
+      # ── GitHub job summary ───────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## 🔨 Matter Build — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| RPi Host | ${{ secrets.RPI_HOST }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ref | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skip SDK clone | ${{ github.event.inputs.skip_sdk_clone || 'false' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ -f artifacts/build_summary.txt ]]; then
+            echo "### Build Output" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat artifacts/build_summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
