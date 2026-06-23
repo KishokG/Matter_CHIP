@@ -148,23 +148,13 @@ activate_env() {
         fail ".environment/activate.sh not found — run without --skip-sdk to bootstrap first."
     fi
 
-    # Pre-set all optional PW_* flag variables to empty so activate.sh does
-    # not crash with "unbound variable" when running in a non-interactive shell.
-    # These are checked with ${VAR:-} inside activate.sh but the script was
-    # written assuming an interactive shell where they would already be unset
-    # gracefully. Setting them explicitly to empty achieves the same result.
-    export PW_ACTIVATE_SKIP_CHECKS="${PW_ACTIVATE_SKIP_CHECKS:-}"
-    export PW_ENVIRONMENT_ROOT="${PW_ENVIRONMENT_ROOT:-${SDK_DIR}/.environment}"
-    export PW_CONFIG_FILE="${PW_CONFIG_FILE:-${SDK_DIR}/scripts/pigweed.json}"
-    export PW_PROJECT_ROOT="${PW_PROJECT_ROOT:-${SDK_DIR}}"
-    export PW_ROOT="${PW_ROOT:-${SDK_DIR}/third_party/pigweed/repo}"
-    export PW_CIPD_INSTALL_DIR="${PW_CIPD_INSTALL_DIR:-${SDK_DIR}/.environment/cipd}"
-    export PW_DOCTOR_SKIP_CIPD_PACKAGE_INDEX_UPDATE="${PW_DOCTOR_SKIP_CIPD_PACKAGE_INDEX_UPDATE:-1}"
-    export PW_SKIP_BOOTSTRAP="${PW_SKIP_BOOTSTRAP:-1}"
-
-    log "Sourcing: ${ENV_ACTIVATE}"
-    # shellcheck disable=SC1090
+    # Temporarily disable "unbound variable" errors just for sourcing activate.sh.
+    # activate.sh references optional PW_* variables with bare ${VAR} syntax
+    # (not ${VAR:-}) which causes set -u to abort in a non-interactive SSH shell.
+    # We restore set -u immediately after sourcing.
+    set +u
     source "${ENV_ACTIVATE}"
+    set -u
 
     ok "Environment ready. gn=$(command -v gn 2>/dev/null || echo NOT_FOUND)  ninja=$(command -v ninja 2>/dev/null || echo NOT_FOUND)"
 }
