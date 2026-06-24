@@ -84,4 +84,22 @@ TC-EEVSE-2.8
 TC-EEVSE-2.9
 TC-EEVSE-2.10
 
+# Closure Dimension Cluster
+TC-CLDIM-2.1
+TC-CLDIM-3.1
+TC-CLDIM-3.2
+TC-CLDIM-3.3
+TC-CLDIM-4.1
+TC-CLDIM-4.2
+
+# Closure Control Cluster
+TC-CLCTRL-2.1
+TC-CLCTRL-3.1
+TC-CLCTRL-4.1
+TC-CLCTRL-4.2
+TC-CLCTRL-4.3
+TC-CLCTRL-4.4
+TC-CLCTRL-5.1
+TC-CLCTRL-6.1
+
 # Add more TCs below as needed...
