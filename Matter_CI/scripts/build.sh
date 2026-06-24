@@ -191,6 +191,55 @@ sdk_update() {
 }
 
 # =============================================================================
+# STEP 0 — Install system dependencies
+# Reads requirements-apt.txt and installs any missing packages.
+# Runs before every build to ensure the environment is consistent.
+# =============================================================================
+install_system_deps() {
+    banner "Step 0 — System Dependencies"
+
+    local req_file="${PROJECT_ROOT}/requirements-apt.txt"
+
+    if [[ ! -f "${req_file}" ]]; then
+        warn "requirements-apt.txt not found at ${req_file} — skipping system dep check."
+        return
+    fi
+
+    # Parse requirements file — strip comments and blank lines
+    local packages=()
+    while IFS= read -r line; do
+        # Skip comments and empty lines
+        [[ "${line}" =~ ^#.*$ || -z "${line}" ]] && continue
+        packages+=("${line}")
+    done < "${req_file}"
+
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        warn "No packages found in requirements-apt.txt — skipping."
+        return
+    fi
+
+    log "Checking ${#packages[@]} required system packages..."
+
+    # Find which packages are NOT installed
+    local missing=()
+    for pkg in "${packages[@]}"; do
+        if ! dpkg -s "${pkg}" &>/dev/null 2>&1; then
+            missing+=("${pkg}")
+        fi
+    done
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        ok "All system packages already installed."
+        return
+    fi
+
+    log "Installing ${#missing[@]} missing package(s): ${missing[*]}"
+    sudo apt-get update -qq
+    sudo apt-get install -y "${missing[@]}"
+    ok "System packages installed successfully."
+}
+
+# =============================================================================
 # STEP 2 — Bootstrap
 # Manual equivalent: source scripts/bootstrap.sh
 # Always run after clone or update — environment is commit-specific.
@@ -466,6 +515,9 @@ main() {
     log "Host    : $(hostname)  |  arch: $(uname -m)"
     log "Date    : $(date)"
     echo ""
+
+    # ── Always install system dependencies first ──────────────────────────────
+    install_system_deps
 
     case "${BUILD_MODE}" in
 
