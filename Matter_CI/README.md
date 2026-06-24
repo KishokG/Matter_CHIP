@@ -3,6 +3,8 @@
 Automated pipeline to build Matter reference apps, chip-tool, and Python
 controller on a Raspberry Pi using GitHub Actions self-hosted runner.
 
+Trigger builds from your browser — no SSH, no Tailscale, no secrets needed.
+
 ---
 
 ## Table of Contents
@@ -11,36 +13,36 @@ controller on a Raspberry Pi using GitHub Actions self-hosted runner.
 2. [How It Works](#how-it-works)
 3. [Prerequisites](#prerequisites)
 4. [Setup Guide — First Time](#setup-guide--first-time)
-   - [Step 1 — System Dependencies on RPi](#step-1--system-dependencies-on-rpi)
-   - [Step 2 — Register RPi as Self-Hosted Runner](#step-2--register-rpi-as-self-hosted-runner)
-   - [Step 3 — Configure build_config.yaml](#step-3--configure-build_configyaml)
-   - [Step 4 — Push to GitHub](#step-4--push-to-github)
-   - [Step 5 — Trigger the Workflow](#step-5--trigger-the-workflow)
 5. [Adding a New RPi as Self-Hosted Runner](#adding-a-new-rpi-as-self-hosted-runner)
-6. [Build Modes](#build-modes)
-7. [Configuration Reference](#configuration-reference)
-8. [Adding a New Reference App](#adding-a-new-reference-app)
-9. [Build Artifacts](#build-artifacts)
-10. [Troubleshooting](#troubleshooting)
-11. [File Reference](#file-reference)
+6. [Triggering a Build](#triggering-a-build)
+7. [Build Modes](#build-modes)
+8. [Runtime Inputs](#runtime-inputs)
+9. [Configuration Reference](#configuration-reference)
+10. [System Dependencies](#system-dependencies)
+11. [Adding a New Reference App](#adding-a-new-reference-app)
+12. [Build Artifacts](#build-artifacts)
+13. [Troubleshooting](#troubleshooting)
+14. [File Reference](#file-reference)
 
 ---
 
 ## Project Structure
 
 ```
-Matter_CI/
-├── config/
-│   └── build_config.yaml          ← All settings (SDK, apps, RPi paths)
-├── scripts/
-│   ├── build.sh                   ← Main build script — runs ON the RPi
-│   ├── validate_config.py         ← Config validator — runs on GitHub runner
-│   └── collect_build_info.py      ← Post-build summary — runs ON the RPi
-└── README.md                      ← This file
-
-.github/
-└── workflows/
-    └── matter_build.yml           ← GitHub Actions workflow
+Matter_CHIP/
+├── Matter_CI/
+│   ├── config/
+│   │   └── build_config.yaml      ← All build settings (SDK branch/SHA, apps, RPi path)
+│   ├── scripts/
+│   │   ├── build.sh               ← Main build script — runs ON the RPi
+│   │   ├── validate_config.py     ← Config validator — runs on GitHub cloud runner
+│   │   └── collect_build_info.py  ← Post-build summary — runs ON the RPi
+│   ├── apt-packages.txt           ← System packages auto-installed before every build
+│   └── README.md                  ← This file
+│
+└── .github/
+    └── workflows/
+        └── matter_build.yml       ← GitHub Actions workflow (manual trigger only)
 ```
 
 ---
@@ -50,29 +52,28 @@ Matter_CI/
 ```
 Your Laptop (browser)
       │
-      │  Actions → Run workflow (manual trigger only)
+      │  Actions → Run workflow (manual only — push never triggers)
       ▼
 GitHub Actions
       │
-      ├── Job 1: Validate Config   (runs on GitHub cloud runner — fast)
-      │         └── checks build_config.yaml for errors
+      ├── Job 1: Validate Config     (GitHub cloud runner — ~10 seconds)
+      │         └── Validates build_config.yaml for errors
       │
-      └── Job 2: Build             (runs DIRECTLY on RPi — self-hosted runner)
-                ├── Checkout repo  (GitHub pulls code onto RPi)
+      └── Job 2: Build               (self-hosted runner — runs DIRECTLY on RPi)
+                ├── Checkout repo    (GitHub pulls Matter_CHIP onto RPi)
                 ├── Run build.sh
-                │     ├── git pull / clone SDK
-                │     ├── clean old builds + .environment
-                │     ├── source scripts/bootstrap.sh
-                │     ├── source scripts/activate.sh
-                │     ├── gn_build_example.sh (reference apps)
-                │     ├── gn_build_example.sh (chip-tool)
-                │     └── build_python.sh (python controller)
+                │     ├── Step 0: install missing apt packages (apt-packages.txt)
+                │     ├── Step 0: install missing pip packages (pycairo)
+                │     ├── Step 1: git clone / git pull SDK        [full / skip-clone]
+                │     ├── Step 2: clean old builds + .environment [full / skip-clone]
+                │     ├── Step 3: source scripts/bootstrap.sh     [full / skip-clone]
+                │     ├── Step 4: source scripts/activate.sh
+                │     ├── Step 5: gn_build_example.sh (reference apps)
+                │     ├── Step 6: gn_build_example.sh (chip-tool)
+                │     └── Step 7: build_python.sh (python controller)
                 ├── Collect build summary
-                └── Upload artifact (downloadable from GitHub)
+                └── Upload artifact  (downloadable from GitHub Actions)
 ```
-
-**No SSH, no Tailscale, no secrets needed** — the RPi runner picks up jobs
-directly from GitHub over the internet.
 
 ---
 
@@ -80,308 +81,275 @@ directly from GitHub over the internet.
 
 | What | Requirement |
 |---|---|
-| Raspberry Pi OS | Ubuntu 22.04 or 24.04, 64-bit |
+| Raspberry Pi OS | Ubuntu 22.04 or 24.04, 64-bit (ARM64) |
 | RAM | 8 GB recommended (4 GB minimum + swap) |
 | Storage | 50 GB free minimum |
 | Internet | RPi must have outbound internet access |
-| GitHub repo | Public or private repository |
+| GitHub repo | Public or private |
 
 ---
 
 ## Setup Guide — First Time
 
-### Step 1 — System Dependencies on RPi
+### Step 1 — Add swap space on RPi
 
-SSH into your RPi and install required packages:
-
-```bash
-sudo apt update && sudo apt upgrade -y
-
-sudo apt install -y \
-  git python3 python3-pip python3-venv python3-dev \
-  python3-yaml pkg-config libssl-dev libdbus-1-dev \
-  libglib2.0-dev libavahi-client-dev ninja-build cmake \
-  libgirepository1.0-dev libcairo2-dev unzip rsync curl \
-  libdbus-1-dev libgirepository1.0-dev
-
-# Verify versions
-python3 --version    # Need 3.10+
-git --version        # Need 2.x+
-```
-
-**Add swap space** (important for builds on 4GB RPi):
+Matter builds are RAM-heavy. Add swap before anything else:
 
 ```bash
 sudo fallocate -l 8G /swapfile
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
-
-# Make permanent
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-
-# Verify
-free -h
+free -h   # verify 8G swap shown
 ```
 
----
+### Step 2 — Install initial system dependencies
 
-### Step 2 — Register RPi as Self-Hosted Runner
-
-This is the key step — it connects your RPi to GitHub Actions.
-
-#### 2.1 — Get the registration token from GitHub
-
-Go to your repo on GitHub:
-```
-Settings → Actions → Runners → New self-hosted runner
-```
-
-Select:
-- **Operating System:** Linux
-- **Architecture:** ARM64
-
-GitHub shows you a set of commands with a **unique token** — copy them.
-
-#### 2.2 — Run the setup commands on RPi
+The build script auto-installs packages from `apt-packages.txt` on every run,
+but a few are needed to bootstrap the runner itself:
 
 ```bash
-# Create runner directory
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl python3 python3-yaml
+```
+
+### Step 3 — Register RPi as self-hosted runner
+
+#### 3.1 Get registration token from GitHub
+
+```
+Your repo → Settings → Actions → Runners → New self-hosted runner
+Select: Linux / ARM64
+```
+
+GitHub shows commands with a unique token — **token expires in 1 hour**.
+
+#### 3.2 Run setup commands on RPi
+
+```bash
 mkdir -p ~/actions-runner
 cd ~/actions-runner
 
-# Download the runner (use exact URL from GitHub — version changes)
+# Use the exact URL GitHub shows you (version changes)
 curl -o actions-runner-linux-arm64.tar.gz -L \
   https://github.com/actions/runner/releases/download/v2.x.x/actions-runner-linux-arm64-2.x.x.tar.gz
 
-# Extract
 tar xzf actions-runner-linux-arm64.tar.gz
 
-# Configure — use exact token from GitHub (expires in 1 hour)
+# Use the exact token GitHub shows you
 ./config.sh \
-  --url https://github.com/YOUR_USERNAME/Matter_CHIP \
+  --url https://github.com/KishokG/Matter_CHIP \
   --token YOUR_TOKEN_FROM_GITHUB
 
-# When prompted:
-#   Runner name:  kishok-rpi          ← give it a meaningful name
-#   Runner group: Default             ← press Enter
-#   Labels:       self-hosted         ← press Enter (or add custom labels)
-#   Work folder:  _work               ← press Enter
+# Prompts:
+#   Runner name:  kishok-rpi      ← meaningful name
+#   Runner group: Default         ← Enter
+#   Labels:       self-hosted     ← Enter
+#   Work folder:  _work           ← Enter
 ```
 
-#### 2.3 — Install as a system service (auto-starts on boot)
+#### 3.3 Install as system service (auto-starts on boot)
 
 ```bash
 cd ~/actions-runner
-
-# Install service
 sudo ./svc.sh install
-
-# Start service
 sudo ./svc.sh start
-
-# Check status
-sudo ./svc.sh status
-# Should show: active (running)
+sudo ./svc.sh status   # should show: active (running)
 ```
 
-#### 2.4 — Verify on GitHub
+#### 3.4 Verify on GitHub
 
-Go to:
 ```
 Settings → Actions → Runners
-```
-
-You should see:
-```
-Self-hosted runners
-──────────────────────────────────────
+─────────────────────────────────────────
   ● kishok-rpi    Idle    self-hosted, Linux, ARM64
 ```
 
 **Idle** = ready to pick up jobs ✅
 
----
+### Step 4 — Configure build_config.yaml
 
-### Step 3 — Configure build_config.yaml
-
-Edit `Matter_CI/config/build_config.yaml`:
+Edit `Matter_CI/config/build_config.yaml` and set the SDK path on your RPi:
 
 ```yaml
-sdk:
-  repo: "https://github.com/project-chip/connectedhomeip.git"
-  branch: "master"         # or "v1.4-branch", "v1.5-branch" etc.
-  sha: ""                  # leave empty for branch HEAD, or pin e.g. "a1b2c3d"
-  bootstrap: true
-  platform: "linux"        # submodule platform filter
-  submodule_jobs: 4        # parallel submodule checkout jobs
-
-apps:
-  - name: "all-clusters-app"
-    enabled: true           # ← set true/false per your needs
-    ...
-
 rpi:
-  sdk_dir: "/home/ubuntu/connectedhomeip"   # ← where SDK lives on YOUR RPi
+  sdk_dir: "/home/ubuntu/connectedhomeip"   # ← must match your RPi's path
 ```
 
-**Important:** `rpi.sdk_dir` must match the actual path on your RPi.
+Also set the SDK branch:
+```yaml
+sdk:
+  branch: "v1.6-branch"   # or "master", "v1.4-branch" etc.
+  sha: ""                  # leave empty for branch HEAD
+```
 
----
-
-### Step 4 — Push to GitHub
+### Step 5 — Push to GitHub
 
 ```bash
 cd ~/Matter_CHIP
-
 git add .
 git commit -m "Initial Matter CI setup"
 git push origin main
 ```
 
-**Note:** Pushing does NOT trigger the workflow — it is manual-trigger only.
+> **Note:** Pushing does NOT trigger the workflow — it only runs manually.
 
----
+### Step 6 — Trigger your first build
 
-### Step 5 — Trigger the Workflow
+```
+GitHub → Actions → Matter — Build on RPi → Run workflow
+Build mode: full   ← use full for first-ever run
+SDK branch: v1.6-branch
+Run workflow
+```
 
-1. Go to your repo on GitHub
-2. Click **Actions** tab
-3. Click **Matter — Build on RPi** in the left sidebar
-4. Click **Run workflow** button (top right)
-5. Select build mode:
-   - `full` — first time / branch change
-   - `skip-clone` — update existing SDK to new TOT or SHA
-   - `skip-all` — rebuild same commit (fastest)
-6. Click green **Run workflow** button
-7. Watch logs in real time
+First run takes ~90–150 min (clone + bootstrap + build).
 
 ---
 
 ## Adding a New RPi as Self-Hosted Runner
 
-Follow these steps to add any additional RPi to the same pipeline.
+### Step 1 — Add swap + install deps on new RPi
 
-### Step 1 — Install system dependencies
+```bash
+# Swap
+sudo fallocate -l 8G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-Same as [Step 1 above](#step-1--system-dependencies-on-rpi) — run on the new RPi.
+# Initial deps
+sudo apt update && sudo apt install -y git curl python3 python3-yaml
+```
 
-### Step 2 — Get a new registration token
+### Step 2 — Get a NEW registration token
 
 ```
-GitHub → Settings → Actions → Runners → New self-hosted runner
+Settings → Actions → Runners → New self-hosted runner
 ```
 
-**Each RPi needs its own unique token** — tokens expire in 1 hour.
+Each RPi needs its own unique token — **tokens expire in 1 hour**.
 
 ### Step 3 — Setup runner on new RPi
 
 ```bash
-# On the NEW RPi:
 mkdir -p ~/actions-runner
 cd ~/actions-runner
 
-# Download runner (same URL as before)
 curl -o actions-runner-linux-arm64.tar.gz -L \
   https://github.com/actions/runner/releases/download/v2.x.x/actions-runner-linux-arm64-2.x.x.tar.gz
 
 tar xzf actions-runner-linux-arm64.tar.gz
 
-# Configure with NEW token and DIFFERENT name
 ./config.sh \
-  --url https://github.com/YOUR_USERNAME/Matter_CHIP \
+  --url https://github.com/KishokG/Matter_CHIP \
   --token NEW_TOKEN_FROM_GITHUB
 
-# When prompted:
-#   Runner name:  kishok-rpi-2        ← different name from first RPi
-#   Runner group: Default
+# Prompts:
+#   Runner name:  kishok-rpi-2        ← DIFFERENT name from first RPi
 #   Labels:       self-hosted,rpi-2   ← add a unique label
-#   Work folder:  _work
-```
 
-### Step 4 — Install as service on new RPi
-
-```bash
 sudo ./svc.sh install
 sudo ./svc.sh start
-sudo ./svc.sh status
 ```
 
-### Step 5 — Update build_config.yaml for new RPi
-
-Add the new RPi's SDK path:
+### Step 4 — Target a specific RPi in the workflow (optional)
 
 ```yaml
-rpi:
-  sdk_dir: "/home/ubuntu/connectedhomeip"   # path on the specific RPi
+# Run on any available RPi (default)
+runs-on: self-hosted
+
+# Run on a specific RPi
+runs-on: [self-hosted, rpi-2]
 ```
 
-### Step 6 — Target specific RPi in workflow (optional)
-
-If you want to run on a specific RPi, update the workflow:
-
-```yaml
-# Run on any available self-hosted runner (default)
-build:
-  runs-on: self-hosted
-
-# Run on specific RPi using its label
-build:
-  runs-on: [self-hosted, rpi-2]
-```
-
-### Step 7 — Verify both runners on GitHub
+### Step 5 — Verify both runners on GitHub
 
 ```
 Settings → Actions → Runners
-──────────────────────────────────────
+─────────────────────────────────────────────────────
   ● kishok-rpi      Idle    self-hosted, Linux, ARM64
   ● kishok-rpi-2    Idle    self-hosted, Linux, ARM64, rpi-2
 ```
 
 ---
 
+## Triggering a Build
+
+1. Go to your repo → **Actions** tab
+2. Click **Matter — Build on RPi** in the left sidebar
+3. Click **Run workflow** (top right)
+4. Fill in the inputs (see [Runtime Inputs](#runtime-inputs) below)
+5. Click green **Run workflow**
+6. Watch live logs by clicking the running job
+
+---
+
 ## Build Modes
 
-| Mode | What it does | When to use |
+| Mode | Steps performed | When to use |
 |---|---|---|
-| `full` | Clone SDK → clean → bootstrap → build | First time ever, or after deleting SDK |
-| `skip-clone` | git pull/checkout → clean → bootstrap → build | New TOT, new SHA, branch change |
-| `skip-all` | Build only (no clone/clean/bootstrap) | Rebuilding exact same commit |
+| `full` | install deps → clone SDK → clean → bootstrap → build | First time, or clean slate |
+| `skip-clone` | install deps → git pull/checkout → clean → bootstrap → build | New TOT, new SHA, branch change |
+| `skip-all` | install deps → build only | Rebuilding exact same commit (fastest) |
 
-### Exact flow per mode
+### Step-by-step flow
 
-**`full`:**
+**All modes always run first:**
 ```
-git clone (depth=1)
-  → checkout_submodules.py --platform linux
-  → rm -rf .environment + old build dirs
-  → source scripts/bootstrap.sh
-  → source scripts/activate.sh
-  → gn_build_example.sh (apps)
-  → gn_build_example.sh (chip-tool)
-  → build_python.sh
+install_system_deps()
+  → check apt-packages.txt → install missing apt packages
+  → check pycairo → install if missing
 ```
 
-**`skip-clone`:**
+**`full` then runs:**
 ```
-git pull (or git checkout <SHA>)
-  → checkout_submodules.py --platform linux
-  → rm -rf .environment + old build dirs
-  → source scripts/bootstrap.sh
-  → source scripts/activate.sh
-  → gn_build_example.sh (apps)
-  → gn_build_example.sh (chip-tool)
-  → build_python.sh
+rm -rf connectedhomeip/         ← delete existing SDK if present
+git clone --branch <branch>     ← fresh clone
+checkout_submodules.py --platform linux --shallow
+rm -rf .environment + build dirs
+source scripts/bootstrap.sh
+source scripts/activate.sh      ← set +u to handle optional PW_* vars
+gn_build_example.sh → ninja
+build_python.sh
 ```
 
-**`skip-all`:**
+**`skip-clone` then runs:**
+```
+git fetch + git checkout -B <branch> origin/<branch>
+checkout_submodules.py --platform linux --shallow
+rm -rf .environment + build dirs
+source scripts/bootstrap.sh
+source scripts/activate.sh
+gn_build_example.sh → ninja
+build_python.sh
+```
+
+**`skip-all` then runs:**
 ```
 source scripts/activate.sh
-  → gn_build_example.sh (apps)
-  → gn_build_example.sh (chip-tool)
-  → build_python.sh
+gn_build_example.sh → ninja
+build_python.sh
 ```
+
+> ⚠️ `skip-all` only works if bootstrap was previously run for the current commit.
+
+---
+
+## Runtime Inputs
+
+When clicking **Run workflow**, you can override config values at runtime:
+
+| Input | Description | Default |
+|---|---|---|
+| **Build mode** | `full` / `skip-clone` / `skip-all` | `skip-clone` |
+| **SDK branch** | Override branch (e.g. `v1.6-branch`, `master`) | Uses `build_config.yaml` value |
+| **SDK SHA** | Pin to a specific commit hash | Uses `build_config.yaml` value |
+| **Target apps** | Comma-separated apps to build (e.g. `all-clusters-app`) | Uses `build_config.yaml` enabled list |
+
+**Priority:** Runtime input → `build_config.yaml` value → branch HEAD
 
 ---
 
@@ -392,20 +360,27 @@ source scripts/activate.sh
 ```yaml
 sdk:
   repo: "https://github.com/project-chip/connectedhomeip.git"
-  branch: "master"          # SDK branch to build
-  sha: ""                   # Pin to exact commit (optional)
-  bootstrap: true           # Run bootstrap.sh after clone/update
-  platform: "linux"         # Platform for checkout_submodules.py
-                            # Options: linux, esp32, nrfconnect, android, darwin
-                            # Multiple: "linux esp32"
-  submodule_jobs: 4         # Parallel submodule checkout jobs
+  branch: "v1.6-branch"     # SDK branch (overridable at runtime)
+  sha: ""                    # Pin to exact commit SHA (optional, overridable at runtime)
+  bootstrap: true            # Run bootstrap.sh after clone/update
+  platform: "linux"          # Submodule platform filter
+                             # Options: linux, esp32, nrfconnect, darwin, android
+                             # Multiple: "linux esp32"
+  submodule_jobs: 4          # Parallel submodule checkout jobs
 
 apps:
   - name: "all-clusters-app"
-    enabled: true           # true = build, false = skip
+    enabled: true            # true = build, false = skip
     source_dir: "examples/all-clusters-app/linux"
     build_dir: "examples/all-clusters-app/linux/out/all-clusters-app"
     binary_name: "chip-all-clusters-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+  - name: "lighting-app"
+    enabled: false
+    source_dir: "examples/lighting-app/linux"
+    build_dir: "out/lighting-app"
+    binary_name: "chip-lighting-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
 chip_tool:
@@ -418,31 +393,50 @@ chip_tool:
 python_controller:
   enabled: true
   install_venv_name: "python_env"
-  extra_args: ""            # e.g. "--enable_thread_meshcop true"
+  extra_args: ""             # e.g. "--enable_thread_meshcop true"
 
 rpi:
-  user: "ubuntu"
-  sdk_dir: "/home/ubuntu/connectedhomeip"   # SDK location on RPi
+  sdk_dir: "/home/ubuntu/connectedhomeip"
 ```
+
+---
+
+## System Dependencies
+
+All system packages are listed in `apt-packages.txt` and installed automatically
+before every build. Only missing packages are installed — already-installed
+packages are skipped (fast check via `dpkg -s`).
+
+**To add a new dependency:**
+```bash
+echo "libnew-dev" >> Matter_CI/apt-packages.txt
+git add Matter_CI/apt-packages.txt
+git commit -m "Add libnew-dev dependency"
+git push origin main
+```
+
+The next build run will automatically install it.
+
+**pip packages** (currently just `pycairo`) are also checked and installed
+automatically via `pip3 install --break-system-packages`.
 
 ---
 
 ## Adding a New Reference App
 
-In `build_config.yaml`, add an entry under `apps:`:
+In `build_config.yaml`, add under `apps:` and set `enabled: true`:
 
 ```yaml
-apps:
-  - name: "lighting-app"
-    enabled: true
-    source_dir: "examples/lighting-app/linux"
-    build_dir: "out/lighting-app"
-    binary_name: "chip-lighting-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+- name: "lock-app"
+  enabled: true
+  source_dir: "examples/lock-app/linux"
+  build_dir: "out/lock-app"
+  binary_name: "chip-lock-app"
+  extra_gn_args: "chip_inet_config_enable_ipv4=false"
 ```
 
-Available apps in the SDK:
-- `all-clusters-app` — all clusters reference app
+Available reference apps:
+- `all-clusters-app` — all clusters
 - `lighting-app` — on/off light
 - `lock-app` — door lock
 - `thermostat` — thermostat
@@ -450,35 +444,35 @@ Available apps in the SDK:
 - `contact-sensor-app` — contact sensor
 - `window-app` — window covering
 
-Push the config change and trigger with `skip-all` mode if SDK is unchanged.
+Trigger with `skip-all` if SDK hasn't changed.
 
 ---
 
 ## Build Artifacts
 
-After every run, a `build-summary-<N>` artifact is uploaded automatically.
+After every run (pass or fail), a `build-summary-<N>` artifact is uploaded.
 
 **Download:**
 ```
-GitHub → Actions → (click run) → Artifacts section → build-summary-N
+GitHub → Actions → (click run) → Artifacts → build-summary-N
 ```
 
-**Contents of `build_summary.txt`:**
+**Example output:**
 ```
 ══════════════════════════════════════════════════════════════
   Matter CI — Build Summary
-  2026-06-24 10:32:01
+  2026-06-24 14:32:01
 ══════════════════════════════════════════════════════════════
   SDK Dir    : /home/ubuntu/connectedhomeip
-  Branch     : master
-  Commit     : 10dc2506ef49...
+  Branch     : v1.6-branch
+  Commit     : d89f71558bf0c429ec60f3f76ea371775731701d
 
 ── Reference Apps ────────────────────────────────────────────
-  ✅  all-clusters-app    48.2 MB   /home/ubuntu/.../chip-all-clusters-app
+  ✅  all-clusters-app    48.2 MB
   ⏭   lighting-app        disabled
 
 ── chip-tool ─────────────────────────────────────────────────
-  ✅  chip-tool           22.1 MB   /home/ubuntu/.../chip-tool
+  ✅  chip-tool           22.1 MB
 
 ── Python Controller ─────────────────────────────────────────
   ✅  venv → /home/ubuntu/connectedhomeip/python_env
@@ -490,10 +484,9 @@ GitHub → Actions → (click run) → Artifacts section → build-summary-N
 
 ## Troubleshooting
 
-### Runner shows Offline on GitHub
+### Runner shows Offline
 
 ```bash
-# On RPi — restart the runner service
 cd ~/actions-runner
 sudo ./svc.sh stop
 sudo ./svc.sh start
@@ -503,31 +496,21 @@ sudo ./svc.sh status
 ### Runner not picking up jobs
 
 ```bash
-# Check runner logs
 journalctl -u actions.runner.* -f
-
-# Or check runner log files
 cat ~/actions-runner/_diag/Runner_*.log | tail -50
 ```
 
-### Bootstrap fails — missing packages
+### Build failed — missing system package
+
+The build script auto-installs from `apt-packages.txt`. If a package is
+missing from the list, add it to `apt-packages.txt` and push.
+
+### Build runs out of memory (OOM)
 
 ```bash
-# Re-run system dependency install
-sudo apt install -y \
-  git python3 python3-pip python3-venv python3-dev python3-yaml \
-  pkg-config libssl-dev libdbus-1-dev libglib2.0-dev \
-  libavahi-client-dev ninja-build cmake \
-  libgirepository1.0-dev libcairo2-dev unzip
-```
+free -h   # check current memory + swap
 
-### Build runs out of memory
-
-```bash
-# Check available memory
-free -h
-
-# Add/increase swap
+# Increase swap to 8GB
 sudo swapoff /swapfile
 sudo fallocate -l 8G /swapfile
 sudo chmod 600 /swapfile
@@ -535,41 +518,45 @@ sudo mkswap /swapfile
 sudo swapon /swapfile
 ```
 
+### Runner lost communication (OOM during build)
+
+```
+The self-hosted runner lost communication with the server.
+```
+
+This means the RPi ran out of memory mid-build and the OS killed the runner process.
+Fix: increase swap (see above), then restart runner and re-run.
+
 ### activate.sh fails with unbound variable
 
-The `build.sh` handles this with `set +u` before sourcing `activate.sh`.
-If you see this error, make sure you have the latest `build.sh` from this repo.
+`build.sh` uses `set +u` around `source scripts/activate.sh` to handle this.
+Ensure you have the latest `build.sh` from this repo.
 
-### Re-register runner (token expired)
+### Branch not switching correctly
+
+The build log shows both current and configured branch:
+```
+[BUILD] Current branch : master
+[BUILD] Config branch  : v1.6-branch
+[BUILD] Switching to branch from config: v1.6-branch
+```
+
+If the switch fails, use `full` mode to do a clean clone on the correct branch.
+
+### Re-register runner (token expired or runner broken)
 
 ```bash
-# Remove old runner
 cd ~/actions-runner
 sudo ./svc.sh stop
 sudo ./svc.sh uninstall
-./config.sh remove --token OLD_TOKEN
+./config.sh remove --token OLD_TOKEN  # or skip if token expired
 
-# Get new token from GitHub:
-# Settings → Actions → Runners → New self-hosted runner
-# Then re-run config.sh with new token
+# Get new token: Settings → Actions → Runners → New self-hosted runner
 ./config.sh \
-  --url https://github.com/YOUR_USERNAME/Matter_CHIP \
+  --url https://github.com/KishokG/Matter_CHIP \
   --token NEW_TOKEN
 sudo ./svc.sh install
 sudo ./svc.sh start
-```
-
-### Check what's running on RPi during build
-
-```bash
-# Watch build logs in real time on RPi
-journalctl -u actions.runner.* -f
-
-# Check running processes
-ps aux | grep -E "gn|ninja|bootstrap|chip"
-
-# Monitor CPU and memory
-htop
 ```
 
 ---
@@ -578,8 +565,9 @@ htop
 
 | File | Runs on | Purpose |
 |---|---|---|
-| `config/build_config.yaml` | — | All settings — SDK, apps, RPi path |
-| `scripts/build.sh` | RPi | Main build orchestrator |
-| `scripts/validate_config.py` | GitHub runner | Validates YAML before touching RPi |
-| `scripts/collect_build_info.py` | RPi | Post-build binary size summary |
-| `.github/workflows/matter_build.yml` | GitHub Actions | Workflow — manual trigger only |
+| `config/build_config.yaml` | — | All settings — SDK branch/SHA, apps, RPi path |
+| `apt-packages.txt` | RPi | System packages auto-installed before every build |
+| `scripts/build.sh` | RPi | Main build orchestrator — all 3 modes |
+| `scripts/validate_config.py` | GitHub cloud runner | Validates YAML before any build starts |
+| `scripts/collect_build_info.py` | RPi | Post-build binary sizes and paths |
+| `.github/workflows/matter_build.yml` | GitHub Actions | Workflow — manual trigger only, no push trigger |
