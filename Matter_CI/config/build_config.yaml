@@ -29,38 +29,38 @@ apps:
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "lighting-app"
-    enabled: false
+    enabled: true
     source_dir: "examples/lighting-app/linux"
     build_dir:  "out/lighting-app"
     binary_name: "chip-lighting-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "lock-app"
-    enabled: false
+    enabled: true
     source_dir: "examples/lock-app/linux"
     build_dir:  "out/lock-app"
     binary_name: "chip-lock-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "thermostat-app"
-    enabled: false
+    enabled: true
     source_dir: "examples/thermostat/linux"
     build_dir:  "out/thermostat-app"
     binary_name: "chip-thermostat-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "bridge-app"
-    enabled: false
+    enabled: true
     source_dir: "examples/bridge-app/linux"
     build_dir:  "out/bridge-app"
     binary_name: "chip-bridge-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
-  - name: "lock-app"
-    enabled: false
-    source_dir: "examples/bridge-app/linux"
-    build_dir:  "out/lock-app"
-    binary_name: "chip-lock-app"
+  - name: "air-purifier-app"
+    enabled: true
+    source_dir: "examples/air-purifier-app/linux"
+    build_dir:  "out/air-purifier-app"
+    binary_name: "chip-air-purifier-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "evse-app"
@@ -68,6 +68,13 @@ apps:
     source_dir: "examples/evse-app/linux"
     build_dir:  "out/evse-app"
     binary_name: "chip-evse-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+  - name: "closure-app"
+    enabled: true
+    source_dir: "examples/closure-app/linux"
+    build_dir:  "out/closure-app"
+    binary_name: "closure-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
 # ============================================================
