@@ -64,7 +64,7 @@ apps:
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "evse-app"
-    enabled: false
+    enabled: true
     source_dir: "examples/evse-app/linux"
     build_dir:  "out/evse-app"
     binary_name: "chip-evse-app"
