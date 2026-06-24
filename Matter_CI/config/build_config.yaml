@@ -114,9 +114,6 @@ google_sheets:
     dut_command: 4       # Column E — sample app advertisement command
     python_command: 5    # Column F — python3 test command
   header_rows: 6         # rows to skip at top (instructions/headers)
-  # service_account_key is written at runtime from CREDENTIALS_JSON GitHub Secret
-  # Do NOT commit the actual key file to the repo
-  service_account_key: "config/service_account.json"
 
 # ============================================================
 # Test Execution Settings
