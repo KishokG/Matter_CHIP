@@ -56,6 +56,20 @@ apps:
     binary_name: "chip-bridge-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
+  - name: "lock-app"
+    enabled: false
+    source_dir: "examples/bridge-app/linux"
+    build_dir:  "out/lock-app"
+    binary_name: "chip-lock-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+  - name: "bridge-app"
+    enabled: false
+    source_dir: "examples/bridge-app/linux"
+    build_dir:  "out/bridge-app"
+    binary_name: "chip-lock-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
 # ============================================================
 # chip-tool
 #
