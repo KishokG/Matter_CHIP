@@ -1,36 +1,50 @@
 #!/usr/bin/env bash
 # =============================================================================
 # build.sh — Runs ON the Raspberry Pi
-# Mirrors the exact manual build process:
 #
-# Fresh clone:
-#   git clone + submodules
+# Three build modes (set via --mode flag from GitHub Actions):
+#
+#   full        → clone SDK + bootstrap + clean old builds + build
+#                 Use for: first time, branch change, SHA change
+#
+#   skip-clone  → git pull + bootstrap + clean old builds + build
+#                 Use for: SDK already cloned, want latest TOT or new SHA
+#
+#   skip-all    → no clone, no bootstrap, no clean + build only
+#                 Use for: rebuilding exact same commit (fastest)
+#
+# Manual equivalent flow (options full / skip-clone):
+#   git clone / git pull
 #   source scripts/bootstrap.sh
 #   source scripts/activate.sh
-#   gn_build_example.sh ...
-#
-# Existing SDK (--skip-sdk):
-#   git pull
-#   source scripts/bootstrap.sh
-#   source scripts/activate.sh
-#   gn_build_example.sh ...
+#   rm -rf <old build dirs> .environment
+#   scripts/examples/gn_build_example.sh ...
+#   scripts/build_python.sh ...
 # =============================================================================
 
-set -eo pipefail   # -e: exit on error  NOTE: no -u, activate.sh uses unbound vars
+set -eo pipefail  # no -u here — activate.sh has unbound var refs
 
 # ── CLI args ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/config/build_config.yaml"
-SKIP_SDK=false
+BUILD_MODE="full"       # full | skip-clone | skip-all
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --config)    CONFIG_FILE="$2"; shift 2 ;;
-        --skip-sdk)  SKIP_SDK=true; shift ;;
-        *)           echo "[WARN] Unknown arg: $1"; shift ;;
+        --config)      CONFIG_FILE="$2"; shift 2 ;;
+        --mode)        BUILD_MODE="$2"; shift 2 ;;
+        # Legacy flag support
+        --skip-sdk)    BUILD_MODE="skip-all"; shift ;;
+        *)             echo "[WARN] Unknown arg: $1"; shift ;;
     esac
 done
+
+# Validate mode
+if [[ "${BUILD_MODE}" != "full" && "${BUILD_MODE}" != "skip-clone" && "${BUILD_MODE}" != "skip-all" ]]; then
+    echo "[ERROR] Invalid --mode '${BUILD_MODE}'. Must be: full | skip-clone | skip-all"
+    exit 1
+fi
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -77,89 +91,165 @@ SDK_REPO=$(cfg_get sdk repo)
 SDK_BRANCH=$(cfg_get sdk branch)
 SDK_SHA=$(cfg_get sdk sha)
 SDK_DIR="${MATTER_SDK_DIR:-$(cfg_get rpi sdk_dir)}"
+SDK_PLATFORM=$(cfg_get sdk platform)
+SDK_PLATFORM="${SDK_PLATFORM:-linux}"       # default to linux if not set
+SUBMODULE_JOBS=$(cfg_get sdk submodule_jobs)
+SUBMODULE_JOBS="${SUBMODULE_JOBS:-4}"       # default to 4 parallel jobs
 
 # =============================================================================
-# STEP 1 — Clone or update SDK
-# Manual equivalent:
-#   git clone https://github.com/project-chip/connectedhomeip.git
-#   git submodule update --init --recursive
+# STEP 1 — Clone SDK (full mode only)
+# Manual equivalent: git clone <url> + git submodule update --init --recursive
 # =============================================================================
-sdk_setup() {
-    banner "Step 1 — SDK Clone / Update"
+sdk_clone() {
+    banner "Step 1 — SDK Clone"
     log "Repo   : ${SDK_REPO}"
     log "Branch : ${SDK_BRANCH}"
     log "SHA    : ${SDK_SHA:-<HEAD of branch>}"
     log "Dir    : ${SDK_DIR}"
 
     if [[ -d "${SDK_DIR}/.git" ]]; then
-        log "Existing SDK found — pulling latest..."
-        cd "${SDK_DIR}"
-        # Manual equivalent: git pull
-        git fetch origin "${SDK_BRANCH}"
-        git checkout "${SDK_BRANCH}"
-        git pull origin "${SDK_BRANCH}"
-    else
-        log "Cloning SDK..."
-        # Manual equivalent: git clone <url>
-        git clone \
-            --branch "${SDK_BRANCH}" \
-            --depth 1 \
-            "${SDK_REPO}" \
-            "${SDK_DIR}"
-        cd "${SDK_DIR}"
+        log "SDK directory already exists — removing for clean clone..."
+        rm -rf "${SDK_DIR}"
     fi
 
-    # Pin to specific SHA if configured
+    log "Cloning SDK (depth=1)..."
+    git clone \
+        --branch "${SDK_BRANCH}" \
+        --depth 1 \
+        "${SDK_REPO}" \
+        "${SDK_DIR}"
+
+    cd "${SDK_DIR}"
+
     if [[ -n "${SDK_SHA}" ]]; then
         log "Pinning to SHA: ${SDK_SHA}"
+        git fetch --depth 1 origin "${SDK_SHA}" 2>/dev/null || true
         git checkout "${SDK_SHA}"
     fi
 
-    # Manual equivalent: git submodule update --init --recursive
-    log "Initialising submodules..."
-    git submodule update --init --depth 1 --recursive
+    log "Initialising submodules (platform: ${SDK_PLATFORM}, shallow, jobs: ${SUBMODULE_JOBS})..."
+    python3 scripts/checkout_submodules.py --platform "${SDK_PLATFORM}" --shallow --recursive --jobs "${SUBMODULE_JOBS}"
 
-    ok "SDK ready → commit: $(git rev-parse --short HEAD)"
+    ok "SDK cloned → commit: $(git rev-parse --short HEAD)"
+}
+
+# =============================================================================
+# STEP 1b — Update existing SDK (skip-clone mode)
+# Manual equivalent: cd connectedhomeip && git pull (or git checkout <SHA>)
+# =============================================================================
+sdk_update() {
+    banner "Step 1 — SDK Update (skip clone)"
+
+    if [[ ! -d "${SDK_DIR}/.git" ]]; then
+        fail "SDK not found at ${SDK_DIR} — cannot skip clone. Run with --mode full first."
+    fi
+
+    cd "${SDK_DIR}"
+    log "Current commit: $(git rev-parse --short HEAD)"
+    log "Current branch: $(git rev-parse --abbrev-ref HEAD)"
+
+    if [[ -n "${SDK_SHA}" ]]; then
+        # Checkout specific SHA
+        log "Fetching and checking out SHA: ${SDK_SHA}"
+        git fetch --depth 1 origin "${SDK_SHA}" 2>/dev/null || \
+            git fetch origin
+        git checkout "${SDK_SHA}"
+    else
+        # Pull latest TOT
+        log "Pulling latest from branch: ${SDK_BRANCH}"
+        git fetch origin "${SDK_BRANCH}"
+        git checkout "${SDK_BRANCH}"
+        git pull origin "${SDK_BRANCH}"
+    fi
+
+    log "Updating submodules (platform: ${SDK_PLATFORM}, shallow, jobs: ${SUBMODULE_JOBS})..."
+    python3 scripts/checkout_submodules.py --platform "${SDK_PLATFORM}" --shallow --recursive --jobs "${SUBMODULE_JOBS}"
+
+    ok "SDK updated → commit: $(git rev-parse --short HEAD)"
 }
 
 # =============================================================================
 # STEP 2 — Bootstrap
 # Manual equivalent: source scripts/bootstrap.sh
+# Always run after clone or update — environment is commit-specific.
 # =============================================================================
 sdk_bootstrap() {
     banner "Step 2 — Bootstrap"
     cd "${SDK_DIR}"
 
-    if ! cfg_bool sdk bootstrap; then
-        warn "Bootstrap disabled in config — skipping."
-        return
-    fi
-
     log "Running: source scripts/bootstrap.sh"
-    # Note: We run with bash (not source) because we are already in a subshell.
-    # The environment vars set by bootstrap are captured by the subsequent
-    # source of scripts/activate.sh which re-reads them from .environment/
+    log "This sets up pigweed, CIPD tools, and Python venv for this commit..."
     bash scripts/bootstrap.sh
     ok "Bootstrap complete."
 }
 
 # =============================================================================
+# STEP 3 — Clean old build outputs
+# Removes stale binaries and .environment from previous builds.
+# Required when switching commits/branches so old artifacts don't linger.
+# Manual equivalent: rm -rf <build_dirs> .environment
+# =============================================================================
+clean_old_builds() {
+    banner "Step 3 — Clean Old Build Outputs"
+    cd "${SDK_DIR}"
+
+    # Clean .environment (regenerated by bootstrap)
+    if [[ -d ".environment" ]]; then
+        log "Removing .environment/ ..."
+        rm -rf .environment
+        ok "Removed .environment/"
+    else
+        log ".environment/ not found — skipping"
+    fi
+
+    # Clean all enabled app build dirs
+    while IFS= read -r line; do
+        local build_dir
+        build_dir=$(echo "${line}" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['build_dir'])")
+        if [[ -d "${build_dir}" ]]; then
+            log "Removing app build dir: ${build_dir}"
+            rm -rf "${build_dir}"
+            ok "Removed ${build_dir}"
+        fi
+    done < <(cfg_apps)
+
+    # Clean chip-tool build dir
+    if cfg_bool chip_tool enabled; then
+        local ct_build
+        ct_build=$(cfg_get chip_tool build_dir)
+        if [[ -d "${ct_build}" ]]; then
+            log "Removing chip-tool build dir: ${ct_build}"
+            rm -rf "${ct_build}"
+            ok "Removed ${ct_build}"
+        fi
+    fi
+
+    # Clean python controller venv
+    if cfg_bool python_controller enabled; then
+        local venv_name
+        venv_name=$(cfg_get python_controller install_venv_name)
+        if [[ -d "${venv_name}" ]]; then
+            log "Removing python venv: ${venv_name}"
+            rm -rf "${venv_name}"
+            ok "Removed ${venv_name}"
+        fi
+    fi
+
+    ok "Clean complete — ready for fresh build."
+}
+
+# =============================================================================
 # Activate environment
 # Manual equivalent: source scripts/activate.sh
-#
-# KEY POINT: scripts/activate.sh requires PW_* vars that bootstrap sets.
-# In a fresh SSH shell these don't exist, so we:
-#   1. Disable set -u temporarily (activate.sh has unbound var refs)
-#   2. Source scripts/activate.sh directly — same as manual process
+# Must be called after bootstrap. Uses set +u to handle optional PW_* vars.
 # =============================================================================
 activate_env() {
     cd "${SDK_DIR}"
     log "Activating Matter environment (source scripts/activate.sh)..."
 
-    # Disable unbound-variable errors for the duration of sourcing.
+    # set +u: temporarily allow unbound variables.
     # activate.sh references optional PW_* vars without ${:-} guards,
     # which crashes under set -u in a non-interactive SSH shell.
-    # This is safe — we re-enable strict mode right after.
     set +u
     # shellcheck disable=SC1091
     source scripts/activate.sh
@@ -169,7 +259,7 @@ activate_env() {
 }
 
 # =============================================================================
-# STEP 3 — Build reference apps
+# STEP 4 — Build reference apps
 # Manual equivalent:
 #   scripts/examples/gn_build_example.sh \
 #       examples/all-clusters-app/linux \
@@ -177,7 +267,7 @@ activate_env() {
 #       chip_inet_config_enable_ipv4=false
 # =============================================================================
 build_apps() {
-    banner "Step 3 — Reference Apps"
+    banner "Step 4 — Reference Apps"
 
     local app_lines
     mapfile -t app_lines < <(cfg_apps)
@@ -215,15 +305,14 @@ build_apps() {
 }
 
 # =============================================================================
-# STEP 4 — Build chip-tool
+# STEP 5 — Build chip-tool
 # Manual equivalent:
 #   scripts/examples/gn_build_example.sh \
-#       examples/chip-tool \
-#       out/chip-tool \
+#       examples/chip-tool out/chip-tool \
 #       'chip_mdns="platform" chip_inet_config_enable_ipv4=false'
 # =============================================================================
 build_chip_tool() {
-    banner "Step 4 — chip-tool"
+    banner "Step 5 — chip-tool"
 
     if ! cfg_bool chip_tool enabled; then
         warn "chip-tool disabled in config — skipping."
@@ -249,12 +338,12 @@ build_chip_tool() {
 }
 
 # =============================================================================
-# STEP 5 — Build Python controller
+# STEP 6 — Build Python controller
 # Manual equivalent:
 #   ./scripts/build_python.sh -m platform -d true -i python_env
 # =============================================================================
 build_python_controller() {
-    banner "Step 5 — Python Controller"
+    banner "Step 6 — Python Controller"
 
     if ! cfg_bool python_controller enabled; then
         warn "Python controller disabled in config — skipping."
@@ -280,12 +369,13 @@ build_python_controller() {
 }
 
 # =============================================================================
-# STEP 6 — Build summary
+# STEP 7 — Build summary
 # =============================================================================
 print_summary() {
     banner "Build Summary"
     cd "${SDK_DIR}"
 
+    echo -e "${BOLD}Build mode :${NC} ${BUILD_MODE}"
     echo -e "${BOLD}SDK commit :${NC} $(git rev-parse HEAD)"
     echo -e "${BOLD}SDK branch :${NC} $(git rev-parse --abbrev-ref HEAD)"
     echo ""
@@ -308,15 +398,13 @@ print_summary() {
             all_ok=false
         fi
     done < <(cfg_apps)
-
     echo ""
 
     if cfg_bool chip_tool enabled; then
         echo -e "${BOLD}chip-tool:${NC}"
         local ct_path="${SDK_DIR}/$(cfg_get chip_tool build_dir)/$(cfg_get chip_tool binary_name)"
         if [[ -f "${ct_path}" ]]; then
-            local size
-            size=$(du -sh "${ct_path}" | cut -f1)
+            local size; size=$(du -sh "${ct_path}" | cut -f1)
             echo -e "  ${GREEN}✔${NC}  chip-tool (${size}) → ${ct_path}"
         else
             echo -e "  ${RED}✘${NC}  chip-tool MISSING: ${ct_path}"
@@ -327,9 +415,7 @@ print_summary() {
 
     if cfg_bool python_controller enabled; then
         echo -e "${BOLD}Python Controller:${NC}"
-        local venv_name venv_path
-        venv_name=$(cfg_get python_controller install_venv_name)
-        venv_path="${SDK_DIR}/${venv_name}"
+        local venv_path="${SDK_DIR}/$(cfg_get python_controller install_venv_name)"
         if [[ -d "${venv_path}" ]]; then
             echo -e "  ${GREEN}✔${NC}  venv → ${venv_path}"
         else
@@ -348,23 +434,46 @@ print_summary() {
 }
 
 # =============================================================================
-# Main
+# Main — orchestrate steps based on build mode
 # =============================================================================
 main() {
     banner "Matter CI — Build Pipeline"
+    log "Mode    : ${BUILD_MODE}"
     log "Config  : ${CONFIG_FILE}"
     log "SDK Dir : ${SDK_DIR}"
     log "Host    : $(hostname)  |  arch: $(uname -m)"
     log "Date    : $(date)"
     echo ""
 
-    if [[ "${SKIP_SDK}" == "true" ]]; then
-        warn "--skip-sdk: skipping clone and bootstrap."
-        warn "Using existing SDK at: ${SDK_DIR}"
-    else
-        sdk_setup
-        sdk_bootstrap
-    fi
+    case "${BUILD_MODE}" in
+
+        full)
+            # ── Full build: clone + bootstrap + clean + build ──────────────
+            log "Mode: FULL — clone SDK, bootstrap, clean old builds, build all"
+            sdk_clone
+            sdk_bootstrap
+            clean_old_builds
+            ;;
+
+        skip-clone)
+            # ── Skip clone: pull/checkout + bootstrap + clean + build ──────
+            log "Mode: SKIP-CLONE — update existing SDK, bootstrap, clean old builds, build all"
+            sdk_update
+            sdk_bootstrap
+            clean_old_builds
+            ;;
+
+        skip-all)
+            # ── Skip all: build only, no clone/bootstrap/clean ─────────────
+            log "Mode: SKIP-ALL — build only (SDK and bootstrap unchanged)"
+            warn "Skipping clone, bootstrap, and clean."
+            warn "Only safe if rebuilding the exact same SDK commit."
+            if [[ ! -d "${SDK_DIR}/.git" ]]; then
+                fail "SDK not found at ${SDK_DIR}. Run with --mode full first."
+            fi
+            ;;
+
+    esac
 
     build_apps
     build_chip_tool
