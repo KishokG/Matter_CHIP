@@ -101,3 +101,35 @@ rpi:
   host: "YOUR_RPI_IP"
   port: 22
   sdk_dir: "/home/ubuntu/connectedhomeip"
+
+# ============================================================
+# Google Sheets — Test Command Source
+# ============================================================
+google_sheets:
+  spreadsheet_id: "YOUR_SPREADSHEET_ID_HERE"   # from the sheet URL
+  sheet_name: "Python Script Validation Procedure"   # tab name
+  # Column indices (0-based: 0=A, 1=B, 2=C ...)
+  columns:
+    test_case_id: 2      # Column C — TC ID e.g. TC-ACE-1.2
+    dut_command: 4       # Column E — sample app advertisement command
+    python_command: 5    # Column F — python3 test command
+  header_rows: 6         # rows to skip at top (instructions/headers)
+  # service_account_key is written at runtime from CREDENTIALS_JSON GitHub Secret
+  # Do NOT commit the actual key file to the repo
+  service_account_key: "config/service_account.json"
+
+# ============================================================
+# Test Execution Settings
+# ============================================================
+test_execution:
+  # .txt file listing TC IDs to run — one per line, # = comment
+  tc_list_file: "config/tc_list.txt"
+  # Per-test timeout in seconds
+  timeout_seconds: 600
+  # Seconds to wait after DUT launches before running test script
+  dut_startup_wait: 5
+  # Log and report output paths (relative to Matter_CI workspace)
+  log_dir: "logs/test_runs"
+  report_path: "logs/report.html"
+  # admin_storage.json — cleared before each test
+  admin_storage: "admin_storage.json"
