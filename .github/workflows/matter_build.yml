@@ -3,12 +3,20 @@ name: Matter — Build on RPi
 on:
   workflow_dispatch:
     inputs:
-      skip_sdk_clone:
-        description: "Skip SDK clone/bootstrap (use existing SDK on RPi)"
-        type: boolean
-        default: false
+      build_mode:
+        description: >
+          'full' = clone + bootstrap + clean + build,
+          'skip-clone' = pull + bootstrap + clean + build,
+          'skip-all' = build only (same commit)
+        required: true
+        default: "skip-clone"
+        type: choice
+        options:
+          - full
+          - skip-clone
+          - skip-all
       target_apps:
-        description: "Comma-separated app names to build (empty = use config)"
+        description: "Override apps (comma-separated e.g. all-clusters-app,lighting-app). Empty = use config."
         required: false
         default: ""
   push:
@@ -19,9 +27,9 @@ on:
       - '.github/workflows/matter_build.yml'
 
 jobs:
-  # ────────────────────────────────────────────────────────
-  # Job 1: Validate config on GitHub runner (fast, no RPi)
-  # ────────────────────────────────────────────────────────
+  # ──────────────────────────────────────────────────────────
+  # Job 1: Validate config — runs on GitHub runner (fast)
+  # ──────────────────────────────────────────────────────────
   validate:
     name: Validate Config
     runs-on: ubuntu-latest
@@ -41,124 +49,104 @@ jobs:
         run: |
           python3 Matter_CI/scripts/validate_config.py Matter_CI/config/build_config.yaml
 
-  # ────────────────────────────────────────────────────────
-  # Job 2: Build on Raspberry Pi via SSH
-  # ────────────────────────────────────────────────────────
+  # ──────────────────────────────────────────────────────────
+  # Job 2: Build — runs DIRECTLY on RPi (self-hosted runner)
+  # No SSH, no Tailscale, no rsync needed!
+  # ──────────────────────────────────────────────────────────
   build:
     name: Build on Raspberry Pi
-    runs-on: ubuntu-latest
+    runs-on: self-hosted        # ← RPi picks this job directly
     needs: validate
-    timeout-minutes: 240
+    # No timeout-minutes limit — self-hosted runners have no time limit
 
     steps:
+      # GitHub checks out the repo directly onto the RPi
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          RPI_HOST: ${{ secrets.RPI_HOST }}
-          RPI_USER: ${{ secrets.RPI_USER }}
-          RPI_PORT: ${{ secrets.RPI_PORT }}
+      # ── Print build mode ─────────────────────────────────
+      - name: Print build mode
         run: |
-          PORT="${RPI_PORT:-22}"
+          MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
+          echo "Build mode : ${MODE}"
+          echo "Host       : $(hostname)"
+          echo "User       : $(whoami)"
+          echo "Arch       : $(uname -m)"
+          echo "Date       : $(date)"
+          case "${MODE}" in
+            full)
+              echo "→ clone SDK + bootstrap + clean + build"
+              ;;
+            skip-clone)
+              echo "→ git pull/checkout + bootstrap + clean + build"
+              ;;
+            skip-all)
+              echo "→ build only (no clone, no bootstrap, no clean)"
+              ;;
+          esac
 
-          echo "RPI_HOST set: $([ -n "${RPI_HOST}" ] && echo YES || echo NO)"
-          echo "RPI_USER set: $([ -n "${RPI_USER}" ] && echo YES || echo NO)"
-          echo "SSH_KEY  set: $([ -n "${SSH_PRIVATE_KEY}" ] && echo YES || echo NO)"
-          echo "PORT        : ${PORT}"
-
-          if [ -z "${SSH_PRIVATE_KEY}" ]; then echo "::error::SSH_PRIVATE_KEY secret is not set"; exit 1; fi
-          if [ -z "${RPI_HOST}" ]; then echo "::error::RPI_HOST secret is not set"; exit 1; fi
-          if [ -z "${RPI_USER}" ]; then echo "::error::RPI_USER secret is not set"; exit 1; fi
-
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/rpi_key
-          chmod 600 ~/.ssh/rpi_key
-
-          ssh-keyscan -p "${PORT}" -H "${RPI_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-          printf 'Host rpi\n  HostName %s\n  User %s\n  Port %s\n  IdentityFile ~/.ssh/rpi_key\n  ServerAliveInterval 30\n  ServerAliveCountMax 20\n  ConnectTimeout 30\n  StrictHostKeyChecking no\n' \
-            "${RPI_HOST}" "${RPI_USER}" "${PORT}" > ~/.ssh/config
-
-          echo "SSH config written:"
-          cat ~/.ssh/config
-
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-
-      - name: Verify SSH connection
-        run: |
-          ssh rpi "echo Connected to \$(hostname) as \$(whoami) && uname -a"
-
-      - name: Sync Matter_CI to RPi
-        run: |
-          ssh rpi "mkdir -p ~/Matter_CI"
-          rsync -avz \
-            --exclude='.git/' \
-            --exclude='connectedhomeip/' \
-            --exclude='out/' \
-            --exclude='.venv/' \
-            Matter_CI/ rpi:~/Matter_CI/
-          echo "Sync complete"
-
+      # ── Override enabled apps if provided ────────────────
       - name: Apply target_apps override
         if: ${{ github.event.inputs.target_apps != '' }}
         env:
-          RPI_USER: ${{ secrets.RPI_USER }}
           TARGET_APPS: ${{ github.event.inputs.target_apps }}
         run: |
-          ssh rpi "python3 - << 'PY'
-          import yaml
-          import os
-          path = os.path.expanduser('~/Matter_CI/config/build_config.yaml')
+          python3 - << 'PY'
+          import yaml, os
+          path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'Matter_CI/config/build_config.yaml')
           with open(path) as f:
               cfg = yaml.safe_load(f)
-          target = [t.strip() for t in '${TARGET_APPS}'.split(',') if t.strip()]
+          target = [t.strip() for t in os.environ['TARGET_APPS'].split(',') if t.strip()]
           for app in cfg['apps']:
               app['enabled'] = app['name'] in target
           with open(path, 'w') as f:
               yaml.dump(cfg, f, default_flow_style=False)
           print('Enabled apps set to:', target)
-          PY"
+          PY
 
-      - name: Install PyYAML on RPi
+      # ── Install PyYAML if missing ────────────────────────
+      - name: Check PyYAML
         run: |
-          ssh rpi "python3 -c 'import yaml' 2>/dev/null \
-            && echo 'PyYAML already present' \
-            || (sudo apt-get install -y python3-yaml && echo 'PyYAML installed')"
+          python3 -c 'import yaml' 2>/dev/null \
+            && echo 'PyYAML present' \
+            || (sudo apt-get install -y python3-yaml && echo 'PyYAML installed')
 
-      - name: Run build.sh on RPi
+      # ── Run build.sh ─────────────────────────────────────
+      - name: Run build.sh
         run: |
-          SKIP_FLAG=""
-          if [[ "${{ github.event.inputs.skip_sdk_clone }}" == "true" ]]; then
-            SKIP_FLAG="--skip-sdk"
-          fi
-          ssh rpi "
-            set -euo pipefail
-            cd ~/Matter_CI
-            chmod +x scripts/build.sh
-            export MATTER_SDK_DIR=\$(python3 -c \"
+          BUILD_MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
+
+          # build.sh lives in Matter_CI/scripts/ inside the checked-out repo
+          CONFIG="${GITHUB_WORKSPACE}/Matter_CI/config/build_config.yaml"
+          SCRIPT="${GITHUB_WORKSPACE}/Matter_CI/scripts/build.sh"
+
+          chmod +x "${SCRIPT}"
+
+          # SDK dir comes from config
+          export MATTER_SDK_DIR=$(python3 -c "
           import yaml
-          cfg = yaml.safe_load(open('config/build_config.yaml'))
+          cfg = yaml.safe_load(open('${CONFIG}'))
           print(cfg['rpi']['sdk_dir'])
-          \")
-            echo SDK_DIR=\${MATTER_SDK_DIR}
-            bash scripts/build.sh ${SKIP_FLAG}
-          "
+          ")
 
+          echo "SDK_DIR    : ${MATTER_SDK_DIR}"
+          echo "BUILD_MODE : ${BUILD_MODE}"
+
+          bash "${SCRIPT}" \
+            --config "${CONFIG}" \
+            --mode "${BUILD_MODE}"
+
+      # ── Collect build summary ────────────────────────────
       - name: Collect build info
         if: always()
         run: |
           mkdir -p artifacts
-          ssh rpi "cd ~/Matter_CI && python3 scripts/collect_build_info.py config/build_config.yaml" \
+          python3 Matter_CI/scripts/collect_build_info.py \
+            Matter_CI/config/build_config.yaml \
             > artifacts/build_summary.txt 2>&1 || true
           cat artifacts/build_summary.txt
 
+      # ── Upload artifact ──────────────────────────────────
       - name: Upload build summary
         if: always()
         uses: actions/upload-artifact@v4
@@ -167,18 +155,22 @@ jobs:
           path: artifacts/
           retention-days: 14
 
+      # ── GitHub job summary ───────────────────────────────
       - name: Write job summary
         if: always()
         run: |
+          MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
           echo "## Matter Build — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Mode | ${MODE} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Runner | self-hosted (kishok-rpi) |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Skip SDK clone | ${{ github.event.inputs.skip_sdk_clone || 'false' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Target apps | ${{ github.event.inputs.target_apps || '(from config)' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           if [[ -f artifacts/build_summary.txt ]]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             cat artifacts/build_summary.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
