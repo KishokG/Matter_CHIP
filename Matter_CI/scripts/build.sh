@@ -88,13 +88,24 @@ cfg_bool() {
 
 # ── Read SDK config ───────────────────────────────────────────────────────────
 SDK_REPO=$(cfg_get sdk repo)
-SDK_BRANCH=$(cfg_get sdk branch)
-SDK_SHA=$(cfg_get sdk sha)
-SDK_DIR="${MATTER_SDK_DIR:-$(cfg_get rpi sdk_dir)}"
 SDK_PLATFORM=$(cfg_get sdk platform)
 SDK_PLATFORM="${SDK_PLATFORM:-linux}"       # default to linux if not set
 SUBMODULE_JOBS=$(cfg_get sdk submodule_jobs)
 SUBMODULE_JOBS="${SUBMODULE_JOBS:-4}"       # default to 4 parallel jobs
+SDK_DIR="${MATTER_SDK_DIR:-$(cfg_get rpi sdk_dir)}"
+
+# Runtime overrides — set by workflow dispatch inputs (sdk_branch / sdk_sha).
+# If provided at runtime, they take priority over build_config.yaml values.
+# If not provided, fall back to config file values.
+CONFIG_BRANCH=$(cfg_get sdk branch)
+CONFIG_SHA=$(cfg_get sdk sha)
+SDK_BRANCH="${RUNTIME_SDK_BRANCH:-${CONFIG_BRANCH}}"
+SDK_SHA="${RUNTIME_SDK_SHA:-${CONFIG_SHA}}"
+
+log "Branch source  : ${RUNTIME_SDK_BRANCH:+runtime input} ${RUNTIME_SDK_BRANCH:-config file}"
+log "Branch value   : ${SDK_BRANCH}"
+log "SHA source     : ${RUNTIME_SDK_SHA:+runtime input} ${RUNTIME_SDK_SHA:-config file}"
+log "SHA value      : ${SDK_SHA:-<none — use branch HEAD>}"
 
 # =============================================================================
 # STEP 1 — Clone SDK (full mode only)
