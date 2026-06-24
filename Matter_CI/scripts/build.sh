@@ -448,25 +448,27 @@ main() {
     case "${BUILD_MODE}" in
 
         full)
-            # ── Full build: clone + bootstrap + clean + build ──────────────
-            log "Mode: FULL — clone SDK, bootstrap, clean old builds, build all"
+            # ── Full build: clone → clean → bootstrap → build ──────────────
+            # Clean first so bootstrap creates a fresh .environment
+            log "Mode: FULL — clone SDK, clean old builds, bootstrap, build all"
             sdk_clone
-            sdk_bootstrap
-            clean_old_builds
+            clean_old_builds   # ← before bootstrap — removes stale .environment
+            sdk_bootstrap      # ← creates fresh .environment
             ;;
 
         skip-clone)
-            # ── Skip clone: pull/checkout + bootstrap + clean + build ──────
-            log "Mode: SKIP-CLONE — update existing SDK, bootstrap, clean old builds, build all"
+            # ── Skip clone: pull → clean → bootstrap → build ───────────────
+            # Clean first so bootstrap creates a fresh .environment
+            log "Mode: SKIP-CLONE — update existing SDK, clean old builds, bootstrap, build all"
             sdk_update
-            sdk_bootstrap
-            clean_old_builds
+            clean_old_builds   # ← before bootstrap — removes stale .environment
+            sdk_bootstrap      # ← creates fresh .environment
             ;;
 
         skip-all)
-            # ── Skip all: build only, no clone/bootstrap/clean ─────────────
+            # ── Skip all: build only — no clone/clean/bootstrap ────────────
             log "Mode: SKIP-ALL — build only (SDK and bootstrap unchanged)"
-            warn "Skipping clone, bootstrap, and clean."
+            warn "Skipping clone, clean, and bootstrap."
             warn "Only safe if rebuilding the exact same SDK commit."
             if [[ ! -d "${SDK_DIR}/.git" ]]; then
                 fail "SDK not found at ${SDK_DIR}. Run with --mode full first."
