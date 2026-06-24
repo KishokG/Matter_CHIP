@@ -1,7 +1,7 @@
 name: Matter — Build on RPi
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:    # Manual trigger only — from Actions tab → Run workflow
     inputs:
       build_mode:
         description: >
@@ -19,12 +19,6 @@ on:
         description: "Override apps (comma-separated e.g. all-clusters-app,lighting-app). Empty = use config."
         required: false
         default: ""
-  push:
-    branches: [main, master]
-    paths:
-      - 'Matter_CI/config/build_config.yaml'
-      - 'Matter_CI/scripts/build.sh'
-      - '.github/workflows/matter_build.yml'
 
 jobs:
   # ──────────────────────────────────────────────────────────
