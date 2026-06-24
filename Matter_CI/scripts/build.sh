@@ -198,45 +198,55 @@ sdk_update() {
 install_system_deps() {
     banner "Step 0 — System Dependencies"
 
-    local req_file="${PROJECT_ROOT}/requirements-apt.txt"
+    local apt_file="${PROJECT_ROOT}/apt-packages.txt"
 
-    if [[ ! -f "${req_file}" ]]; then
-        warn "requirements-apt.txt not found at ${req_file} — skipping system dep check."
-        return
-    fi
+    # ── APT packages ──────────────────────────────────────────────────────────
+    if [[ ! -f "${apt_file}" ]]; then
+        warn "apt-packages.txt not found at ${apt_file} — skipping apt dep check."
+    else
+        # Parse file — strip comments and blank lines
+        local packages=()
+        while IFS= read -r line; do
+            [[ "${line}" =~ ^#.*$ || -z "${line}" ]] && continue
+            packages+=("${line}")
+        done < "${apt_file}"
 
-    # Parse requirements file — strip comments and blank lines
-    local packages=()
-    while IFS= read -r line; do
-        # Skip comments and empty lines
-        [[ "${line}" =~ ^#.*$ || -z "${line}" ]] && continue
-        packages+=("${line}")
-    done < "${req_file}"
+        if [[ ${#packages[@]} -gt 0 ]]; then
+            log "Checking ${#packages[@]} required apt packages..."
 
-    if [[ ${#packages[@]} -eq 0 ]]; then
-        warn "No packages found in requirements-apt.txt — skipping."
-        return
-    fi
+            # Find which packages are NOT installed
+            local missing=()
+            for pkg in "${packages[@]}"; do
+                if ! dpkg -s "${pkg}" &>/dev/null 2>&1; then
+                    missing+=("${pkg}")
+                fi
+            done
 
-    log "Checking ${#packages[@]} required system packages..."
-
-    # Find which packages are NOT installed
-    local missing=()
-    for pkg in "${packages[@]}"; do
-        if ! dpkg -s "${pkg}" &>/dev/null 2>&1; then
-            missing+=("${pkg}")
+            if [[ ${#missing[@]} -eq 0 ]]; then
+                ok "All apt packages already installed."
+            else
+                log "Installing ${#missing[@]} missing apt package(s): ${missing[*]}"
+                sudo apt-get update -qq
+                sudo apt-get install -y "${missing[@]}"
+                ok "Apt packages installed successfully."
+            fi
         fi
-    done
-
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        ok "All system packages already installed."
-        return
     fi
 
-    log "Installing ${#missing[@]} missing package(s): ${missing[*]}"
-    sudo apt-get update -qq
-    sudo apt-get install -y "${missing[@]}"
-    ok "System packages installed successfully."
+    # ── pip packages ──────────────────────────────────────────────────────────
+    log "Checking pip packages..."
+    local pip_missing=()
+
+    # pycairo — required for Python GI bindings
+    python3 -c "import cairo" &>/dev/null 2>&1 || pip_missing+=("pycairo")
+
+    if [[ ${#pip_missing[@]} -eq 0 ]]; then
+        ok "All pip packages already installed."
+    else
+        log "Installing pip packages: ${pip_missing[*]}"
+        pip3 install "${pip_missing[@]}" --break-system-packages --quiet
+        ok "Pip packages installed."
+    fi
 }
 
 # =============================================================================
