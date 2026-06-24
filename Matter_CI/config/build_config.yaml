@@ -7,6 +7,9 @@ sdk:
   branch: "master"
   sha: ""           # Leave empty for branch HEAD, or pin: e.g. "a1b2c3d"
   bootstrap: true   # Run scripts/bootstrap.sh after a fresh clone
+  platform: "linux" # Submodule platform filter — uses checkout_submodules.py
+                    # Options: linux, esp32, nrfconnect, android, darwin, etc.
+  submodule_jobs: 4 # Parallel jobs for submodule checkout
 
 # ============================================================
 # Reference Apps
