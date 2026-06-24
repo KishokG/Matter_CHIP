@@ -4,10 +4,7 @@ on:
   workflow_dispatch:    # Manual trigger only — from Actions tab → Run workflow
     inputs:
       build_mode:
-        description: >
-          'full' = clone + bootstrap + clean + build,
-          'skip-clone' = pull + bootstrap + clean + build,
-          'skip-all' = build only (same commit)
+        description: "'full' = clone + bootstrap + clean + build, 'skip-clone' = pull + bootstrap + clean + build, 'skip-all' = build only (same commit)"
         required: true
         default: "skip-clone"
         type: choice
@@ -15,6 +12,14 @@ on:
           - full
           - skip-clone
           - skip-all
+      sdk_branch:
+        description: "SDK branch to build. Empty = use build_config.yaml value."
+        required: false
+        default: ""
+      sdk_sha:
+        description: "SDK commit SHA to pin. Empty = use branch HEAD (or build_config.yaml value)."
+        required: false
+        default: ""
       target_apps:
         description: "Override apps (comma-separated e.g. all-clusters-app,lighting-app). Empty = use config."
         required: false
@@ -109,6 +114,8 @@ jobs:
       - name: Run build.sh
         run: |
           BUILD_MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
+          RUNTIME_BRANCH="${{ github.event.inputs.sdk_branch }}"
+          RUNTIME_SHA="${{ github.event.inputs.sdk_sha }}"
 
           # build.sh lives in Matter_CI/scripts/ inside the checked-out repo
           CONFIG="${GITHUB_WORKSPACE}/Matter_CI/config/build_config.yaml"
@@ -124,6 +131,11 @@ jobs:
           ")
 
           echo "SDK_DIR    : ${MATTER_SDK_DIR}"
+          echo "BUILD_MODE     : ${BUILD_MODE}"
+          echo "RUNTIME_BRANCH : ${RUNTIME_BRANCH:-<from config>}"
+          echo "RUNTIME_SHA    : ${RUNTIME_SHA:-<from config>}"
+          export RUNTIME_SDK_BRANCH="${RUNTIME_BRANCH}"
+          export RUNTIME_SDK_SHA="${RUNTIME_SHA}"
           echo "BUILD_MODE : ${BUILD_MODE}"
 
           bash "${SCRIPT}" \
