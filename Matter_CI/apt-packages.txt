@@ -5,7 +5,8 @@
 # (Raspberry Pi ARM64 / aarch64)
 #
 # Installed automatically by build.sh before every build.
-# To install manually: sudo apt install -y $(grep -v '^#' requirements-apt.txt | tr '\n' ' ')
+# To install manually:
+#   sudo apt install -y $(grep -v '^#\|^$' apt-packages.txt | tr '\n' ' ')
 # =============================================================================
 
 # ── Core build tools ──────────────────────────────────────────────────────────
@@ -14,17 +15,22 @@ curl
 unzip
 wget
 rsync
+build-essential
 pkg-config
 cmake
 ninja-build
+protobuf-compiler
 
 # ── Python ────────────────────────────────────────────────────────────────────
 python3
 python3-pip
 python3-venv
 python3-dev
-python3-yaml
 python3-full
+python3-yaml
+python3-widgetsnbextension
+python3-testresources
+python-is-python3
 
 # ── SSL / Crypto ──────────────────────────────────────────────────────────────
 libssl-dev
@@ -41,6 +47,7 @@ libcairo2-dev
 libpango1.0-dev
 
 # ── Avahi / mDNS ─────────────────────────────────────────────────────────────
+avahi-daemon
 libavahi-client-dev
 libavahi-compat-libdnssd-dev
 
@@ -57,7 +64,7 @@ libudev-dev
 # ── GD library ───────────────────────────────────────────────────────────────
 libgd-dev
 
-# ── Additional compiler tools ────────────────────────────────────────────────
-gcc
-g++
-clang
+# ── WiFi / Wireless tools ─────────────────────────────────────────────────────
+wpasupplicant
+wireless-tools
+rfkill
