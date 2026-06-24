@@ -145,27 +145,38 @@ sdk_update() {
     fi
 
     cd "${SDK_DIR}"
-    log "Current commit: $(git rev-parse --short HEAD)"
-    log "Current branch: $(git rev-parse --abbrev-ref HEAD)"
+    log "Current commit : $(git rev-parse --short HEAD)"
+    log "Current branch : $(git rev-parse --abbrev-ref HEAD)"
+    log "Config branch  : ${SDK_BRANCH}"
+    log "Config SHA     : ${SDK_SHA:-<none — will use branch HEAD>}"
 
     if [[ -n "${SDK_SHA}" ]]; then
-        # Checkout specific SHA
-        log "Fetching and checking out SHA: ${SDK_SHA}"
-        git fetch --depth 1 origin "${SDK_SHA}" 2>/dev/null || \
-            git fetch origin
+        # ── Pin to specific SHA from config ───────────────────────────────
+        log "Fetching SHA from config: ${SDK_SHA}"
+        git fetch --depth 1 origin "${SDK_SHA}" 2>/dev/null ||             git fetch origin
         git checkout "${SDK_SHA}"
+        log "Detached HEAD at: $(git rev-parse --short HEAD)"
+
     else
-        # Pull latest TOT
-        log "Pulling latest from branch: ${SDK_BRANCH}"
+        # ── Checkout branch from config and pull latest TOT ───────────────
+        log "Switching to branch from config: ${SDK_BRANCH}"
+
+        # Fetch the configured branch from remote
         git fetch origin "${SDK_BRANCH}"
-        git checkout "${SDK_BRANCH}"
-        git pull origin "${SDK_BRANCH}"
+
+        # -B: create branch if it doesn't exist, or reset it to remote HEAD
+        # This ensures we always land on the correct branch from config
+        # regardless of what branch the local repo was on before
+        git checkout -B "${SDK_BRANCH}" "origin/${SDK_BRANCH}"
+
+        log "Now on branch  : $(git rev-parse --abbrev-ref HEAD)"
+        log "Latest commit  : $(git rev-parse --short HEAD)"
     fi
 
     log "Updating submodules (platform: ${SDK_PLATFORM}, shallow, jobs: ${SUBMODULE_JOBS})..."
     python3 scripts/checkout_submodules.py --platform "${SDK_PLATFORM}" --shallow --recursive --jobs "${SUBMODULE_JOBS}"
 
-    ok "SDK updated → commit: $(git rev-parse --short HEAD)"
+    ok "SDK updated → branch: $(git rev-parse --abbrev-ref HEAD)  commit: $(git rev-parse --short HEAD)"
 }
 
 # =============================================================================
