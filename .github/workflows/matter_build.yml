@@ -1,10 +1,26 @@
 name: Matter — Build on RPi
 
 on:
-  workflow_dispatch:    # Manual trigger only — from Actions tab → Run workflow
+  workflow_dispatch:
     inputs:
+      pipeline:
+        description: >
+          'build-only' = build apps only,
+          'test-only'  = fetch + run tests (uses existing build on RPi),
+          'build-test' = build then run tests
+        required: true
+        default: "build-only"
+        type: choice
+        options:
+          - build-only
+          - test-only
+          - build-test
       build_mode:
-        description: "'full' = clone + bootstrap + clean + build, 'skip-clone' = pull + bootstrap + clean + build, 'skip-all' = build only (same commit)"
+        description: >
+          Build mode (ignored when pipeline=test-only).
+          'full'=clone+bootstrap+clean+build,
+          'skip-clone'=pull+bootstrap+clean+build,
+          'skip-all'=build only
         required: true
         default: "skip-clone"
         type: choice
@@ -13,21 +29,21 @@ on:
           - skip-clone
           - skip-all
       sdk_branch:
-        description: "SDK branch to build. Empty = use build_config.yaml value."
+        description: "SDK branch (ignored when pipeline=test-only). Empty = use config."
         required: false
         default: ""
       sdk_sha:
-        description: "SDK commit SHA to pin. Empty = use branch HEAD (or build_config.yaml value)."
+        description: "SDK commit SHA to pin (ignored when pipeline=test-only). Empty = use config."
         required: false
         default: ""
       target_apps:
-        description: "Override apps (comma-separated e.g. all-clusters-app,lighting-app). Empty = use config."
+        description: "Override apps to build e.g. all-clusters-app,lighting-app. Empty = use config."
         required: false
         default: ""
 
 jobs:
   # ──────────────────────────────────────────────────────────
-  # Job 1: Validate config — runs on GitHub runner (fast)
+  # Job 1: Validate config — always runs (GitHub cloud runner)
   # ──────────────────────────────────────────────────────────
   validate:
     name: Validate Config
@@ -48,43 +64,41 @@ jobs:
         run: |
           python3 Matter_CI/scripts/validate_config.py Matter_CI/config/build_config.yaml
 
+      - name: Print pipeline plan
+        run: |
+          PIPELINE="${{ github.event.inputs.pipeline }}"
+          echo "════════════════════════════════════"
+          echo "  Pipeline : ${PIPELINE}"
+          echo "  Build mode: ${{ github.event.inputs.build_mode }}"
+          echo "  SDK branch: ${{ github.event.inputs.sdk_branch || '(from config)' }}"
+          echo "  SDK SHA   : ${{ github.event.inputs.sdk_sha || '(from config)' }}"
+          echo "════════════════════════════════════"
+          case "${PIPELINE}" in
+            build-only)  echo "→ Will run: build only" ;;
+            test-only)   echo "→ Will run: fetch tests + execute tests (skip build)" ;;
+            build-test)  echo "→ Will run: build + fetch tests + execute tests" ;;
+          esac
+
   # ──────────────────────────────────────────────────────────
-  # Job 2: Build — runs DIRECTLY on RPi (self-hosted runner)
-  # No SSH, no Tailscale, no rsync needed!
+  # Job 2: Build — skipped when pipeline=test-only
   # ──────────────────────────────────────────────────────────
   build:
     name: Build on Raspberry Pi
-    runs-on: self-hosted        # ← RPi picks this job directly
+    runs-on: self-hosted
     needs: validate
-    # No timeout-minutes limit — self-hosted runners have no time limit
+    if: ${{ github.event.inputs.pipeline != 'test-only' }}
 
     steps:
-      # GitHub checks out the repo directly onto the RPi
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # ── Print build mode ─────────────────────────────────
-      - name: Print build mode
+      - name: Print build info
         run: |
-          MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
-          echo "Build mode : ${MODE}"
+          echo "Build mode : ${{ github.event.inputs.build_mode }}"
           echo "Host       : $(hostname)"
-          echo "User       : $(whoami)"
           echo "Arch       : $(uname -m)"
           echo "Date       : $(date)"
-          case "${MODE}" in
-            full)
-              echo "→ clone SDK + bootstrap + clean + build"
-              ;;
-            skip-clone)
-              echo "→ git pull/checkout + bootstrap + clean + build"
-              ;;
-            skip-all)
-              echo "→ build only (no clone, no bootstrap, no clean)"
-              ;;
-          esac
 
-      # ── Override enabled apps if provided ────────────────
       - name: Apply target_apps override
         if: ${{ github.event.inputs.target_apps != '' }}
         env:
@@ -103,46 +117,37 @@ jobs:
           print('Enabled apps set to:', target)
           PY
 
-      # ── Install PyYAML if missing ────────────────────────
       - name: Check PyYAML
         run: |
           python3 -c 'import yaml' 2>/dev/null \
             && echo 'PyYAML present' \
             || (sudo apt-get install -y python3-yaml && echo 'PyYAML installed')
 
-      # ── Run build.sh ─────────────────────────────────────
       - name: Run build.sh
         run: |
           BUILD_MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
-          RUNTIME_BRANCH="${{ github.event.inputs.sdk_branch }}"
-          RUNTIME_SHA="${{ github.event.inputs.sdk_sha }}"
-
-          # build.sh lives in Matter_CI/scripts/ inside the checked-out repo
           CONFIG="${GITHUB_WORKSPACE}/Matter_CI/config/build_config.yaml"
           SCRIPT="${GITHUB_WORKSPACE}/Matter_CI/scripts/build.sh"
 
           chmod +x "${SCRIPT}"
 
-          # SDK dir comes from config
           export MATTER_SDK_DIR=$(python3 -c "
           import yaml
           cfg = yaml.safe_load(open('${CONFIG}'))
           print(cfg['rpi']['sdk_dir'])
           ")
+          export RUNTIME_SDK_BRANCH="${{ github.event.inputs.sdk_branch }}"
+          export RUNTIME_SDK_SHA="${{ github.event.inputs.sdk_sha }}"
 
-          echo "SDK_DIR    : ${MATTER_SDK_DIR}"
+          echo "SDK_DIR        : ${MATTER_SDK_DIR}"
           echo "BUILD_MODE     : ${BUILD_MODE}"
-          echo "RUNTIME_BRANCH : ${RUNTIME_BRANCH:-<from config>}"
-          echo "RUNTIME_SHA    : ${RUNTIME_SHA:-<from config>}"
-          export RUNTIME_SDK_BRANCH="${RUNTIME_BRANCH}"
-          export RUNTIME_SDK_SHA="${RUNTIME_SHA}"
-          echo "BUILD_MODE : ${BUILD_MODE}"
+          echo "RUNTIME_BRANCH : ${RUNTIME_SDK_BRANCH:-<from config>}"
+          echo "RUNTIME_SHA    : ${RUNTIME_SDK_SHA:-<from config>}"
 
           bash "${SCRIPT}" \
             --config "${CONFIG}" \
             --mode "${BUILD_MODE}"
 
-      # ── Collect build summary ────────────────────────────
       - name: Collect build info
         if: always()
         run: |
@@ -152,7 +157,6 @@ jobs:
             > artifacts/build_summary.txt 2>&1 || true
           cat artifacts/build_summary.txt
 
-      # ── Upload artifact ──────────────────────────────────
       - name: Upload build summary
         if: always()
         uses: actions/upload-artifact@v4
@@ -161,23 +165,133 @@ jobs:
           path: artifacts/
           retention-days: 14
 
-      # ── GitHub job summary ───────────────────────────────
       - name: Write job summary
         if: always()
         run: |
-          MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
           echo "## Matter Build — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| Build Mode | ${MODE} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Runner | self-hosted (kishok-rpi) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pipeline | ${{ github.event.inputs.pipeline }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Mode | ${{ github.event.inputs.build_mode }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Target apps | ${{ github.event.inputs.target_apps || '(from config)' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           if [[ -f artifacts/build_summary.txt ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             cat artifacts/build_summary.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ──────────────────────────────────────────────────────────
+  # Job 3: Fetch test commands from Google Sheet
+  # Runs when pipeline = test-only OR build-test
+  # When test-only: no dependency on build job
+  # When build-test: depends on build job
+  # ──────────────────────────────────────────────────────────
+  fetch-tests:
+    name: Fetch Test Commands
+    runs-on: self-hosted
+    needs: [validate, build]
+    if: |
+      always() &&
+      (github.event.inputs.pipeline == 'test-only' ||
+       github.event.inputs.pipeline == 'build-test') &&
+      (needs.validate.result == 'success') &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Deploy service account key
+        env:
+          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
+        run: |
+          echo "${CREDENTIALS_JSON}" > "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          chmod 600 "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
+      - name: Install Google API libs
+        run: |
+          pip3 install google-auth google-auth-httplib2 google-api-python-client \
+            --break-system-packages --quiet
+
+      - name: Fetch test commands from Google Sheet
+        run: |
+          export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          python3 Matter_CI/scripts/fetch_test_commands.py \
+            --config Matter_CI/config/build_config.yaml
+
+      - name: Cleanup SA key
+        if: always()
+        run: rm -f "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
+      - name: Upload test_commands.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-commands-${{ github.run_number }}
+          path: Matter_CI/logs/test_commands.json
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────
+  # Job 4: Run tests + generate HTML report
+  # ──────────────────────────────────────────────────────────
+  run-tests:
+    name: Run Tests
+    runs-on: self-hosted
+    needs: fetch-tests
+    if: |
+      always() &&
+      needs.fetch-tests.result == 'success'
+    timeout-minutes: 480
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Run test suite
+        run: |
+          export MATTER_SDK_DIR=$(python3 -c "
+          import yaml
+          cfg = yaml.safe_load(open('Matter_CI/config/build_config.yaml'))
+          print(cfg['rpi']['sdk_dir'])
+          ")
+          python3 Matter_CI/scripts/run_tests.py \
+            --config   Matter_CI/config/build_config.yaml \
+            --commands Matter_CI/logs/test_commands.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_number }}
+          path: |
+            Matter_CI/logs/report.html
+            Matter_CI/logs/test_results.json
+            Matter_CI/logs/test_runs/
+          retention-days: 30
+
+      - name: Write test summary
+        if: always()
+        run: |
+          echo "## Matter Test Results — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ -f Matter_CI/logs/test_results.json ]]; then
+            python3 - << 'PY'
+          import json, os
+          results = json.load(open('Matter_CI/logs/test_results.json'))
+          total   = len(results)
+          passed  = sum(1 for r in results if r['status'] == 'PASS')
+          failed  = sum(1 for r in results if r['status'] == 'FAIL')
+          rerun   = sum(1 for r in results if r['status'] == 'RERUN')
+          errors  = sum(1 for r in results if r['status'] == 'ERROR')
+          summary_file = os.environ['GITHUB_STEP_SUMMARY']
+          with open(summary_file, 'a') as f:
+              f.write(f"| Total | Pass | Fail | Rerun | Error |\n")
+              f.write(f"|---|---|---|---|---|\n")
+              f.write(f"| {total} | {passed} | {failed} | {rerun} | {errors} |\n\n")
+              f.write("| TC ID | Status |\n|---|---|\n")
+              for r in results:
+                  f.write(f"| {r['test_case_id']} | {r['status']} |\n")
+          PY
           fi
