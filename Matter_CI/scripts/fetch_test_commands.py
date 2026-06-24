@@ -146,8 +146,12 @@ def load_tc_list(path: Path) -> list[str]:
 # =============================================================================
 def fetch_sheet(cfg: dict) -> list[list[str]]:
     gs = cfg["google_sheets"]
-    sa_key = os.environ.get("GSHEET_SA_KEY_PATH",
-                            str(PROJECT_ROOT / gs["service_account_key"]))
+    # Key path comes from env var set by the workflow at runtime
+    # (written from CREDENTIALS_JSON GitHub Secret)
+    sa_key = os.environ.get(
+        "GSHEET_SA_KEY_PATH",
+        str(PROJECT_ROOT / "config" / "service_account.json")
+    )
 
     if not Path(sa_key).exists():
         print(f"[ERROR] Service account key not found: {sa_key}")
