@@ -56,21 +56,21 @@ apps:
     binary_name: "chip-bridge-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
-- name: "air-purifier-app"
+  - name: "air-purifier-app"
     enabled: true
     source_dir: "examples/air-purifier-app/linux"
     build_dir:  "out/air-purifier-app"
     binary_name: "chip-air-purifier-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
-- name: "evse-app"
+  - name: "evse-app"
     enabled: true
     source_dir: "examples/evse-app/linux"
     build_dir:  "out/evse-app"
     binary_name: "chip-evse-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
-- name: "closure-app"
+  - name: "closure-app"
     enabled: true
     source_dir: "examples/closure-app/linux"
     build_dir:  "out/closure-app"
