@@ -314,43 +314,107 @@ class TestRunner:
 
 
 # =============================================================================
-# HTML Report generator
+# HTML Report generator — enhanced with filters, cluster grouping, log links
 # =============================================================================
+def extract_cluster(tc_id: str) -> str:
+    """Extract cluster name from TC ID e.g. TC-ACE-1.2 → ACE"""
+    match = re.match(r'TC-([A-Z]+(?:-[A-Z]+)*)-', tc_id, re.IGNORECASE)
+    return match.group(1).upper() if match else "OTHER"
+
+
 def generate_report(results: list[dict], cfg: dict) -> Path:
     report_path = PROJECT_ROOT / cfg["test_execution"]["report_path"]
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
-    total  = len(results)
-    passed = sum(1 for r in results if r["status"] == PASS)
-    failed = sum(1 for r in results if r["status"] == FAIL)
-    rerun  = sum(1 for r in results if r["status"] == RERUN)
-    errors = sum(1 for r in results if r["status"] == ERROR)
+    total   = len(results)
+    passed  = sum(1 for r in results if r["status"] == PASS)
+    failed  = sum(1 for r in results if r["status"] == FAIL)
+    rerun   = sum(1 for r in results if r["status"] == RERUN)
+    errors  = sum(1 for r in results if r["status"] == ERROR)
     run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Collect unique clusters for filter dropdown
+    clusters = sorted(set(extract_cluster(r["test_case_id"]) for r in results))
 
     colour = {PASS: "#28a745", FAIL: "#dc3545", RERUN: "#fd7e14", ERROR: "#6c757d"}
 
     def badge(status):
         c = colour.get(status, "#000")
-        return f'<span style="background:{c};color:#fff;padding:2px 8px;border-radius:4px;font-size:0.85em">{status}</span>'
+        return (f'<span class="badge" style="background:{c}">{status}</span>')
 
+    def status_reason(r):
+        """Generate reason note for FAIL/RERUN/ERROR statuses."""
+        status = r["status"]
+        counts = r.get("counts", {})
+        note   = r.get("note", "")
+
+        if status == PASS:
+            return ""
+        if status == FAIL:
+            f = counts.get("failed", 0)
+            e = counts.get("error", 0)
+            reason = f"{f} step(s) failed"
+            if e:
+                reason += f", {e} error(s)"
+            return reason
+        if status == RERUN:
+            s = counts.get("skipped", 0)
+            ex = counts.get("executed", 0)
+            return (f"All {s}/{ex} steps skipped — "
+                    "possible setup issue or unsupported config. Re-run to verify.")
+        if status == ERROR:
+            if note:
+                return note
+            if not counts:
+                return "Test script did not produce result line — may have crashed or timed out"
+            return "Unexpected error during execution"
+        return note
+
+    # Build rows
     rows_html = ""
     for r in results:
-        c = r["counts"]
+        tc_id   = r["test_case_id"]
+        cluster = extract_cluster(tc_id)
+        status  = r["status"]
+        counts  = r.get("counts", {})
+        elapsed = r["elapsed_s"]
+        log_file = Path(r.get("log_file", ""))
+        dut_log  = log_file.parent / f"{tc_id}_dut.log" if log_file.name else None
+
         counts_str = ""
-        if c:
-            counts_str = (f"P:{c.get('passed',0)} F:{c.get('failed',0)} "
-                          f"S:{c.get('skipped',0)} E:{c.get('error',0)}")
-        log_name = Path(r["log_file"]).name
+        if counts:
+            counts_str = (f"✅{counts.get('passed',0)} "
+                          f"❌{counts.get('failed',0)} "
+                          f"⏭{counts.get('skipped',0)} "
+                          f"⚠️{counts.get('error',0)}")
+
+        reason = status_reason(r)
+
+        # Log links
+        log_links = ""
+        if log_file.exists() or log_file.name:
+            log_links += (f'<a href="test_runs/{log_file.name}" target="_blank" ')
+            log_links += f'class="log-link ctrl-log">📋 Ctrl Log</a> '
+        if dut_log and (dut_log.exists() or dut_log.name):
+            log_links += (f'<a href="test_runs/{dut_log.name}" target="_blank" ')
+            log_links += f'class="log-link dut-log">🖥 DUT Log</a>'
+
+        row_class = f"row-{status.lower()}"
+        reason_cell = f'<span class="reason">{reason}</span>' if reason else ""
+
         rows_html += f"""
-        <tr>
-          <td><b>{r['test_case_id']}</b></td>
-          <td>{badge(r['status'])}</td>
-          <td>{counts_str}</td>
-          <td>{r['elapsed_s']}s</td>
-          <td style="font-size:0.75em;color:#555">{r['python_command'][:70]}...</td>
-          <td><a href="test_runs/{log_name}" target="_blank">📄 log</a></td>
-          <td style="color:#888;font-size:0.75em">{r.get('note','')}</td>
+        <tr class="tc-row {row_class}" data-cluster="{cluster}" data-status="{status}">
+          <td><b>{tc_id}</b><br><small class="cluster-tag">{cluster}</small></td>
+          <td>{badge(status)}</td>
+          <td class="counts">{counts_str}</td>
+          <td>{elapsed}s</td>
+          <td class="log-cell">{log_links}</td>
+          <td class="reason-cell">{reason_cell}</td>
         </tr>"""
+
+    cluster_options = "".join(
+        f'<option value="{c}">{c}</option>' for c in clusters
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -359,48 +423,260 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Matter CI — Test Report</title>
   <style>
-    body  {{ font-family: Arial, sans-serif; margin: 30px; background: #f8f9fa; color: #333; }}
-    h1    {{ color: #2c3e50; }}
-    .summary {{ display: flex; gap: 16px; margin: 20px 0; flex-wrap: wrap; }}
-    .card {{ padding: 14px 24px; border-radius: 10px; color: #fff; text-align: center; min-width: 90px; }}
-    .pass  {{ background: #28a745; }}
-    .fail  {{ background: #dc3545; }}
-    .rerun {{ background: #fd7e14; }}
-    .err   {{ background: #6c757d; }}
-    .total {{ background: #2c3e50; }}
-    table  {{ border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }}
-    th     {{ background: #2c3e50; color: #fff; padding: 10px 14px; text-align: left; font-size: 0.9em; }}
-    td     {{ padding: 8px 14px; font-size: 0.88em; border-bottom: 1px solid #eee; }}
-    tr:hover {{ background: #f1f5f9; }}
-    .num   {{ font-size: 2em; font-weight: bold; }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f0f2f5;
+      color: #2c3e50;
+      padding: 24px;
+    }}
+    .header {{
+      background: linear-gradient(135deg, #1a252f, #2c3e50);
+      color: white;
+      padding: 24px 32px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+    .header h1 {{ font-size: 1.6em; font-weight: 600; }}
+    .header .meta {{ font-size: 0.85em; opacity: 0.8; margin-top: 4px; }}
+
+    .summary {{
+      display: flex;
+      gap: 14px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }}
+    .card {{
+      flex: 1;
+      min-width: 100px;
+      padding: 16px 20px;
+      border-radius: 10px;
+      color: #fff;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }}
+    .card .num {{ font-size: 2.2em; font-weight: 700; line-height: 1; }}
+    .card .lbl {{ font-size: 0.75em; font-weight: 600; letter-spacing: 1px; margin-top: 4px; opacity: 0.9; }}
+    .c-total {{ background: linear-gradient(135deg, #2c3e50, #34495e); }}
+    .c-pass  {{ background: linear-gradient(135deg, #27ae60, #2ecc71); }}
+    .c-fail  {{ background: linear-gradient(135deg, #c0392b, #e74c3c); }}
+    .c-rerun {{ background: linear-gradient(135deg, #d35400, #e67e22); }}
+    .c-err   {{ background: linear-gradient(135deg, #7f8c8d, #95a5a6); }}
+
+    .filters {{
+      background: #fff;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }}
+    .filters label {{ font-size: 0.85em; font-weight: 600; color: #555; }}
+    .filters select, .filters input {{
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.88em;
+      background: #fafafa;
+      cursor: pointer;
+    }}
+    .filter-btn {{
+      padding: 6px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.85em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }}
+    .filter-btn:hover {{ opacity: 0.8; }}
+    .btn-all  {{ background: #2c3e50; color: #fff; }}
+    .btn-fail {{ background: #e74c3c; color: #fff; }}
+    .btn-pass {{ background: #27ae60; color: #fff; }}
+    .btn-rerun{{ background: #e67e22; color: #fff; }}
+
+    .table-wrap {{
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }}
+    table {{ border-collapse: collapse; width: 100%; }}
+    th {{
+      background: #2c3e50;
+      color: #fff;
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 0.85em;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }}
+    td {{ padding: 10px 16px; font-size: 0.88em; border-bottom: 1px solid #f0f2f5; vertical-align: top; }}
+    tr.tc-row:hover {{ background: #f8fafc; }}
+    tr.tc-row {{ transition: background 0.15s; }}
+
+    .badge {{
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      color: #fff;
+      font-size: 0.8em;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }}
+    .cluster-tag {{
+      background: #eaf0fb;
+      color: #2980b9;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.75em;
+      margin-top: 3px;
+      display: inline-block;
+    }}
+    .counts {{ font-size: 0.82em; color: #555; white-space: nowrap; }}
+
+    .log-link {{
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 5px;
+      font-size: 0.8em;
+      font-weight: 600;
+      text-decoration: none;
+      margin-right: 4px;
+      margin-bottom: 2px;
+    }}
+    .ctrl-log {{ background: #eaf0fb; color: #2980b9; border: 1px solid #aed6f1; }}
+    .ctrl-log:hover {{ background: #d6eaf8; }}
+    .dut-log  {{ background: #fef9e7; color: #d68910; border: 1px solid #f9e79f; }}
+    .dut-log:hover {{ background: #fdebd0; }}
+
+    .reason {{ font-size: 0.82em; color: #666; line-height: 1.4; }}
+    tr.row-fail .reason {{ color: #c0392b; }}
+    tr.row-rerun .reason {{ color: #d35400; }}
+    tr.row-error .reason {{ color: #7f8c8d; }}
+
+    .hidden {{ display: none; }}
+
+    .no-results {{
+      text-align: center;
+      padding: 40px;
+      color: #aaa;
+      font-size: 1em;
+    }}
+
+    #result-count {{
+      font-size: 0.85em;
+      color: #888;
+      margin-left: auto;
+    }}
   </style>
 </head>
 <body>
-  <h1>🔬 Matter CI — Test Report</h1>
-  <p style="color:#666">Generated: {run_time}</p>
-
-  <div class="summary">
-    <div class="card total"><div class="num">{total}</div>TOTAL</div>
-    <div class="card pass"><div class="num">{passed}</div>PASSED</div>
-    <div class="card fail"><div class="num">{failed}</div>FAILED</div>
-    <div class="card rerun"><div class="num">{rerun}</div>RERUN</div>
-    <div class="card err"><div class="num">{errors}</div>ERROR</div>
+  <div class="header">
+    <div>
+      <h1>🔬 Matter CI — Test Report</h1>
+      <div class="meta">Generated: {run_time}</div>
+    </div>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>TC ID</th>
-        <th>Status</th>
-        <th>Counts</th>
-        <th>Time</th>
-        <th>Command</th>
-        <th>Log</th>
-        <th>Note</th>
-      </tr>
-    </thead>
-    <tbody>{rows_html}</tbody>
-  </table>
+  <div class="summary">
+    <div class="card c-total"><div class="num">{total}</div><div class="lbl">TOTAL</div></div>
+    <div class="card c-pass" ><div class="num">{passed}</div><div class="lbl">PASSED</div></div>
+    <div class="card c-fail" ><div class="num">{failed}</div><div class="lbl">FAILED</div></div>
+    <div class="card c-rerun"><div class="num">{rerun}</div><div class="lbl">RERUN</div></div>
+    <div class="card c-err"  ><div class="num">{errors}</div><div class="lbl">ERROR</div></div>
+  </div>
+
+  <div class="filters">
+    <label>Cluster:</label>
+    <select id="clusterFilter" onchange="applyFilters()">
+      <option value="ALL">All Clusters</option>
+      {cluster_options}
+    </select>
+
+    <label>Status:</label>
+    <select id="statusFilter" onchange="applyFilters()">
+      <option value="ALL">All Statuses</option>
+      <option value="PASS">PASS</option>
+      <option value="FAIL">FAIL</option>
+      <option value="RERUN">RERUN</option>
+      <option value="ERROR">ERROR</option>
+    </select>
+
+    <label>Search:</label>
+    <input type="text" id="searchFilter" placeholder="TC ID..." oninput="applyFilters()">
+
+    <button class="filter-btn btn-all"  onclick="setStatus('ALL')">All</button>
+    <button class="filter-btn btn-fail" onclick="setStatus('FAIL')">Failed</button>
+    <button class="filter-btn btn-pass" onclick="setStatus('PASS')">Passed</button>
+    <button class="filter-btn btn-rerun" onclick="setStatus('RERUN')">Rerun</button>
+
+    <span id="result-count"></span>
+  </div>
+
+  <div class="table-wrap">
+    <table id="resultsTable">
+      <thead>
+        <tr>
+          <th>TC ID</th>
+          <th>Status</th>
+          <th>Steps</th>
+          <th>Time</th>
+          <th>Logs</th>
+          <th>Reason / Notes</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        {rows_html}
+      </tbody>
+    </table>
+    <div class="no-results hidden" id="noResults">No test cases match the current filters.</div>
+  </div>
+
+  <script>
+    function applyFilters() {{
+      const cluster = document.getElementById('clusterFilter').value;
+      const status  = document.getElementById('statusFilter').value;
+      const search  = document.getElementById('searchFilter').value.toLowerCase();
+      const rows    = document.querySelectorAll('.tc-row');
+      let visible   = 0;
+
+      rows.forEach(row => {{
+        const rowCluster = row.dataset.cluster;
+        const rowStatus  = row.dataset.status;
+        const rowText    = row.textContent.toLowerCase();
+
+        const clusterOk = cluster === 'ALL' || rowCluster === cluster;
+        const statusOk  = status  === 'ALL' || rowStatus  === status;
+        const searchOk  = search  === ''    || rowText.includes(search);
+
+        if (clusterOk && statusOk && searchOk) {{
+          row.classList.remove('hidden');
+          visible++;
+        }} else {{
+          row.classList.add('hidden');
+        }}
+      }});
+
+      document.getElementById('result-count').textContent =
+        `Showing ${{visible}} of {total} test cases`;
+      document.getElementById('noResults').classList.toggle('hidden', visible > 0);
+    }}
+
+    function setStatus(s) {{
+      document.getElementById('statusFilter').value = s;
+      applyFilters();
+    }}
+
+    // Init count
+    document.getElementById('result-count').textContent = 'Showing {total} of {total} test cases';
+  </script>
 </body>
 </html>"""
 
