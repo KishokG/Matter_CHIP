@@ -80,7 +80,7 @@ apps:
   - name: "network-manager-app"
     enabled: true
     source_dir: "examples/network-manager-app/linux"
-    build_dir:  "out/"
+    build_dir:  "out/network-manager-app"
     binary_name: "matter-network-manager-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
