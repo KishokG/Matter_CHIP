@@ -79,11 +79,12 @@ def load_config(path: Path) -> dict:
 # =============================================================================
 # Result constants
 # =============================================================================
-PASS   = "PASS"
-FAIL   = "FAIL"
-RERUN  = "RERUN"
-ERROR  = "ERROR"
-CANCEL = "CANCEL"
+PASS      = "PASS"
+PASS_WARN = "PASS*"    # pass with partial skips (PICS-gated steps)
+FAIL      = "FAIL"
+RERUN     = "RERUN"
+ERROR     = "ERROR"
+CANCEL    = "CANCEL"
 
 
 # =============================================================================
@@ -155,8 +156,6 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
 
         if counts["failed"] > 0 or counts["error"] > 0:
             # Find which step failed for better reason message
-            fail_step = re.search(
-                r"Test Step\s+(\S+)", log_text)
             parts = []
             if counts["failed"] > 0:
                 parts.append(f"{counts['failed']} step(s) failed")
@@ -172,7 +171,19 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
                 "possible PICS mismatch, unsupported feature, or DUT config issue"
             )
 
-        # Clean pass
+        # Partial skip — some steps skipped, some passed → PASS* with warning
+        # This typically means PICS is not configured and some steps are PICS-gated
+        if counts["skipped"] > 0 and counts["passed"] > 0:
+            skipped  = counts["skipped"]
+            passed   = counts["passed"]
+            executed = counts["executed"]
+            return PASS_WARN, counts, (
+                f"Partial execution: {passed} step(s) passed, "
+                f"{skipped}/{executed} step(s) skipped (likely PICS-gated). "
+                f"Set pics_folder in build_config.yaml for complete execution."
+            )
+
+        # Clean pass — all steps executed and passed
         return PASS, counts, ""
 
     # ── Signal 4 — No summary + non-zero exit code ────────────────────────────
@@ -585,18 +596,26 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     report_path = PROJECT_ROOT / cfg["test_execution"]["report_path"]
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
-    total    = len(results)
-    passed   = sum(1 for r in results if r["status"] == PASS)
-    failed   = sum(1 for r in results if r["status"] == FAIL)
-    rerun    = sum(1 for r in results if r["status"] == RERUN)
-    errors   = sum(1 for r in results if r["status"] == ERROR)
-    cancelled= sum(1 for r in results if r["status"] == CANCEL)
-    run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    total     = len(results)
+    passed    = sum(1 for r in results if r["status"] == PASS)
+    pass_warn = sum(1 for r in results if r["status"] == PASS_WARN)
+    failed    = sum(1 for r in results if r["status"] == FAIL)
+    rerun     = sum(1 for r in results if r["status"] == RERUN)
+    errors    = sum(1 for r in results if r["status"] == ERROR)
+    cancelled = sum(1 for r in results if r["status"] == CANCEL)
+    run_time  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Collect unique clusters for filter dropdown
     clusters = sorted(set(extract_cluster(r["test_case_id"], r.get("cluster", "")) for r in results))
 
-    colour = {PASS: "#28a745", FAIL: "#dc3545", RERUN: "#fd7e14", ERROR: "#6c757d", CANCEL: "#8e44ad"}
+    colour = {
+        PASS:      "#28a745",
+        PASS_WARN: "#5a9e3a",   # slightly muted green with warning indicator
+        FAIL:      "#dc3545",
+        RERUN:     "#fd7e14",
+        ERROR:     "#6c757d",
+        CANCEL:    "#8e44ad",
+    }
 
     def badge(status):
         c = colour.get(status, "#000")
@@ -612,6 +631,8 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
 
         if status == PASS:
             return ""
+        if status == PASS_WARN:
+            return note   # show the partial skip warning
         if status == CANCEL:
             return "Cancelled by user before this test started"
         # For all other statuses — reason is pre-populated by parse_result
@@ -724,12 +745,14 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     }}
     .card .num {{ font-size: 2.2em; font-weight: 700; line-height: 1; }}
     .card .lbl {{ font-size: 0.75em; font-weight: 600; letter-spacing: 1px; margin-top: 4px; opacity: 0.9; }}
-    .c-total  {{ background: linear-gradient(135deg, #2c3e50, #34495e); }}
-    .c-pass   {{ background: linear-gradient(135deg, #27ae60, #2ecc71); }}
-    .c-fail   {{ background: linear-gradient(135deg, #c0392b, #e74c3c); }}
-    .c-rerun  {{ background: linear-gradient(135deg, #d35400, #e67e22); }}
-    .c-err    {{ background: linear-gradient(135deg, #7f8c8d, #95a5a6); }}
-    .c-cancel {{ background: linear-gradient(135deg, #7d3c98, #8e44ad); }}
+    .c-total    {{ background: linear-gradient(135deg, #2c3e50, #34495e); }}
+    .c-pass     {{ background: linear-gradient(135deg, #27ae60, #2ecc71); }}
+    .c-passwarn {{ background: linear-gradient(135deg, #1e8449, #27ae60);
+                   border: 2px solid #f39c12; }}
+    .c-fail     {{ background: linear-gradient(135deg, #c0392b, #e74c3c); }}
+    .c-rerun    {{ background: linear-gradient(135deg, #d35400, #e67e22); }}
+    .c-err      {{ background: linear-gradient(135deg, #7f8c8d, #95a5a6); }}
+    .c-cancel   {{ background: linear-gradient(135deg, #7d3c98, #8e44ad); }}
 
     .filters {{
       background: #fff;
@@ -851,12 +874,16 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
   </div>
 
   <div class="summary">
-    <div class="card c-total" ><div class="num">{total}</div><div class="lbl">TOTAL</div></div>
-    <div class="card c-pass"  ><div class="num">{passed}</div><div class="lbl">PASSED</div></div>
-    <div class="card c-fail"  ><div class="num">{failed}</div><div class="lbl">FAILED</div></div>
-    <div class="card c-rerun" ><div class="num">{rerun}</div><div class="lbl">RERUN</div></div>
-    <div class="card c-err"   ><div class="num">{errors}</div><div class="lbl">ERROR</div></div>
-    <div class="card c-cancel"><div class="num">{cancelled}</div><div class="lbl">CANCELLED</div></div>
+    <div class="card c-total"    ><div class="num">{total}</div><div class="lbl">TOTAL</div></div>
+    <div class="card c-pass"     ><div class="num">{passed}</div><div class="lbl">PASSED</div></div>
+    <div class="card c-passwarn" ><div class="num">{pass_warn}</div><div class="lbl">PASS*</div></div>
+    <div class="card c-fail"     ><div class="num">{failed}</div><div class="lbl">FAILED</div></div>
+    <div class="card c-rerun"    ><div class="num">{rerun}</div><div class="lbl">RERUN</div></div>
+    <div class="card c-err"      ><div class="num">{errors}</div><div class="lbl">ERROR</div></div>
+    <div class="card c-cancel"   ><div class="num">{cancelled}</div><div class="lbl">CANCELLED</div></div>
+    <div style="font-size:0.75em;color:#888;align-self:flex-end;padding-bottom:6px">
+      * PASS with skipped steps — configure pics_folder for full execution
+    </div>
   </div>
 
   <div class="filters">
@@ -870,6 +897,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     <select id="statusFilter" onchange="applyFilters()">
       <option value="ALL">All Statuses</option>
       <option value="PASS">PASS</option>
+      <option value="PASS*">PASS* (partial)</option>
       <option value="FAIL">FAIL</option>
       <option value="RERUN">RERUN</option>
       <option value="ERROR">ERROR</option>
@@ -986,6 +1014,7 @@ def main():
     print(f"[INFO] Results JSON: {results_path}")
 
     failed = sum(1 for r in results if r["status"] in (FAIL, ERROR))
+    # PASS_WARN is not a failure — just a warning that PICS was not configured
     # Exit 0 on cancel — partial results are expected
     if _CANCEL_REQUESTED:
         print("[CANCEL] Exiting with code 0 — partial results saved.")
