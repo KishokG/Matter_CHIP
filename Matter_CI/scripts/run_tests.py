@@ -171,15 +171,35 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
                 "possible PICS mismatch, unsupported feature, or DUT config issue"
             )
 
-        # Partial skip — some steps skipped, some passed → PASS* with warning
-        # This typically means PICS is not configured and some steps are PICS-gated
-        if counts["skipped"] > 0 and counts["passed"] > 0:
-            skipped  = counts["skipped"]
-            passed   = counts["passed"]
-            executed = counts["executed"]
+        # ── Signal 3b — Step-level skips (PICS-gated steps) ─────────────────
+        # Mobly's "Skipped" counter = test-level skips (whole test skipped)
+        # PICS-gated step skips appear as "**** Skipping: N" lines in the log
+        # These do NOT appear in the summary counts — must be parsed separately
+        step_skips = re.findall(r"\*\*\*\*\s*Skipping:\s*(\d+)", log_text)
+        # Deduplicate — each skipped step appears twice in the log
+        unique_skipped_steps = len(set(step_skips))
+
+        # Partial skip — some steps passed, some PICS-gated steps skipped → PASS*
+        if unique_skipped_steps > 0 and counts["passed"] > 0:
             return PASS_WARN, counts, (
-                f"Partial execution: {passed} step(s) passed, "
-                f"{skipped}/{executed} step(s) skipped (likely PICS-gated). "
+                f"Partial execution: {counts['passed']} step(s) passed, "
+                f"{unique_skipped_steps} step(s) skipped (PICS-gated). "
+                f"Set pics_folder in build_config.yaml for complete execution."
+            )
+
+        # All steps skipped at STEP level (no passed steps at all)
+        if unique_skipped_steps > 0 and counts["passed"] == 0:
+            return RERUN, counts, (
+                f"All {unique_skipped_steps} step(s) skipped (PICS-gated) — "
+                "possible PICS mismatch or unsupported feature. "
+                "Set pics_folder in build_config.yaml."
+            )
+
+        # Partial skip from summary counts (test-level)
+        if counts["skipped"] > 0 and counts["passed"] > 0:
+            return PASS_WARN, counts, (
+                f"Partial execution: {counts['passed']} step(s) passed, "
+                f"{counts['skipped']}/{counts['executed']} step(s) skipped. "
                 f"Set pics_folder in build_config.yaml for complete execution."
             )
 
