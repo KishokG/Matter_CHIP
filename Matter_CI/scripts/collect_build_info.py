@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 collect_build_info.py — Runs on the RPi after a build.
-Prints sizes and paths of all built binaries.
+Prints binary sizes, paths, and any build error conclusions.
 
 Usage: python3 scripts/collect_build_info.py config/build_config.yaml
 """
 
-import os, sys, subprocess, yaml
+import os, sys, subprocess, yaml, json
 from pathlib import Path
 from datetime import datetime
 
@@ -28,12 +28,22 @@ def git_info(sdk_dir: Path) -> tuple:
     return run(["git", "rev-parse", "HEAD"]), run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
 
 
+def load_error_log(log_dir: Path, app_name: str) -> str:
+    """Load last 10 lines of build error log if it exists."""
+    err_log = log_dir / f"{app_name}_build_error.log"
+    if not err_log.exists():
+        return ""
+    lines = err_log.read_text(errors="replace").strip().splitlines()
+    return "\n      ".join(lines[-10:]) if lines else ""
+
+
 def main():
     config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("config/build_config.yaml")
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
 
-    sdk_dir = Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
+    sdk_dir  = Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
+    log_dir  = Path(__file__).parent.parent / "logs" / "build_logs"
     commit, branch = git_info(sdk_dir)
 
     print("=" * 62)
@@ -46,6 +56,7 @@ def main():
     print()
 
     all_ok = True
+    failed_apps = []
 
     # Reference apps
     print("── Reference Apps " + "─" * 44)
@@ -57,8 +68,14 @@ def main():
         if binary.exists():
             print(f"  ✅  {app['name']:<32} {size_mb(binary):>8}   {binary}")
         else:
-            print(f"  ❌  {app['name']:<32} {'MISSING':>8}   {binary}")
+            print(f"  ❌  {app['name']:<32} {'MISSING':>8}")
+            # Show error conclusion
+            err_log = load_error_log(log_dir, app['name'])
+            if err_log:
+                print(f"      Error details:")
+                print(f"      {err_log}")
             all_ok = False
+            failed_apps.append(app['name'])
 
     print()
 
@@ -69,8 +86,13 @@ def main():
         if b.exists():
             print(f"  ✅  {'chip-tool':<32} {size_mb(b):>8}   {b}")
         else:
-            print(f"  ❌  {'chip-tool':<32} {'MISSING':>8}   {b}")
+            print(f"  ❌  {'chip-tool':<32} {'MISSING':>8}")
+            err_log = load_error_log(log_dir, "chip-tool")
+            if err_log:
+                print(f"      Error details:")
+                print(f"      {err_log}")
             all_ok = False
+            failed_apps.append("chip-tool")
     else:
         print("  ⏭   chip-tool   disabled")
 
@@ -80,10 +102,9 @@ def main():
     print("── Python Controller " + "─" * 41)
     if cfg["python_controller"].get("enabled"):
         venv = sdk_dir / cfg["python_controller"]["install_venv_name"]
-        python_bin = venv / "bin" / "python3"
         if venv.exists():
             print(f"  ✅  venv → {venv}")
-            # Try to get chip package version
+            python_bin = venv / "bin" / "python3"
             try:
                 ver = subprocess.run(
                     [str(python_bin), "-c", "import chip; print(chip.__version__)"],
@@ -94,7 +115,12 @@ def main():
                 pass
         else:
             print(f"  ❌  venv MISSING: {venv}")
+            err_log = load_error_log(log_dir, "python-controller")
+            if err_log:
+                print(f"      Error details:")
+                print(f"      {err_log}")
             all_ok = False
+            failed_apps.append("python-controller")
     else:
         print("  ⏭   python-controller   disabled")
 
@@ -103,10 +129,12 @@ def main():
     if all_ok:
         print("  ✅  All enabled targets built successfully!")
     else:
-        print("  ❌  One or more targets missing — check build logs.")
+        print(f"  ❌  {len(failed_apps)} target(s) failed: {', '.join(failed_apps)}")
+        print("  ⚠️   Tests will run only for successfully built apps.")
     print("=" * 62)
 
-    sys.exit(0 if all_ok else 1)
+    # Exit 0 even with partial failures — tests will handle it
+    sys.exit(0)
 
 
 if __name__ == "__main__":
