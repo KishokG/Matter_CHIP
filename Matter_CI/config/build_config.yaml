@@ -46,7 +46,7 @@ apps:
     enabled: true
     source_dir: "examples/thermostat/linux"
     build_dir:  "out/thermostat"
-    binary_name: "chip-thermostat-app"
+    binary_name: "thermostat-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "bridge-app"
