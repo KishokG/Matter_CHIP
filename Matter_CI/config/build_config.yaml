@@ -45,8 +45,8 @@ apps:
   - name: "thermostat-app"
     enabled: true
     source_dir: "examples/thermostat/linux"
-    build_dir:  "out/thermostat-app"
-    binary_name: "chip-thermostat-app"
+    build_dir:  "out/thermostat"
+    binary_name: "thermostat-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "bridge-app"
@@ -83,6 +83,9 @@ apps:
     build_dir:  "out/network-manager-app"
     binary_name: "matter-network-manager-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+    scripts/examples/gn_build_example.sh      examples/network-manager-app/linux/      examples/network-manager-app/linux/out/network-manager-app   chip_inet_config_enable_ipv4=false 
+
 
 
 # ============================================================
