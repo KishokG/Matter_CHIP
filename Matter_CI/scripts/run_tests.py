@@ -47,8 +47,7 @@ def _signal_handler(signum, frame):
     """
     global _CANCEL_REQUESTED, _ACTIVE_DUT
     sig_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
-    print(f"
-[CANCEL] {sig_name} received — stopping after current test...")
+    print(f"\n[CANCEL] {sig_name} received — stopping after current test...")
     _CANCEL_REQUESTED = True
 
     # Kill active DUT immediately so it doesn't keep running
