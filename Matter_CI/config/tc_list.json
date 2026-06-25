@@ -381,5 +381,65 @@
     "tc_id": "TC-DRLK-2.13",
     "cluster": "Door lock",
     "enabled": true
+  },
+  {
+    "tc_id": "TC-EPM-2.1",
+    "cluster": "Electrical Power Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EPM-2.2",
+    "cluster": "Electrical Power Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-2.1",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-2.3",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-2.4",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-3.1",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-3.2",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-3.3",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-3.4",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-3.5",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FAN-4.1",
+    "cluster": "Fan Control Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-FLABEL-2.1",
+    "cluster": "Fixed Label Cluster",
+    "enabled": true
   }
 ]
