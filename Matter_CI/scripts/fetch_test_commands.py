@@ -175,6 +175,49 @@ def fetch_sheet(cfg: dict) -> list[list[str]]:
 
 
 # =============================================================================
+# Load build status — to skip TCs for apps that failed to build
+# =============================================================================
+def load_build_status(cfg: dict) -> set[str]:
+    """Returns set of app names that FAILED to build."""
+    log_dir = PROJECT_ROOT / cfg.get("test_execution", {}).get("log_dir", "logs/test_runs")
+    build_status_file = log_dir.parent / "build_logs" / "build_status.json"
+
+    if not build_status_file.exists():
+        print("[INFO] No build_status.json found — assuming all apps built successfully.")
+        return set()
+
+    with open(build_status_file) as f:
+        status = json.load(f)
+
+    failed = {app for app, result in status.items() if result == "FAIL"}
+    if failed:
+        print(f"[WARN] Failed builds detected — TCs for these apps will be skipped: {failed}")
+    return failed
+
+
+# =============================================================================
+# Extract app binary name from DUT command
+# e.g. "rm -rf /tmp/chip_* && ./chip-all-clusters-app" → "chip-all-clusters-app"
+# =============================================================================
+def extract_binary_from_dut(dut_cmd: str) -> str:
+    match = re.search(r'\./([^\s]+)', dut_cmd)
+    return match.group(1) if match else ""
+
+
+# =============================================================================
+# Check if a binary name belongs to a failed app
+# =============================================================================
+def is_app_failed(binary_name: str, failed_apps: set[str], cfg: dict) -> str:
+    """Returns app name if binary belongs to a failed app, else empty string."""
+    for app in cfg.get("apps", []):
+        if app.get("binary_name") == binary_name:
+            # Match by name in failed_apps set
+            if app["name"] in failed_apps:
+                return app["name"]
+    return ""
+
+
+# =============================================================================
 # Parse rows into test command records
 # =============================================================================
 def parse_rows(rows: list, cfg: dict, tc_list: list[str]) -> list[dict]:
@@ -185,11 +228,14 @@ def parse_rows(rows: list, cfg: dict, tc_list: list[str]) -> list[dict]:
     col_dut = cols["dut_command"]
     col_py  = cols["python_command"]
 
+    # Load failed build status to skip TCs for failed apps
+    failed_apps = load_build_status(cfg)
+
     def cell(row, idx):
         return row[idx].strip() if len(row) > idx else ""
 
     commands = []
-    skipped  = []
+    skipped_build = []
     errors   = []
 
     for i, row in enumerate(rows[skip:], start=skip + 1):
@@ -214,6 +260,14 @@ def parse_rows(rows: list, cfg: dict, tc_list: list[str]) -> list[dict]:
             errors.append(f"Row {i}: {tc_id} — could not parse Python command")
             continue
 
+        # Skip if the required app failed to build
+        if failed_apps:
+            binary = extract_binary_from_dut(dut_cmd)
+            failed_app = is_app_failed(binary, failed_apps, cfg)
+            if failed_app:
+                skipped_build.append(f"{tc_id} (app '{failed_app}' failed to build)")
+                continue
+
         commands.append({
             "row":            i,
             "test_case_id":   tc_id,
@@ -225,6 +279,11 @@ def parse_rows(rows: list, cfg: dict, tc_list: list[str]) -> list[dict]:
         print(f"\n[WARN] {len(errors)} row(s) skipped due to parse errors:")
         for e in errors:
             print(f"  {e}")
+
+    if skipped_build:
+        print(f"\n[WARN] {len(skipped_build)} TC(s) skipped — app failed to build:")
+        for s in skipped_build:
+            print(f"  ⏭  {s}")
 
     print(f"\n[INFO] Parsed {len(commands)} test command(s) ready to execute.")
     return commands
