@@ -32,6 +32,41 @@ from pathlib import Path
 SCRIPT_DIR   = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
+# =============================================================================
+# Global cancel flag — set by SIGTERM/SIGINT handler
+# =============================================================================
+_CANCEL_REQUESTED = False
+_ACTIVE_DUT: "DUTManager | None" = None   # track running DUT for cleanup
+
+
+def _signal_handler(signum, frame):
+    """
+    Handles SIGTERM (GitHub Actions cancel) and SIGINT (Ctrl+C).
+    Sets cancel flag so the test loop exits cleanly after current TC.
+    Also kills the active DUT immediately.
+    """
+    global _CANCEL_REQUESTED, _ACTIVE_DUT
+    sig_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
+    print(f"
+[CANCEL] {sig_name} received — stopping after current test...")
+    _CANCEL_REQUESTED = True
+
+    # Kill active DUT immediately so it doesn't keep running
+    if _ACTIVE_DUT is not None:
+        print("[CANCEL] Stopping active DUT...")
+        _ACTIVE_DUT.stop()
+
+    # Kill any stray chip processes
+    subprocess.run("pkill -f 'chip-.*-app' 2>/dev/null || true", shell=True)
+    subprocess.run("pkill -f 'matter-.*-app' 2>/dev/null || true", shell=True)
+    subprocess.run("rm -f /tmp/chip_* 2>/dev/null || true", shell=True)
+    print("[CANCEL] Cleanup done. Saving results collected so far...")
+
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, _signal_handler)
+signal.signal(signal.SIGINT,  _signal_handler)
+
 
 # =============================================================================
 # Config
@@ -49,6 +84,7 @@ PASS   = "PASS"
 FAIL   = "FAIL"
 RERUN  = "RERUN"
 ERROR  = "ERROR"
+CANCEL = "CANCEL"
 
 
 # =============================================================================
@@ -126,6 +162,8 @@ class DUTManager:
 
     def launch(self, dut_cmd: str, log_path: Path) -> bool:
         """Launch DUT app in background. Returns True on success."""
+        global _ACTIVE_DUT
+        _ACTIVE_DUT = self
         binary = self._find_binary(dut_cmd)
         if not binary:
             print(f"  [DUT] Binary not found for command: {dut_cmd[:60]}")
@@ -162,6 +200,7 @@ class DUTManager:
         return True
 
     def stop(self):
+        global _ACTIVE_DUT
         if self._proc and self._proc.poll() is None:
             try:
                 os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
@@ -176,6 +215,7 @@ class DUTManager:
             self._log_file.close()
         self._proc = None
         self._log_file = None
+        _ACTIVE_DUT = None
 
 
 # =============================================================================
@@ -305,11 +345,35 @@ class TestRunner:
         print(f"\n[TEST] Running {len(self.commands)} test case(s)...")
         print(f"[TEST] Python venv : {self.venv_python}")
         print(f"[TEST] Scripts dir : {self.scripts_dir}")
+        print(f"[TEST] Send SIGTERM or click Cancel in GitHub to stop cleanly.")
 
         for i, tc in enumerate(self.commands, 1):
+            # Check cancel flag before starting each new test
+            if _CANCEL_REQUESTED:
+                print(f"\n[CANCEL] Cancelled before TC {tc['test_case_id']} — stopping.")
+                # Mark remaining TCs as cancelled
+                for remaining in self.commands[i-1:]:
+                    self.results.append({
+                        "test_case_id":   remaining["test_case_id"],
+                        "cluster":        remaining.get("cluster", ""),
+                        "dut_command":    remaining["dut_command"],
+                        "python_command": remaining["python_command"],
+                        "status":         "CANCEL",
+                        "counts":         {},
+                        "elapsed_s":      0,
+                        "log_file":       "",
+                        "note":           "Cancelled by user (SIGTERM/SIGINT)",
+                    })
+                break
+
             print(f"\n[{i}/{len(self.commands)}]", end="")
             result = self.run_one(tc, dut)
             self.results.append(result)
+
+        if _CANCEL_REQUESTED:
+            cancelled = sum(1 for r in self.results if r["status"] == "CANCEL")
+            ran       = len(self.results) - cancelled
+            print(f"\n[CANCEL] Ran {ran} test(s) before cancel. {cancelled} skipped.")
 
         return self.results
 
@@ -333,17 +397,18 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     report_path = PROJECT_ROOT / cfg["test_execution"]["report_path"]
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
-    total   = len(results)
-    passed  = sum(1 for r in results if r["status"] == PASS)
-    failed  = sum(1 for r in results if r["status"] == FAIL)
-    rerun   = sum(1 for r in results if r["status"] == RERUN)
-    errors  = sum(1 for r in results if r["status"] == ERROR)
+    total    = len(results)
+    passed   = sum(1 for r in results if r["status"] == PASS)
+    failed   = sum(1 for r in results if r["status"] == FAIL)
+    rerun    = sum(1 for r in results if r["status"] == RERUN)
+    errors   = sum(1 for r in results if r["status"] == ERROR)
+    cancelled= sum(1 for r in results if r["status"] == CANCEL)
     run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Collect unique clusters for filter dropdown
     clusters = sorted(set(extract_cluster(r["test_case_id"], r.get("cluster", "")) for r in results))
 
-    colour = {PASS: "#28a745", FAIL: "#dc3545", RERUN: "#fd7e14", ERROR: "#6c757d"}
+    colour = {PASS: "#28a745", FAIL: "#dc3545", RERUN: "#fd7e14", ERROR: "#6c757d", CANCEL: "#8e44ad"}
 
     def badge(status):
         c = colour.get(status, "#000")
@@ -375,6 +440,8 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
             if not counts:
                 return "Test script did not produce result line — may have crashed or timed out"
             return "Unexpected error during execution"
+        if status == CANCEL:
+            return "Cancelled by user before this test started"
         return note
 
     # Build rows
@@ -467,11 +534,12 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     }}
     .card .num {{ font-size: 2.2em; font-weight: 700; line-height: 1; }}
     .card .lbl {{ font-size: 0.75em; font-weight: 600; letter-spacing: 1px; margin-top: 4px; opacity: 0.9; }}
-    .c-total {{ background: linear-gradient(135deg, #2c3e50, #34495e); }}
-    .c-pass  {{ background: linear-gradient(135deg, #27ae60, #2ecc71); }}
-    .c-fail  {{ background: linear-gradient(135deg, #c0392b, #e74c3c); }}
-    .c-rerun {{ background: linear-gradient(135deg, #d35400, #e67e22); }}
-    .c-err   {{ background: linear-gradient(135deg, #7f8c8d, #95a5a6); }}
+    .c-total  {{ background: linear-gradient(135deg, #2c3e50, #34495e); }}
+    .c-pass   {{ background: linear-gradient(135deg, #27ae60, #2ecc71); }}
+    .c-fail   {{ background: linear-gradient(135deg, #c0392b, #e74c3c); }}
+    .c-rerun  {{ background: linear-gradient(135deg, #d35400, #e67e22); }}
+    .c-err    {{ background: linear-gradient(135deg, #7f8c8d, #95a5a6); }}
+    .c-cancel {{ background: linear-gradient(135deg, #7d3c98, #8e44ad); }}
 
     .filters {{
       background: #fff;
@@ -593,11 +661,12 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
   </div>
 
   <div class="summary">
-    <div class="card c-total"><div class="num">{total}</div><div class="lbl">TOTAL</div></div>
-    <div class="card c-pass" ><div class="num">{passed}</div><div class="lbl">PASSED</div></div>
-    <div class="card c-fail" ><div class="num">{failed}</div><div class="lbl">FAILED</div></div>
-    <div class="card c-rerun"><div class="num">{rerun}</div><div class="lbl">RERUN</div></div>
-    <div class="card c-err"  ><div class="num">{errors}</div><div class="lbl">ERROR</div></div>
+    <div class="card c-total" ><div class="num">{total}</div><div class="lbl">TOTAL</div></div>
+    <div class="card c-pass"  ><div class="num">{passed}</div><div class="lbl">PASSED</div></div>
+    <div class="card c-fail"  ><div class="num">{failed}</div><div class="lbl">FAILED</div></div>
+    <div class="card c-rerun" ><div class="num">{rerun}</div><div class="lbl">RERUN</div></div>
+    <div class="card c-err"   ><div class="num">{errors}</div><div class="lbl">ERROR</div></div>
+    <div class="card c-cancel"><div class="num">{cancelled}</div><div class="lbl">CANCELLED</div></div>
   </div>
 
   <div class="filters">
@@ -614,6 +683,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       <option value="FAIL">FAIL</option>
       <option value="RERUN">RERUN</option>
       <option value="ERROR">ERROR</option>
+      <option value="CANCEL">CANCELLED</option>
     </select>
 
     <label>Search:</label>
@@ -726,6 +796,10 @@ def main():
     print(f"[INFO] Results JSON: {results_path}")
 
     failed = sum(1 for r in results if r["status"] in (FAIL, ERROR))
+    # Exit 0 on cancel — partial results are expected
+    if _CANCEL_REQUESTED:
+        print("[CANCEL] Exiting with code 0 — partial results saved.")
+        sys.exit(0)
     sys.exit(1 if failed else 0)
 
 
