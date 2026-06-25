@@ -1,83 +1,355 @@
 [
-  {"tc_id": "TC-ACE-1.2", "cluster": "Access Control Enforcement", "enabled": true},
-  {"tc_id": "TC-ACE-1.3", "cluster": "Access Control Enforcement", "enabled": true},
-  {"tc_id": "TC-ACE-1.4", "cluster": "Access Control Enforcement", "enabled": true},
-  {"tc_id": "TC-ACE-1.5", "cluster": "Access Control Enforcement", "enabled": true},
-  {"tc_id": "TC-ACE-1.6", "cluster": "Access Control Enforcement", "enabled": true},
-  {"tc_id": "TC-ACE-2.1", "cluster": "Access Control Enforcement", "enabled": true},
-  {"tc_id": "TC-ACE-2.2", "cluster": "Access Control Enforcement", "enabled": true},
-  {"tc_id": "TC-ACE-2.3", "cluster": "Access Control Enforcement", "enabled": true},
-  {"tc_id": "TC-ACE-2.4", "cluster": "Access Control Enforcement", "enabled": true},
+  {
+    "tc_id": "TC-ACE-1.2",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACE-1.3",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACE-1.4",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACE-1.5",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACE-1.6",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACE-2.1",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACE-2.2",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACE-2.3",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACE-2.4",
+    "cluster": "Access Control Enforcement",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-ACL-2.2",  "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.3",  "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.4",  "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.5",  "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.6",  "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.7",  "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.8",  "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.9",  "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.10", "cluster": "Access Control Cluster", "enabled": true},
-  {"tc_id": "TC-ACL-2.11", "cluster": "Access Control Cluster", "enabled": true},
+  {
+    "tc_id": "TC-ACL-2.2",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.3",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.4",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.5",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.6",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.7",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.8",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.9",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.10",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ACL-2.11",
+    "cluster": "Access Control Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-BOOLCFG-2.1", "cluster": "Boolean State Configuration", "enabled": true},
-  {"tc_id": "TC-BOOLCFG-3.1", "cluster": "Boolean State Configuration", "enabled": true},
-  {"tc_id": "TC-BOOLCFG-4.1", "cluster": "Boolean State Configuration", "enabled": true},
-  {"tc_id": "TC-BOOLCFG-4.2", "cluster": "Boolean State Configuration", "enabled": true},
-  {"tc_id": "TC-BOOLCFG-4.3", "cluster": "Boolean State Configuration", "enabled": true},
-  {"tc_id": "TC-BOOLCFG-4.4", "cluster": "Boolean State Configuration", "enabled": true},
-  {"tc_id": "TC-BOOLCFG-5.1", "cluster": "Boolean State Configuration", "enabled": true},
-  {"tc_id": "TC-BOOLCFG-5.2", "cluster": "Boolean State Configuration", "enabled": true},
+  {
+    "tc_id": "TC-BOOLCFG-2.1",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BOOLCFG-3.1",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BOOLCFG-4.1",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BOOLCFG-4.2",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BOOLCFG-4.3",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BOOLCFG-4.4",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BOOLCFG-5.1",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BOOLCFG-5.2",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-CC-2.1", "cluster": "Color Control Cluster", "enabled": true},
-  {"tc_id": "TC-CC-2.2", "cluster": "Color Control Cluster", "enabled": true},
-  {"tc_id": "TC-CC-6.5", "cluster": "Color Control Cluster", "enabled": true},
+  {
+    "tc_id": "TC-CC-2.1",
+    "cluster": "Color Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CC-2.2",
+    "cluster": "Color Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CC-6.5",
+    "cluster": "Color Control Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-CGEN-2.1", "cluster": "General Commissioning Cluster", "enabled": true},
-  {"tc_id": "TC-CGEN-2.2", "cluster": "General Commissioning Cluster", "enabled": true},
-  {"tc_id": "TC-CGEN-2.4", "cluster": "General Commissioning Cluster", "enabled": true},
+  {
+    "tc_id": "TC-CGEN-2.1",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CGEN-2.2",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CGEN-2.4",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-CNET-1.4", "cluster": "Network Commissioning Cluster", "enabled": true},
-  {"tc_id": "TC-CNET-4.3", "cluster": "Network Commissioning Cluster", "enabled": true},
+  {
+    "tc_id": "TC-CNET-1.4",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.3",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-DA-1.2", "cluster": "Device Attestation", "enabled": true},
-  {"tc_id": "TC-DA-1.5", "cluster": "Device Attestation", "enabled": true},
+  {
+    "tc_id": "TC-DA-1.2",
+    "cluster": "Device Attestation",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DA-1.5",
+    "cluster": "Device Attestation",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-DISHM-1.2", "cluster": "Dishwasher Mode Cluster", "enabled": true},
+  {
+    "tc_id": "TC-DISHM-1.2",
+    "cluster": "Dishwasher Mode Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-DEMM-1.2", "cluster": "Device Energy Management Mode Cluster", "enabled": true},
+  {
+    "tc_id": "TC-DEMM-1.2",
+    "cluster": "Device Energy Management Mode Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-DESC-2.2", "cluster": "Descriptor Cluster", "enabled": true},
+  {
+    "tc_id": "TC-DESC-2.2",
+    "cluster": "Descriptor Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-EEM-2.1", "cluster": "Electrical Energy Measurement Cluster", "enabled": true},
-  {"tc_id": "TC-EEM-2.2", "cluster": "Electrical Energy Measurement Cluster", "enabled": true},
-  {"tc_id": "TC-EEM-2.3", "cluster": "Electrical Energy Measurement Cluster", "enabled": true},
-  {"tc_id": "TC-EEM-2.4", "cluster": "Electrical Energy Measurement Cluster", "enabled": true},
-  {"tc_id": "TC-EEM-2.5", "cluster": "Electrical Energy Measurement Cluster", "enabled": true},
+  {
+    "tc_id": "TC-EEM-2.1",
+    "cluster": "Electrical Energy Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEM-2.2",
+    "cluster": "Electrical Energy Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEM-2.3",
+    "cluster": "Electrical Energy Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEM-2.4",
+    "cluster": "Electrical Energy Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEM-2.5",
+    "cluster": "Electrical Energy Measurement Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-EEVSE-2.2",  "cluster": "Energy EVSE", "enabled": true},
-  {"tc_id": "TC-EEVSE-2.3",  "cluster": "Energy EVSE", "enabled": true},
-  {"tc_id": "TC-EEVSE-2.4",  "cluster": "Energy EVSE", "enabled": true},
-  {"tc_id": "TC-EEVSE-2.5",  "cluster": "Energy EVSE", "enabled": true},
-  {"tc_id": "TC-EEVSE-2.6",  "cluster": "Energy EVSE", "enabled": true},
-  {"tc_id": "TC-EEVSE-2.7",  "cluster": "Energy EVSE", "enabled": true},
-  {"tc_id": "TC-EEVSE-2.8",  "cluster": "Energy EVSE", "enabled": true},
-  {"tc_id": "TC-EEVSE-2.9",  "cluster": "Energy EVSE", "enabled": true},
-  {"tc_id": "TC-EEVSE-2.10", "cluster": "Energy EVSE", "enabled": true},
+  {
+    "tc_id": "TC-EEVSE-2.2",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEVSE-2.3",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEVSE-2.4",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEVSE-2.5",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEVSE-2.6",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEVSE-2.7",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEVSE-2.8",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEVSE-2.9",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EEVSE-2.10",
+    "cluster": "Energy EVSE",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-CLDIM-2.1", "cluster": "Closure Dimension Cluster", "enabled": true},
-  {"tc_id": "TC-CLDIM-3.1", "cluster": "Closure Dimension Cluster", "enabled": true},
-  {"tc_id": "TC-CLDIM-3.2", "cluster": "Closure Dimension Cluster", "enabled": true},
-  {"tc_id": "TC-CLDIM-3.3", "cluster": "Closure Dimension Cluster", "enabled": true},
-  {"tc_id": "TC-CLDIM-4.1", "cluster": "Closure Dimension Cluster", "enabled": true},
-  {"tc_id": "TC-CLDIM-4.2", "cluster": "Closure Dimension Cluster", "enabled": true},
+  {
+    "tc_id": "TC-CLDIM-2.1",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-3.1",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-3.2",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-3.3",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-4.1",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-4.2",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
 
-  {"tc_id": "TC-CLCTRL-2.1", "cluster": "Closure Control Cluster", "enabled": true},
-  {"tc_id": "TC-CLCTRL-3.1", "cluster": "Closure Control Cluster", "enabled": true},
-  {"tc_id": "TC-CLCTRL-4.1", "cluster": "Closure Control Cluster", "enabled": true},
-  {"tc_id": "TC-CLCTRL-4.2", "cluster": "Closure Control Cluster", "enabled": true},
-  {"tc_id": "TC-CLCTRL-4.3", "cluster": "Closure Control Cluster", "enabled": true},
-  {"tc_id": "TC-CLCTRL-4.4", "cluster": "Closure Control Cluster", "enabled": true},
-  {"tc_id": "TC-CLCTRL-5.1", "cluster": "Closure Control Cluster", "enabled": true},
-  {"tc_id": "TC-CLCTRL-6.1", "cluster": "Closure Control Cluster", "enabled": true}
+  {
+    "tc_id": "TC-CLCTRL-2.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-3.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-4.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-4.2",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-4.3",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-4.4",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-5.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-6.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  }
 ]
