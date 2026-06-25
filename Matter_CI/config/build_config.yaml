@@ -140,8 +140,8 @@ google_sheets:
 # Test Execution Settings
 # ============================================================
 test_execution:
-  # .txt file listing TC IDs to run — one per line, # = comment
-  tc_list_file: "config/tc_list.txt"
+  # .json file listing TC IDs to run — one per line, # = comment
+  tc_list_file: "config/tc_list.json"
   # Per-test timeout in seconds
   timeout_seconds: 600
   # Seconds to wait after DUT launches before running test script
