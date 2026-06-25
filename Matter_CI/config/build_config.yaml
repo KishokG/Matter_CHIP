@@ -77,6 +77,14 @@ apps:
     binary_name: "closure-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
+  - name: "network-manager-app"
+    enabled: true
+    source_dir: "examples/network-manager-app/linux"
+    build_dir:  "out/"
+    binary_name: "matter-network-manager-app"
+    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+
+
 # ============================================================
 # chip-tool
 #
