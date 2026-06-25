@@ -29,52 +29,31 @@ apps:
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "lighting-app"
-    enabled: true
+    enabled: false
     source_dir: "examples/lighting-app/linux"
     build_dir:  "out/lighting-app"
     binary_name: "chip-lighting-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "lock-app"
-    enabled: true
+    enabled: false
     source_dir: "examples/lock-app/linux"
     build_dir:  "out/lock-app"
     binary_name: "chip-lock-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "thermostat-app"
-    enabled: true
+    enabled: false
     source_dir: "examples/thermostat/linux"
-    build_dir:  "out/thermostat"
-    binary_name: "thermostat-app"
+    build_dir:  "out/thermostat-app"
+    binary_name: "chip-thermostat-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
   - name: "bridge-app"
-    enabled: true
+    enabled: false
     source_dir: "examples/bridge-app/linux"
     build_dir:  "out/bridge-app"
     binary_name: "chip-bridge-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "air-purifier-app"
-    enabled: true
-    source_dir: "examples/air-purifier-app/linux"
-    build_dir:  "out/air-purifier-app"
-    binary_name: "chip-air-purifier-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "evse-app"
-    enabled: true
-    source_dir: "examples/evse-app/linux"
-    build_dir:  "out/evse-app"
-    binary_name: "chip-evse-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "closure-app"
-    enabled: true
-    source_dir: "examples/closure-app/linux"
-    build_dir:  "out/closure-app"
-    binary_name: "closure-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
 # ============================================================
@@ -127,7 +106,7 @@ rpi:
 # Google Sheets — Test Command Source
 # ============================================================
 google_sheets:
-  spreadsheet_id: "1gBFM74LDa5quay68T061jiIWAa5eF4TJm6K83ccS6QA"   # from the sheet URL
+  spreadsheet_id: "YOUR_SPREADSHEET_ID_HERE"   # from the sheet URL
   sheet_name: "Python Script Validation Procedure"   # tab name
   # Column indices (0-based: 0=A, 1=B, 2=C ...)
   columns:
@@ -135,13 +114,15 @@ google_sheets:
     dut_command: 4       # Column E — sample app advertisement command
     python_command: 5    # Column F — python3 test command
   header_rows: 6         # rows to skip at top (instructions/headers)
+  # Note: service_account.json is written at runtime from CREDENTIALS_JSON GitHub Secret
+  # It is never stored in the repo — do NOT add it to git
 
 # ============================================================
 # Test Execution Settings
 # ============================================================
 test_execution:
-  # .json file listing TC IDs to run — one per line, # = comment
-  tc_list_file: "config/tc_list.json"
+  # .txt file listing TC IDs to run — one per line, # = comment
+  tc_list_file: "config/tc_list.json"   # JSON format — see tc_list.json for structure
   # Per-test timeout in seconds
   timeout_seconds: 600
   # Seconds to wait after DUT launches before running test script
@@ -151,3 +132,9 @@ test_execution:
   report_path: "logs/report.html"
   # admin_storage.json — cleared before each test
   admin_storage: "admin_storage.json"
+  # Retry settings
+  retry_on_commissioning_failure: 3    # retries if commissioning fails
+  retry_on_step_failure: 1             # retries if any test step fails
+  # PICS file path — used when python command contains --PICS parameter
+  # Set to empty string "" to skip PICS injection
+  pics_file: "/home/ubuntu/connectedhomeip/src/app/tests/suites/certification/ci-pics-values"    # e.g. "config/pics/all-clusters.yaml"
