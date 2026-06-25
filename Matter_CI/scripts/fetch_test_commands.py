@@ -62,38 +62,51 @@ def parse_dut_command(raw: str) -> str:
     # Remove everything before and including "DUT terminal:" if present
     raw = re.sub(r'.*?DUT terminal\s*[:\-]\s*', '', raw, flags=re.IGNORECASE | re.DOTALL)
 
-    # Remove note lines (lines starting with Note: or -)
-    lines = raw.splitlines()
-    clean_lines = []
+    # Split into lines
+    lines = re.split(r'\n|\\n', raw)
+
+    SENTENCE_STARTERS = re.compile(
+        r'^(Note|While|Please|In the|Commission|The |This |For |If |When |After |Before |'
+        r'During |Also |Additionally|Furthermore|However|Make sure|Ensure|Important)',
+        re.IGNORECASE
+    )
+
+    cmd_lines = []
     for line in lines:
         stripped = line.strip()
-        if re.match(r'^(note|-).*', stripped, re.IGNORECASE):
-            break   # stop at first note
-        if stripped:
-            clean_lines.append(stripped)
+        if not stripped:
+            continue
+        # Stop at note lines or lines starting with "- Capital"
+        if re.match(r'^(note\s*:|-\s+[A-Z])', stripped, re.IGNORECASE):
+            break
+        # Stop at bold markers
+        if stripped.startswith('**') or stripped.startswith('__'):
+            break
+        # Stop at known sentence starters
+        if SENTENCE_STARTERS.match(stripped):
+            break
+        # Stop if line is a pure sentence (Capital Word Capital Word, not a shell cmd)
+        if (re.match(r'^[A-Z][a-z]+\s+[A-Z]', stripped) and
+                not re.match(r'^(rm|--)', stripped)):
+            break
+        cmd_lines.append(stripped)
 
-    cmd = ' '.join(clean_lines).strip()
+    cmd = ' '.join(cmd_lines).strip()
 
     # Extract from "rm -rf" onwards
-    match = re.search(r'(rm\s+-rf\s+/tmp/chip_\*.*)', cmd, re.IGNORECASE)
+    match = re.search(r'(rm\s+-rf\s+/tmp/chip[_/*].*)', cmd, re.IGNORECASE)
     if not match:
         return ""
-
     cmd = match.group(1).strip()
 
-    # Strip path prefix from binary — keep only ./binary-name or binary-name
-    # e.g. ./apps/chip-all-clusters-app → ./chip-all-clusters-app
-    # e.g. ./apps/matter-network-manager-app → ./matter-network-manager-app
-    cmd = re.sub(r'\./[\w/\-]+/([\w\-]+(?:-app|matter[\w\-]*))', r'./\1', cmd)
+    # Strip path prefix: ./apps/chip-all-clusters-app → ./chip-all-clusters-app
+    cmd = re.sub(r'\./(?:[\w\-]+/)+', './', cmd)
+
+    # Remove trailing sentence fragments after last valid shell token
+    cmd = re.sub(r'\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+).*$', '', cmd).strip()
 
     return cmd
 
-
-# =============================================================================
-# Python command parser
-# Extracts: python3 TC_xxx.py --args...
-# Strips:   Note: lines and everything after
-# =============================================================================
 def parse_python_command(raw: str) -> str:
     if not raw:
         return ""
