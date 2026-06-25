@@ -2,45 +2,35 @@
 # =============================================================================
 # build.sh — Runs ON the Raspberry Pi
 #
-# Three build modes (set via --mode flag from GitHub Actions):
+# Three build modes (set via --mode flag):
+#   full        → clone SDK + clean + bootstrap + build
+#   skip-clone  → git pull + clean + bootstrap + build
+#   skip-all    → build only (same commit, no clone/bootstrap/clean)
 #
-#   full        → clone SDK + bootstrap + clean old builds + build
-#                 Use for: first time, branch change, SHA change
-#
-#   skip-clone  → git pull + bootstrap + clean old builds + build
-#                 Use for: SDK already cloned, want latest TOT or new SHA
-#
-#   skip-all    → no clone, no bootstrap, no clean + build only
-#                 Use for: rebuilding exact same commit (fastest)
-#
-# Manual equivalent flow (options full / skip-clone):
-#   git clone / git pull
-#   source scripts/bootstrap.sh
-#   source scripts/activate.sh
-#   rm -rf <old build dirs> .environment
-#   scripts/examples/gn_build_example.sh ...
-#   scripts/build_python.sh ...
+# Resilient build:
+#   - Each app builds independently — one failure does NOT stop others
+#   - chip-tool and python-controller failures ARE fatal (tests need them)
+#   - Build errors saved to <app>_build_error.log with clear conclusions
+#   - Exit code reflects overall status
 # =============================================================================
 
-set -eo pipefail  # no -u here — activate.sh has unbound var refs
+set -eo pipefail   # no -u — activate.sh has unbound var refs
 
 # ── CLI args ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/config/build_config.yaml"
-BUILD_MODE="full"       # full | skip-clone | skip-all
+BUILD_MODE="full"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --config)      CONFIG_FILE="$2"; shift 2 ;;
-        --mode)        BUILD_MODE="$2"; shift 2 ;;
-        # Legacy flag support
-        --skip-sdk)    BUILD_MODE="skip-all"; shift ;;
-        *)             echo "[WARN] Unknown arg: $1"; shift ;;
+        --config)  CONFIG_FILE="$2"; shift 2 ;;
+        --mode)    BUILD_MODE="$2";  shift 2 ;;
+        --skip-sdk) BUILD_MODE="skip-all"; shift ;;
+        *) echo "[WARN] Unknown arg: $1"; shift ;;
     esac
 done
 
-# Validate mode
 if [[ "${BUILD_MODE}" != "full" && "${BUILD_MODE}" != "skip-clone" && "${BUILD_MODE}" != "skip-all" ]]; then
     echo "[ERROR] Invalid --mode '${BUILD_MODE}'. Must be: full | skip-clone | skip-all"
     exit 1
@@ -59,6 +49,13 @@ banner() {
     echo -e "${BOLD}${CYAN}  $*${NC}"
     echo -e "${BOLD}${CYAN}══════════════════════════════════════${NC}\n"
 }
+
+# ── Build result tracking ─────────────────────────────────────────────────────
+# Associative arrays to track per-app build results
+declare -A BUILD_STATUS    # app_name → PASS | FAIL
+declare -A BUILD_ERROR     # app_name → error summary string
+FAILED_APPS=()
+PASSED_APPS=()
 
 # ── YAML helpers ──────────────────────────────────────────────────────────────
 cfg_get() {
@@ -89,27 +86,121 @@ cfg_bool() {
 # ── Read SDK config ───────────────────────────────────────────────────────────
 SDK_REPO=$(cfg_get sdk repo)
 SDK_PLATFORM=$(cfg_get sdk platform)
-SDK_PLATFORM="${SDK_PLATFORM:-linux}"       # default to linux if not set
+SDK_PLATFORM="${SDK_PLATFORM:-linux}"
 SUBMODULE_JOBS=$(cfg_get sdk submodule_jobs)
-SUBMODULE_JOBS="${SUBMODULE_JOBS:-4}"       # default to 4 parallel jobs
+SUBMODULE_JOBS="${SUBMODULE_JOBS:-4}"
 SDK_DIR="${MATTER_SDK_DIR:-$(cfg_get rpi sdk_dir)}"
-
-# Runtime overrides — set by workflow dispatch inputs (sdk_branch / sdk_sha).
-# If provided at runtime, they take priority over build_config.yaml values.
-# If not provided, fall back to config file values.
 CONFIG_BRANCH=$(cfg_get sdk branch)
 CONFIG_SHA=$(cfg_get sdk sha)
 SDK_BRANCH="${RUNTIME_SDK_BRANCH:-${CONFIG_BRANCH}}"
 SDK_SHA="${RUNTIME_SDK_SHA:-${CONFIG_SHA}}"
 
-log "Branch source  : ${RUNTIME_SDK_BRANCH:+runtime input} ${RUNTIME_SDK_BRANCH:-config file}"
-log "Branch value   : ${SDK_BRANCH}"
-log "SHA source     : ${RUNTIME_SDK_SHA:+runtime input} ${RUNTIME_SDK_SHA:-config file}"
-log "SHA value      : ${SDK_SHA:-<none — use branch HEAD>}"
+# Log dir for build error logs
+BUILD_LOG_DIR="${PROJECT_ROOT}/logs/build_logs"
+mkdir -p "${BUILD_LOG_DIR}"
+
+# =============================================================================
+# Error conclusion helper
+# Analyses error output and gives a human-readable conclusion
+# =============================================================================
+diagnose_error() {
+    local app_name="$1"
+    local error_log="$2"
+    local conclusion=""
+
+    if [[ ! -f "${error_log}" ]]; then
+        echo "Build log not found — build may have crashed before starting"
+        return
+    fi
+
+    local content
+    content=$(cat "${error_log}" 2>/dev/null || echo "")
+
+    # Check for common errors in order of specificity
+    if echo "${content}" | grep -q "No such file or directory.*source_dir\|does not exist\|source directory"; then
+        conclusion="❌ WRONG SOURCE PATH — The source_dir in build_config.yaml does not exist in the SDK."
+        conclusion+="\n   Check: source_dir for '${app_name}' in build_config.yaml"
+    elif echo "${content}" | grep -q "No such file or directory.*build_dir\|cannot create.*build"; then
+        conclusion="❌ WRONG BUILD PATH — The build_dir in build_config.yaml is invalid."
+        conclusion+="\n   Check: build_dir for '${app_name}' in build_config.yaml"
+    elif echo "${content}" | grep -q "fatal error:.*No such file or directory"; then
+        local missing_header
+        missing_header=$(echo "${content}" | grep "fatal error:" | grep "No such file" | head -1 | sed "s/.*fatal error: //")
+        conclusion="❌ MISSING HEADER FILE — ${missing_header}"
+        conclusion+="\n   Fix: Install missing system package (check apt-packages.txt)"
+    elif echo "${content}" | grep -q "error:.*command not found\|gn: not found\|ninja: not found"; then
+        conclusion="❌ TOOL NOT FOUND — gn or ninja not in PATH."
+        conclusion+="\n   Fix: Run with full/skip-clone mode to re-run bootstrap"
+    elif echo "${content}" | grep -q "out of memory\|OOM\|std::bad_alloc"; then
+        conclusion="❌ OUT OF MEMORY — Build ran out of RAM."
+        conclusion+="\n   Fix: Add/increase swap space on RPi (see README)"
+    elif echo "${content}" | grep -q "error:.*undeclared\|error:.*undefined reference"; then
+        conclusion="❌ COMPILATION ERROR — Code compile error (likely SDK version mismatch)."
+        conclusion+="\n   Fix: Check SDK branch/SHA in config or try full mode rebuild"
+    elif echo "${content}" | grep -q "subcommand failed\|ninja: build stopped"; then
+        conclusion="❌ NINJA BUILD FAILED — One or more compile units failed."
+        conclusion+="\n   Check the error log for specific compile errors"
+    elif echo "${content}" | grep -q "timeout\|timed out"; then
+        conclusion="❌ BUILD TIMEOUT — Build exceeded time limit."
+        conclusion+="\n   Fix: Increase timeout or reduce parallel jobs"
+    elif echo "${content}" | grep -q "permission denied\|Permission denied"; then
+        conclusion="❌ PERMISSION DENIED — File or directory permission issue."
+        conclusion+="\n   Fix: Check file ownership on RPi"
+    else
+        conclusion="❌ BUILD FAILED — Unknown error. Check full log for details."
+    fi
+
+    echo -e "${conclusion}"
+}
+
+# =============================================================================
+# STEP 0 — Install system dependencies
+# =============================================================================
+install_system_deps() {
+    banner "Step 0 — System Dependencies"
+
+    local apt_file="${PROJECT_ROOT}/apt-packages.txt"
+
+    if [[ ! -f "${apt_file}" ]]; then
+        warn "apt-packages.txt not found — skipping apt dep check."
+    else
+        local packages=()
+        while IFS= read -r line; do
+            [[ "${line}" =~ ^#.*$ || -z "${line}" ]] && continue
+            packages+=("${line}")
+        done < "${apt_file}"
+
+        if [[ ${#packages[@]} -gt 0 ]]; then
+            log "Checking ${#packages[@]} required apt packages..."
+            local missing=()
+            for pkg in "${packages[@]}"; do
+                if ! dpkg -s "${pkg}" &>/dev/null 2>&1; then
+                    missing+=("${pkg}")
+                fi
+            done
+            if [[ ${#missing[@]} -eq 0 ]]; then
+                ok "All apt packages already installed."
+            else
+                log "Installing ${#missing[@]} missing package(s): ${missing[*]}"
+                sudo apt-get update -qq
+                sudo apt-get install -y "${missing[@]}"
+                ok "Apt packages installed."
+            fi
+        fi
+    fi
+
+    # pip packages
+    log "Checking pip packages..."
+    python3 -c "import cairo" &>/dev/null 2>&1 || {
+        log "Installing pycairo..."
+        pip3 install pycairo --break-system-packages --quiet
+        ok "pycairo installed."
+    }
+    ok "All pip packages present."
+}
 
 # =============================================================================
 # STEP 1 — Clone SDK (full mode only)
-# Manual equivalent: git clone <url> + git submodule update --init --recursive
 # =============================================================================
 sdk_clone() {
     banner "Step 1 — SDK Clone"
@@ -118,8 +209,16 @@ sdk_clone() {
     log "SHA    : ${SDK_SHA:-<HEAD of branch>}"
     log "Dir    : ${SDK_DIR}"
 
+    # Validate repo URL
+    if [[ -z "${SDK_REPO}" ]]; then
+        fail "❌ MISSING CONFIG — sdk.repo is empty in build_config.yaml"
+    fi
+    if [[ -z "${SDK_BRANCH}" ]]; then
+        fail "❌ MISSING CONFIG — sdk.branch is empty in build_config.yaml"
+    fi
+
     if [[ -d "${SDK_DIR}/.git" ]]; then
-        log "SDK directory already exists — removing for clean clone..."
+        log "Existing SDK found — removing for clean clone..."
         rm -rf "${SDK_DIR}"
     fi
 
@@ -128,31 +227,48 @@ sdk_clone() {
         --branch "${SDK_BRANCH}" \
         --depth 1 \
         "${SDK_REPO}" \
-        "${SDK_DIR}"
+        "${SDK_DIR}" || fail "❌ CLONE FAILED — Check network and SDK repo URL: ${SDK_REPO}"
 
     cd "${SDK_DIR}"
 
     if [[ -n "${SDK_SHA}" ]]; then
         log "Pinning to SHA: ${SDK_SHA}"
-        git fetch --depth 1 origin "${SDK_SHA}" 2>/dev/null || true
-        git checkout "${SDK_SHA}"
+        git fetch --depth 1 origin "${SDK_SHA}" 2>/dev/null || \
+            git fetch origin || \
+            fail "❌ SHA NOT FOUND — SHA '${SDK_SHA}' does not exist in repo"
+        git checkout "${SDK_SHA}" || \
+            fail "❌ CHECKOUT FAILED — Could not checkout SHA: ${SDK_SHA}"
     fi
 
-    log "Initialising submodules (platform: ${SDK_PLATFORM}, shallow, jobs: ${SUBMODULE_JOBS})..."
-    python3 scripts/checkout_submodules.py --platform "${SDK_PLATFORM}" --shallow --recursive --jobs "${SUBMODULE_JOBS}"
+    log "Initialising submodules (platform: ${SDK_PLATFORM}, jobs: ${SUBMODULE_JOBS})..."
+    for attempt in 1 2 3; do
+        log "Submodule checkout attempt ${attempt}/3..."
+        python3 scripts/checkout_submodules.py \
+            --platform "${SDK_PLATFORM}" \
+            --shallow \
+            --recursive \
+            --jobs "${SUBMODULE_JOBS}" \
+            --allow-changing-global-git-config \
+            && break \
+            || {
+                warn "Submodule checkout failed on attempt ${attempt} — retrying in 5s..."
+                sleep 5
+            }
+    done
 
     ok "SDK cloned → commit: $(git rev-parse --short HEAD)"
 }
 
 # =============================================================================
 # STEP 1b — Update existing SDK (skip-clone mode)
-# Manual equivalent: cd connectedhomeip && git pull (or git checkout <SHA>)
 # =============================================================================
 sdk_update() {
     banner "Step 1 — SDK Update (skip clone)"
 
     if [[ ! -d "${SDK_DIR}/.git" ]]; then
-        fail "SDK not found at ${SDK_DIR} — cannot skip clone. Run with --mode full first."
+        fail "❌ SDK NOT FOUND — No SDK at '${SDK_DIR}'
+   Fix: Run with --mode full to do a fresh clone first
+   Or check rpi.sdk_dir in build_config.yaml"
     fi
 
     cd "${SDK_DIR}"
@@ -162,190 +278,128 @@ sdk_update() {
     log "Config SHA     : ${SDK_SHA:-<none — will use branch HEAD>}"
 
     if [[ -n "${SDK_SHA}" ]]; then
-        # ── Pin to specific SHA from config ───────────────────────────────
-        log "Fetching SHA from config: ${SDK_SHA}"
-        git fetch --depth 1 origin "${SDK_SHA}" 2>/dev/null ||             git fetch origin
-        git checkout "${SDK_SHA}"
-        log "Detached HEAD at: $(git rev-parse --short HEAD)"
-
+        log "Fetching SHA: ${SDK_SHA}"
+        git fetch --depth 1 origin "${SDK_SHA}" 2>/dev/null || git fetch origin
+        git checkout "${SDK_SHA}" || \
+            fail "❌ SHA NOT FOUND — SHA '${SDK_SHA}' does not exist. Check sdk.sha in config"
     else
-        # ── Checkout branch from config and pull latest TOT ───────────────
-        log "Switching to branch from config: ${SDK_BRANCH}"
-
-        # Fetch the configured branch from remote
-        git fetch origin "${SDK_BRANCH}"
-
-        # -B: create branch if it doesn't exist, or reset it to remote HEAD
-        # This ensures we always land on the correct branch from config
-        # regardless of what branch the local repo was on before
+        log "Switching to branch: ${SDK_BRANCH}"
+        git fetch origin "${SDK_BRANCH}" || \
+            fail "❌ BRANCH NOT FOUND — Branch '${SDK_BRANCH}' not found in remote
+   Fix: Check sdk.branch in build_config.yaml
+   Available branches: git branch -r"
         git checkout -B "${SDK_BRANCH}" "origin/${SDK_BRANCH}"
-
         log "Now on branch  : $(git rev-parse --abbrev-ref HEAD)"
-        log "Latest commit  : $(git rev-parse --short HEAD)"
     fi
 
-    log "Updating submodules (platform: ${SDK_PLATFORM}, shallow, jobs: ${SUBMODULE_JOBS})..."
-    python3 scripts/checkout_submodules.py --platform "${SDK_PLATFORM}" --shallow --recursive --jobs "${SUBMODULE_JOBS}"
+    log "Updating submodules (platform: ${SDK_PLATFORM}, jobs: ${SUBMODULE_JOBS})..."
+    for attempt in 1 2 3; do
+        log "Submodule checkout attempt ${attempt}/3..."
+        python3 scripts/checkout_submodules.py \
+            --platform "${SDK_PLATFORM}" \
+            --shallow \
+            --recursive \
+            --jobs "${SUBMODULE_JOBS}" \
+            --allow-changing-global-git-config \
+            && break \
+            || {
+                warn "Submodule checkout failed on attempt ${attempt} — retrying in 5s..."
+                sleep 5
+            }
+    done
 
     ok "SDK updated → branch: $(git rev-parse --abbrev-ref HEAD)  commit: $(git rev-parse --short HEAD)"
 }
 
 # =============================================================================
-# STEP 0 — Install system dependencies
-# Reads requirements-apt.txt and installs any missing packages.
-# Runs before every build to ensure the environment is consistent.
-# =============================================================================
-install_system_deps() {
-    banner "Step 0 — System Dependencies"
-
-    local apt_file="${PROJECT_ROOT}/apt-packages.txt"
-
-    # ── APT packages ──────────────────────────────────────────────────────────
-    if [[ ! -f "${apt_file}" ]]; then
-        warn "apt-packages.txt not found at ${apt_file} — skipping apt dep check."
-    else
-        # Parse file — strip comments and blank lines
-        local packages=()
-        while IFS= read -r line; do
-            [[ "${line}" =~ ^#.*$ || -z "${line}" ]] && continue
-            packages+=("${line}")
-        done < "${apt_file}"
-
-        if [[ ${#packages[@]} -gt 0 ]]; then
-            log "Checking ${#packages[@]} required apt packages..."
-
-            # Find which packages are NOT installed
-            local missing=()
-            for pkg in "${packages[@]}"; do
-                if ! dpkg -s "${pkg}" &>/dev/null 2>&1; then
-                    missing+=("${pkg}")
-                fi
-            done
-
-            if [[ ${#missing[@]} -eq 0 ]]; then
-                ok "All apt packages already installed."
-            else
-                log "Installing ${#missing[@]} missing apt package(s): ${missing[*]}"
-                sudo apt-get update -qq
-                sudo apt-get install -y "${missing[@]}"
-                ok "Apt packages installed successfully."
-            fi
-        fi
-    fi
-
-    # ── pip packages ──────────────────────────────────────────────────────────
-    log "Checking pip packages..."
-    local pip_missing=()
-
-    # pycairo — required for Python GI bindings
-    python3 -c "import cairo" &>/dev/null 2>&1 || pip_missing+=("pycairo")
-
-    if [[ ${#pip_missing[@]} -eq 0 ]]; then
-        ok "All pip packages already installed."
-    else
-        log "Installing pip packages: ${pip_missing[*]}"
-        pip3 install "${pip_missing[@]}" --break-system-packages --quiet
-        ok "Pip packages installed."
-    fi
-}
-
-# =============================================================================
 # STEP 2 — Bootstrap
-# Manual equivalent: source scripts/bootstrap.sh
-# Always run after clone or update — environment is commit-specific.
 # =============================================================================
 sdk_bootstrap() {
     banner "Step 2 — Bootstrap"
     cd "${SDK_DIR}"
 
+    if ! cfg_bool sdk bootstrap; then
+        warn "Bootstrap disabled in config — skipping."
+        return
+    fi
+
     log "Running: source scripts/bootstrap.sh"
-    log "This sets up pigweed, CIPD tools, and Python venv for this commit..."
-    bash scripts/bootstrap.sh
+    bash scripts/bootstrap.sh || \
+        fail "❌ BOOTSTRAP FAILED — Environment setup failed
+   Fix: Check system dependencies in apt-packages.txt
+   Run: sudo apt install -y \$(grep -v '^#' apt-packages.txt | tr '\n' ' ')"
     ok "Bootstrap complete."
 }
 
 # =============================================================================
 # STEP 3 — Clean old build outputs
-# Removes stale binaries and .environment from previous builds.
-# Required when switching commits/branches so old artifacts don't linger.
-# Manual equivalent: rm -rf <build_dirs> .environment
 # =============================================================================
 clean_old_builds() {
     banner "Step 3 — Clean Old Build Outputs"
     cd "${SDK_DIR}"
 
-    # Clean .environment (regenerated by bootstrap)
     if [[ -d ".environment" ]]; then
         log "Removing .environment/ ..."
         rm -rf .environment
         ok "Removed .environment/"
-    else
-        log ".environment/ not found — skipping"
     fi
 
-    # Clean all enabled app build dirs
     while IFS= read -r line; do
         local build_dir
         build_dir=$(echo "${line}" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['build_dir'])")
         if [[ -d "${build_dir}" ]]; then
-            log "Removing app build dir: ${build_dir}"
+            log "Removing: ${build_dir}"
             rm -rf "${build_dir}"
-            ok "Removed ${build_dir}"
         fi
     done < <(cfg_apps)
 
-    # Clean chip-tool build dir
     if cfg_bool chip_tool enabled; then
         local ct_build
         ct_build=$(cfg_get chip_tool build_dir)
-        if [[ -d "${ct_build}" ]]; then
-            log "Removing chip-tool build dir: ${ct_build}"
-            rm -rf "${ct_build}"
-            ok "Removed ${ct_build}"
-        fi
+        [[ -d "${ct_build}" ]] && rm -rf "${ct_build}" && log "Removed chip-tool build dir"
     fi
 
-    # Clean python controller venv
     if cfg_bool python_controller enabled; then
         local venv_name
         venv_name=$(cfg_get python_controller install_venv_name)
-        if [[ -d "${venv_name}" ]]; then
-            log "Removing python venv: ${venv_name}"
-            rm -rf "${venv_name}"
-            ok "Removed ${venv_name}"
-        fi
+        [[ -d "${venv_name}" ]] && rm -rf "${venv_name}" && log "Removed python venv"
     fi
 
-    ok "Clean complete — ready for fresh build."
+    ok "Clean complete."
 }
 
 # =============================================================================
 # Activate environment
-# Manual equivalent: source scripts/activate.sh
-# Must be called after bootstrap. Uses set +u to handle optional PW_* vars.
 # =============================================================================
 activate_env() {
     cd "${SDK_DIR}"
-    log "Activating Matter environment (source scripts/activate.sh)..."
+    log "Activating Matter environment..."
 
-    # set +u: temporarily allow unbound variables.
-    # activate.sh references optional PW_* vars without ${:-} guards,
-    # which crashes under set -u in a non-interactive SSH shell.
+    if [[ ! -f "scripts/activate.sh" ]]; then
+        fail "❌ ACTIVATE.SH NOT FOUND — SDK may not be properly cloned
+   Expected: ${SDK_DIR}/scripts/activate.sh
+   Fix: Run with --mode full to re-clone the SDK"
+    fi
+
     set +u
-    # shellcheck disable=SC1091
     source scripts/activate.sh
     set -u
 
-    ok "Environment activated. gn=$(command -v gn 2>/dev/null || echo NOT_FOUND)  ninja=$(command -v ninja 2>/dev/null || echo NOT_FOUND)"
+    # Verify gn and ninja are available
+    if ! command -v gn &>/dev/null; then
+        fail "❌ GN NOT FOUND — Bootstrap may not have completed successfully
+   Fix: Run with --mode full or skip-clone to re-run bootstrap"
+    fi
+    if ! command -v ninja &>/dev/null; then
+        fail "❌ NINJA NOT FOUND — Bootstrap may not have completed successfully
+   Fix: Run with --mode full or skip-clone to re-run bootstrap"
+    fi
+
+    ok "Environment activated. gn=$(command -v gn)  ninja=$(command -v ninja)"
 }
 
 # =============================================================================
-# STEP 4 — Build reference apps
-# Manual equivalent:
-#   scripts/examples/gn_build_example.sh \
-#       examples/all-clusters-app/linux \
-#       examples/all-clusters-app/linux/out/all-clusters-app \
-#       chip_inet_config_enable_ipv4=false
+# STEP 4 — Build reference apps (resilient — continues on single app failure)
 # =============================================================================
 build_apps() {
     banner "Step 4 — Reference Apps"
@@ -358,7 +412,7 @@ build_apps() {
         return
     fi
 
-    log "Building ${#app_lines[@]} enabled app(s)..."
+    log "Building ${#app_lines[@]} enabled app(s) (failures are non-fatal)..."
     activate_env
     cd "${SDK_DIR}"
 
@@ -373,30 +427,60 @@ build_apps() {
         log "│  source   : ${source_dir}"
         log "│  output   : ${build_dir}"
         log "│  gn_args  : ${extra_gn_args:-<none>}"
-        log "└─ Command  : scripts/examples/gn_build_example.sh ${source_dir} ${build_dir} ${extra_gn_args}"
 
-        scripts/examples/gn_build_example.sh \
-            "${source_dir}" \
-            "${build_dir}" \
-            ${extra_gn_args}
+        # Validate source directory exists before attempting build
+        if [[ ! -d "${source_dir}" ]]; then
+            local err_log="${BUILD_LOG_DIR}/${name}_build_error.log"
+            echo "Source directory not found: ${SDK_DIR}/${source_dir}" > "${err_log}"
+            echo "Configured source_dir: ${source_dir}" >> "${err_log}"
+            echo "Check source_dir for '${name}' in build_config.yaml" >> "${err_log}"
+            BUILD_STATUS["${name}"]="FAIL"
+            BUILD_ERROR["${name}"]="❌ WRONG SOURCE PATH — '${source_dir}' does not exist in SDK\n   Fix: Check source_dir for '${name}' in build_config.yaml"
+            FAILED_APPS+=("${name}")
+            echo -e "${RED}[FAIL]${NC} ${name} — source directory not found: ${source_dir}"
+            continue
+        fi
 
-        ok "${name} built → ${SDK_DIR}/${build_dir}"
+        # Run build, capture output, continue on failure
+        local err_log="${BUILD_LOG_DIR}/${name}_build_error.log"
+        local tmp_log="${BUILD_LOG_DIR}/${name}_build_full.log"
+
+        if scripts/examples/gn_build_example.sh \
+                "${source_dir}" \
+                "${build_dir}" \
+                ${extra_gn_args} \
+                > "${tmp_log}" 2>&1; then
+            BUILD_STATUS["${name}"]="PASS"
+            PASSED_APPS+=("${name}")
+            ok "└─ ${name} built successfully"
+        else
+            # Save last 50 lines as error log
+            tail -50 "${tmp_log}" > "${err_log}" 2>/dev/null || true
+
+            # Diagnose and save conclusion
+            local conclusion
+            conclusion=$(diagnose_error "${name}" "${err_log}")
+            BUILD_STATUS["${name}"]="FAIL"
+            BUILD_ERROR["${name}"]="${conclusion}"
+            FAILED_APPS+=("${name}")
+
+            echo -e "${RED}[FAIL]${NC} └─ ${name} build failed"
+            echo -e "       ${conclusion}"
+            echo -e "       Full log: ${tmp_log}"
+            echo -e "       Error log (last 50 lines): ${err_log}"
+        fi
         echo ""
     done
 }
 
 # =============================================================================
-# STEP 5 — Build chip-tool
-# Manual equivalent:
-#   scripts/examples/gn_build_example.sh \
-#       examples/chip-tool out/chip-tool \
-#       'chip_mdns="platform" chip_inet_config_enable_ipv4=false'
+# STEP 5 — Build chip-tool (FATAL on failure — tests need it)
 # =============================================================================
 build_chip_tool() {
     banner "Step 5 — chip-tool"
 
     if ! cfg_bool chip_tool enabled; then
-        warn "chip-tool disabled in config — skipping."
+        warn "chip-tool disabled — skipping."
         return
     fi
 
@@ -405,29 +489,50 @@ build_chip_tool() {
     build_dir=$(cfg_get chip_tool build_dir)
     extra_gn_args=$(cfg_get chip_tool extra_gn_args)
 
+    # Validate source dir
+    if [[ ! -d "${SDK_DIR}/${source_dir}" ]]; then
+        fail "❌ WRONG SOURCE PATH — chip-tool source_dir '${source_dir}' does not exist in SDK
+   Fix: Check chip_tool.source_dir in build_config.yaml
+   Expected path: ${SDK_DIR}/${source_dir}"
+    fi
+
     activate_env
     cd "${SDK_DIR}"
 
-    log "Command: scripts/examples/gn_build_example.sh ${source_dir} ${build_dir} ${extra_gn_args}"
+    local err_log="${BUILD_LOG_DIR}/chip-tool_build_error.log"
+    local tmp_log="${BUILD_LOG_DIR}/chip-tool_build_full.log"
 
-    scripts/examples/gn_build_example.sh \
-        "${source_dir}" \
-        "${build_dir}" \
-        ${extra_gn_args}
-
-    ok "chip-tool built → ${SDK_DIR}/${build_dir}/$(cfg_get chip_tool binary_name)"
+    log "Building chip-tool..."
+    if scripts/examples/gn_build_example.sh \
+            "${source_dir}" \
+            "${build_dir}" \
+            ${extra_gn_args} \
+            > "${tmp_log}" 2>&1; then
+        BUILD_STATUS["chip-tool"]="PASS"
+        PASSED_APPS+=("chip-tool")
+        ok "chip-tool built → ${SDK_DIR}/${build_dir}/$(cfg_get chip_tool binary_name)"
+    else
+        tail -50 "${tmp_log}" > "${err_log}" 2>/dev/null || true
+        local conclusion
+        conclusion=$(diagnose_error "chip-tool" "${err_log}")
+        BUILD_STATUS["chip-tool"]="FAIL"
+        echo -e "${RED}[FAIL]${NC} chip-tool build failed"
+        echo -e "       ${conclusion}"
+        # chip-tool failure is FATAL
+        fail "❌ chip-tool build failed — tests cannot run without chip-tool
+   Error log: ${err_log}
+   ${conclusion}"
+    fi
 }
 
 # =============================================================================
-# STEP 6 — Build Python controller
-# Manual equivalent:
-#   ./scripts/build_python.sh -m platform -d true -i python_env
+# STEP 6 — Build Python controller (FATAL on failure — tests need it)
 # =============================================================================
 build_python_controller() {
     banner "Step 6 — Python Controller"
 
     if ! cfg_bool python_controller enabled; then
-        warn "Python controller disabled in config — skipping."
+        warn "Python controller disabled — skipping."
         return
     fi
 
@@ -438,19 +543,35 @@ build_python_controller() {
     activate_env
     cd "${SDK_DIR}"
 
-    log "Command: scripts/build_python.sh -m platform -d true -i ${install_venv_name} ${extra_args}"
+    local err_log="${BUILD_LOG_DIR}/python-controller_build_error.log"
+    local tmp_log="${BUILD_LOG_DIR}/python-controller_build_full.log"
 
-    scripts/build_python.sh \
-        -m platform \
-        -d true \
-        -i "${install_venv_name}" \
-        ${extra_args}
-
-    ok "Python controller built → ${SDK_DIR}/${install_venv_name}"
+    log "Building Python controller..."
+    if scripts/build_python.sh \
+            -m platform \
+            -d true \
+            -i "${install_venv_name}" \
+            ${extra_args} \
+            > "${tmp_log}" 2>&1; then
+        BUILD_STATUS["python-controller"]="PASS"
+        PASSED_APPS+=("python-controller")
+        ok "Python controller built → ${SDK_DIR}/${install_venv_name}"
+    else
+        tail -50 "${tmp_log}" > "${err_log}" 2>/dev/null || true
+        local conclusion
+        conclusion=$(diagnose_error "python-controller" "${err_log}")
+        BUILD_STATUS["python-controller"]="FAIL"
+        echo -e "${RED}[FAIL]${NC} Python controller build failed"
+        echo -e "       ${conclusion}"
+        # Python controller failure is FATAL
+        fail "❌ Python controller build failed — tests cannot run without it
+   Error log: ${err_log}
+   ${conclusion}"
+    fi
 }
 
 # =============================================================================
-# STEP 7 — Build summary
+# STEP 7 — Build summary with clear conclusions
 # =============================================================================
 print_summary() {
     banner "Build Summary"
@@ -461,7 +582,7 @@ print_summary() {
     echo -e "${BOLD}SDK branch :${NC} $(git rev-parse --abbrev-ref HEAD)"
     echo ""
 
-    local all_ok=true
+    local overall_ok=true
 
     echo -e "${BOLD}Reference Apps:${NC}"
     while IFS= read -r line; do
@@ -470,13 +591,19 @@ print_summary() {
         build_dir=$(echo "${line}"   | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['build_dir'])")
         binary_name=$(echo "${line}" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['binary_name'])")
         bin_path="${SDK_DIR}/${build_dir}/${binary_name}"
+
         if [[ -f "${bin_path}" ]]; then
             local size
             size=$(du -sh "${bin_path}" | cut -f1)
-            echo -e "  ${GREEN}✔${NC}  ${name} (${size}) → ${bin_path}"
+            echo -e "  ${GREEN}✔${NC}  ${name} (${size})"
         else
-            echo -e "  ${RED}✘${NC}  ${name} → MISSING: ${bin_path}"
-            all_ok=false
+            echo -e "  ${RED}✘${NC}  ${name} — BUILD FAILED"
+            if [[ -n "${BUILD_ERROR[${name}]:-}" ]]; then
+                echo -e "       ${BUILD_ERROR[${name}]}"
+            fi
+            local err_log="${BUILD_LOG_DIR}/${name}_build_error.log"
+            [[ -f "${err_log}" ]] && echo -e "       Error log: ${err_log}"
+            overall_ok=false
         fi
     done < <(cfg_apps)
     echo ""
@@ -486,10 +613,10 @@ print_summary() {
         local ct_path="${SDK_DIR}/$(cfg_get chip_tool build_dir)/$(cfg_get chip_tool binary_name)"
         if [[ -f "${ct_path}" ]]; then
             local size; size=$(du -sh "${ct_path}" | cut -f1)
-            echo -e "  ${GREEN}✔${NC}  chip-tool (${size}) → ${ct_path}"
+            echo -e "  ${GREEN}✔${NC}  chip-tool (${size})"
         else
-            echo -e "  ${RED}✘${NC}  chip-tool MISSING: ${ct_path}"
-            all_ok=false
+            echo -e "  ${RED}✘${NC}  chip-tool — BUILD FAILED"
+            overall_ok=false
         fi
         echo ""
     fi
@@ -500,22 +627,40 @@ print_summary() {
         if [[ -d "${venv_path}" ]]; then
             echo -e "  ${GREEN}✔${NC}  venv → ${venv_path}"
         else
-            echo -e "  ${RED}✘${NC}  venv MISSING: ${venv_path}"
-            all_ok=false
+            echo -e "  ${RED}✘${NC}  venv MISSING"
+            overall_ok=false
         fi
         echo ""
     fi
 
-    if [[ "${all_ok}" == "true" ]]; then
+    # Save build status JSON for test runner to read
+    python3 - "${BUILD_LOG_DIR}" << 'PY'
+import sys, json, os
+log_dir = sys.argv[1]
+status = {}
+# Find all *_build_error.log files to determine failed apps
+for f in os.listdir(log_dir):
+    if f.endswith("_build_error.log"):
+        app = f.replace("_build_error.log", "")
+        status[app] = "FAIL"
+out = os.path.join(log_dir, "build_status.json")
+with open(out, "w") as f:
+    json.dump(status, f, indent=2)
+print(f"Build status saved: {out}")
+PY
+
+    if [[ "${overall_ok}" == "true" ]]; then
         echo -e "${GREEN}${BOLD}✔ All enabled targets built successfully!${NC}"
     else
-        echo -e "${RED}${BOLD}✘ One or more targets missing — check logs above.${NC}"
-        exit 1
+        echo -e "${YELLOW}${BOLD}⚠ Some targets failed — check error logs above.${NC}"
+        echo -e "${YELLOW}  Tests will run only for successfully built apps.${NC}"
+        # Don't exit 1 here — let tests run for what did build
+        # chip-tool and python-controller failures already caused exit above
     fi
 }
 
 # =============================================================================
-# Main — orchestrate steps based on build mode
+# Main
 # =============================================================================
 main() {
     banner "Matter CI — Build Pipeline"
@@ -526,39 +671,30 @@ main() {
     log "Date    : $(date)"
     echo ""
 
-    # ── Always install system dependencies first ──────────────────────────────
     install_system_deps
 
     case "${BUILD_MODE}" in
-
         full)
-            # ── Full build: clone → clean → bootstrap → build ──────────────
-            # Clean first so bootstrap creates a fresh .environment
             log "Mode: FULL — clone SDK, clean old builds, bootstrap, build all"
             sdk_clone
-            clean_old_builds   # ← before bootstrap — removes stale .environment
-            sdk_bootstrap      # ← creates fresh .environment
+            clean_old_builds
+            sdk_bootstrap
             ;;
-
         skip-clone)
-            # ── Skip clone: pull → clean → bootstrap → build ───────────────
-            # Clean first so bootstrap creates a fresh .environment
             log "Mode: SKIP-CLONE — update existing SDK, clean old builds, bootstrap, build all"
             sdk_update
-            clean_old_builds   # ← before bootstrap — removes stale .environment
-            sdk_bootstrap      # ← creates fresh .environment
+            clean_old_builds
+            sdk_bootstrap
             ;;
-
         skip-all)
-            # ── Skip all: build only — no clone/clean/bootstrap ────────────
-            log "Mode: SKIP-ALL — build only (SDK and bootstrap unchanged)"
-            warn "Skipping clone, clean, and bootstrap."
+            log "Mode: SKIP-ALL — build only (no clone, no bootstrap, no clean)"
             warn "Only safe if rebuilding the exact same SDK commit."
             if [[ ! -d "${SDK_DIR}/.git" ]]; then
-                fail "SDK not found at ${SDK_DIR}. Run with --mode full first."
+                fail "❌ SDK NOT FOUND at ${SDK_DIR}
+   Fix: Run with --mode full first to clone the SDK
+   Or check rpi.sdk_dir in build_config.yaml"
             fi
             ;;
-
     esac
 
     build_apps
