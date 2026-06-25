@@ -290,6 +290,7 @@ class TestRunner:
     def _result(self, tc, status, counts, elapsed, log_path, note=""):
         return {
             "test_case_id":   tc["test_case_id"],
+            "cluster":        tc.get("cluster", ""),
             "dut_command":    tc["dut_command"],
             "python_command": tc["python_command"],
             "status":         status,
@@ -316,8 +317,14 @@ class TestRunner:
 # =============================================================================
 # HTML Report generator — enhanced with filters, cluster grouping, log links
 # =============================================================================
-def extract_cluster(tc_id: str) -> str:
-    """Extract cluster name from TC ID e.g. TC-ACE-1.2 → ACE"""
+def extract_cluster(tc_id: str, cluster: str = "") -> str:
+    """
+    Returns cluster name from test_commands.json (full name from tc_list.json),
+    falls back to extracting abbreviation from TC ID.
+    e.g. "Access Control Enforcement" or "ACE"
+    """
+    if cluster:
+        return cluster
     match = re.match(r'TC-([A-Z]+(?:-[A-Z]+)*)-', tc_id, re.IGNORECASE)
     return match.group(1).upper() if match else "OTHER"
 
@@ -334,7 +341,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Collect unique clusters for filter dropdown
-    clusters = sorted(set(extract_cluster(r["test_case_id"]) for r in results))
+    clusters = sorted(set(extract_cluster(r["test_case_id"], r.get("cluster", "")) for r in results))
 
     colour = {PASS: "#28a745", FAIL: "#dc3545", RERUN: "#fd7e14", ERROR: "#6c757d"}
 
@@ -374,7 +381,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     rows_html = ""
     for r in results:
         tc_id   = r["test_case_id"]
-        cluster = extract_cluster(tc_id)
+        cluster = extract_cluster(tc_id, r.get("cluster", ""))
         status  = r["status"]
         counts  = r.get("counts", {})
         elapsed = r["elapsed_s"]
