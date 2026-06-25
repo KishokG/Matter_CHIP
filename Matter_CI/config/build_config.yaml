@@ -45,7 +45,7 @@ apps:
   - name: "thermostat-app"
     enabled: true
     source_dir: "examples/thermostat/linux"
-    build_dir:  "out/thermostat-app"
+    build_dir:  "out/thermostat"
     binary_name: "chip-thermostat-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
