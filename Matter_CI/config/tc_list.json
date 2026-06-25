@@ -351,5 +351,35 @@
     "tc_id": "TC-CLCTRL-6.1",
     "cluster": "Closure Control Cluster",
     "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.2",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.3",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.5",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.9",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.12",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.13",
+    "cluster": "Door lock",
+    "enabled": true
   }
 ]
