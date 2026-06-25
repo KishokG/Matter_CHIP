@@ -209,41 +209,62 @@ class DUTManager:
         self._log_file = None
         self._app_name = None
 
-    def _find_binary(self, dut_cmd: str) -> Path | None:
+    def _find_binary(self, dut_cmd: str) -> tuple[Path | None, str]:
         """
-        Match binary name in dut_cmd against build_config apps list.
-        e.g. './chip-all-clusters-app' → build_dir/chip-all-clusters-app
+        Find binary for DUT command from build_config.yaml only.
+        Returns (binary_path, error_message).
+        If binary not found, returns (None, reason).
         """
-        # Extract binary name from command (after ./ and before first space/flag)
-        match = re.search(r'\./([^\s]+)', dut_cmd)
+        match = re.search(r"\./([^\s]+)", dut_cmd)
         if not match:
-            return None
+            return None, "Could not extract binary name from DUT command"
         bin_name = match.group(1)
 
-        # Search enabled apps in config
+        # Check enabled apps in config
         for app in self.cfg.get("apps", []):
-            if app.get("binary_name") == bin_name and app.get("enabled"):
+            if app.get("binary_name") == bin_name:
+                if not app.get("enabled"):
+                    return None, (
+                        f"App '{app['name']}' is disabled in build_config.yaml. "
+                        f"Set enabled: true to include it in the build."
+                    )
                 binary = self.sdk_dir / app["build_dir"] / app["binary_name"]
                 if binary.exists():
-                    return binary
+                    return binary, ""
+                else:
+                    return None, (
+                        f"Binary '{bin_name}' is configured but not built. "
+                        f"Expected at: {binary}. "
+                        f"Run pipeline with build mode to compile it first."
+                    )
 
-        # Also check chip_tool binary
+        # Check chip_tool
         ct = self.cfg.get("chip_tool", {})
         if ct.get("binary_name") == bin_name:
             binary = self.sdk_dir / ct["build_dir"] / ct["binary_name"]
             if binary.exists():
-                return binary
+                return binary, ""
+            return None, f"chip-tool not built. Expected at: {binary}"
 
-        return None
+        # Not in config at all
+        return None, (
+            f"Binary '{bin_name}' is not defined in build_config.yaml. "
+            f"Add it to the apps list and rebuild, or check if the DUT command "
+            f"is using the correct binary name."
+        )
 
-    def launch(self, dut_cmd: str, log_path: Path) -> bool:
-        """Launch DUT app in background. Returns True on success."""
+
+    def launch(self, dut_cmd: str, log_path: Path) -> tuple[bool, str]:
+        """
+        Launch DUT app in background.
+        Returns (True, "") on success, (False, error_reason) on failure.
+        """
         global _ACTIVE_DUT
         _ACTIVE_DUT = self
-        binary = self._find_binary(dut_cmd)
+        binary, err = self._find_binary(dut_cmd)
         if not binary:
-            print(f"  [DUT] Binary not found for command: {dut_cmd[:60]}")
-            return False
+            print(f"  [DUT] ❌ {err}")
+            return False, err
 
         # Replace ./binary-name with actual full path
         bin_match = re.search(r'\./([^\s]+)', dut_cmd)
@@ -261,7 +282,7 @@ class DUTManager:
             stdout=self._log_file,
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid,
-            cwd=str(binary.parent),   # run from the binary's directory
+            cwd=str(binary.parent),
         )
 
         wait = self.cfg["test_execution"].get("dut_startup_wait", 5)
@@ -269,11 +290,12 @@ class DUTManager:
         time.sleep(wait)
 
         if self._proc.poll() is not None:
-            print(f"  [DUT] Process exited immediately (rc={self._proc.returncode})")
-            return False
+            rc = self._proc.returncode
+            print(f"  [DUT] ❌ Process exited immediately (rc={rc})")
+            return False, f"DUT process exited immediately with rc={rc}"
 
-        print(f"  [DUT] Running (PID {self._proc.pid})")
-        return True
+        print(f"  [DUT] ✅ Running (PID {self._proc.pid})")
+        return True, ""
 
     def stop(self):
         global _ACTIVE_DUT
@@ -310,6 +332,14 @@ class TestRunner:
         self.venv_python   = self.sdk_dir / self.venv_name / "bin" / "python3"
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.results: list[dict] = []
+        # Retry settings
+        self.retry_on_commissioning = cfg["test_execution"].get(
+            "retry_on_commissioning_failure", 3)
+        self.retry_on_step_failure  = cfg["test_execution"].get(
+            "retry_on_step_failure", 1)
+        # PICS file path (resolved at runtime for --PICS placeholder)
+        pics_file = cfg["test_execution"].get("pics_file", "")
+        self.pics_file = str(PROJECT_ROOT / pics_file) if pics_file else ""
 
     def _clean_storage(self):
         """Remove admin_storage.json before AND after each test.
@@ -331,11 +361,27 @@ class TestRunner:
         )
 
     def _build_python_cmd(self, raw_py_cmd: str) -> list[str]:
-        """Replace 'python3' with venv python and expand TC script path."""
-        # Replace python3 with venv python
+        """
+        Replace 'python3' with venv python, expand TC script path,
+        and resolve --PICS placeholder with actual PICS file path from config.
+        """
         cmd = raw_py_cmd
+
+        # Fix 4: Resolve --PICS placeholder
+        if "__PICS_PLACEHOLDER__" in cmd:
+            if self.pics_file and Path(self.pics_file).exists():
+                cmd = cmd.replace("--PICS __PICS_PLACEHOLDER__",
+                                  f"--PICS {self.pics_file}")
+                print(f"  [PICS] Resolved PICS file: {self.pics_file}")
+            else:
+                # Remove --PICS entirely if no pics file configured
+                cmd = cmd.replace("--PICS __PICS_PLACEHOLDER__", "").strip()
+                if self.pics_file:
+                    print(f"  [WARN] PICS file not found: {self.pics_file} — removing --PICS flag")
+                else:
+                    print("  [WARN] --PICS in command but pics_file not set in config — removing flag")
+
         if cmd.startswith("python3 "):
-            # Extract script name (e.g. TC_ACE_1_2.py)
             parts = cmd.split()
             script_name = parts[1]
             script_path = self.scripts_dir / script_name
@@ -345,31 +391,30 @@ class TestRunner:
             return parts
         return cmd.split()
 
-    def run_one(self, tc: dict, dut: DUTManager) -> dict:
-        tc_id     = tc["test_case_id"]
-        dut_cmd   = tc["dut_command"]
-        py_cmd    = tc["python_command"]
-        log_path  = self.log_dir / f"{tc_id}.log"
-        dut_log   = self.log_dir / f"{tc_id}_dut.log"
+    def _run_attempt(self, tc: dict, dut: DUTManager,
+                     attempt: int, log_path: Path, dut_log: Path) -> tuple:
+        """Single test attempt. Returns (status, counts, reason, elapsed)."""
+        tc_id   = tc["test_case_id"]
+        dut_cmd = tc["dut_command"]
+        py_cmd  = tc["python_command"]
 
-        print(f"\n── {tc_id} ──────────────────────────────────")
+        if attempt > 1:
+            suffix = f"_attempt{attempt}"
+            log_path  = log_path.parent / (log_path.stem + suffix + ".log")
+            dut_log   = dut_log.parent  / (dut_log.stem  + suffix + ".log")
+            print(f"  [RETRY] Attempt {attempt}...")
 
+        self._clean_storage()
         start = time.time()
 
-        # Clean storage before test
-        self._clean_storage()
-
-        # Launch DUT
-        if not dut.launch(dut_cmd, dut_log):
+        launched, launch_err = dut.launch(dut_cmd, dut_log)
+        if not launched:
             elapsed = round(time.time() - start, 2)
-            return self._result(tc, ERROR, {}, elapsed, log_path,
-                                note="DUT failed to launch — binary not found or exited immediately")
+            return ERROR, {}, launch_err, elapsed
 
-        # Build and run python command
         cmd_parts = self._build_python_cmd(py_cmd)
-        print(f"  [TEST] Running: {' '.join(cmd_parts[:4])}...")
+        print(f"  [TEST] Running: {' '.join(str(p) for p in cmd_parts[:4])}...")
 
-        reason = ""
         try:
             with open(log_path, "w") as lf:
                 proc = subprocess.run(
@@ -381,30 +426,92 @@ class TestRunner:
                     env={**os.environ,
                          "PATH": f"{self.venv_python.parent}:{os.environ.get('PATH','')}"},
                 )
-            log_text = log_path.read_text(errors="replace")
-            # Pass exit code for Signal 4 detection
+            log_text  = log_path.read_text(errors="replace")
             status, counts, reason = parse_result(log_text, exit_code=proc.returncode)
-            elapsed = round(time.time() - start, 2)
-            reason_short = f" | {reason[:60]}" if reason else ""
-            print(f"  [{status}] {tc_id} — {elapsed}s  {counts}{reason_short}")
 
         except subprocess.TimeoutExpired:
-            elapsed = round(time.time() - start, 2)
             status, counts, reason = ERROR, {}, f"Test timed out after {self.timeout}s"
             with open(log_path, "a") as lf:
                 lf.write(f"\n\n[CI] TIMEOUT after {self.timeout}s\n")
-            print(f"  [TIMEOUT] {tc_id} after {elapsed}s")
 
         except Exception as exc:
-            elapsed = round(time.time() - start, 2)
             status, counts, reason = ERROR, {}, f"Runner exception: {exc}"
-            print(f"  [ERROR] {tc_id}: {exc}")
 
         finally:
             dut.stop()
-            self._clean_storage()   # clean up after test too
+            self._clean_storage()
 
-        return self._result(tc, status, counts, elapsed, log_path, note=reason)
+        elapsed = round(time.time() - start, 2)
+        return status, counts, reason, elapsed
+
+    def run_one(self, tc: dict, dut: DUTManager) -> dict:
+        tc_id    = tc["test_case_id"]
+        log_path = self.log_dir / f"{tc_id}.log"
+        dut_log  = self.log_dir / f"{tc_id}_dut.log"
+
+        print(f"\n── {tc_id} ──────────────────────────────────")
+
+        # ── Fix 1 & 2: Retry logic ────────────────────────────────────────────
+        # Commissioning failure → retry up to retry_on_commissioning times
+        # Step failure         → retry up to retry_on_step_failure times
+
+        commissioning_attempts = 0
+        step_retry_done        = False
+        status = counts = reason = None
+        elapsed = 0.0
+        final_log = log_path
+
+        max_comm_retries = self.retry_on_commissioning
+        max_step_retries = self.retry_on_step_failure
+
+        attempt = 1
+        while True:
+            status, counts, reason, elapsed = self._run_attempt(
+                tc, dut, attempt, log_path, dut_log)
+
+            reason_short = f" | {reason[:70]}" if reason else ""
+            print(f"  [{status}] {tc_id} — {elapsed}s  {counts}{reason_short}")
+
+            # Determine if we should retry
+            is_commissioning_error = (
+                status == ERROR and
+                reason and "Commissioning" in reason
+            )
+            is_step_failure = status == FAIL
+
+            if is_commissioning_error and commissioning_attempts < max_comm_retries:
+                commissioning_attempts += 1
+                print(f"  [RETRY] Commissioning failed — retry {commissioning_attempts}/{max_comm_retries}")
+                time.sleep(3)   # brief wait before retry
+                attempt += 1
+                continue
+
+            if is_step_failure and not step_retry_done and max_step_retries > 0:
+                step_retry_done = True
+                print(f"  [RETRY] Step failure — retrying once...")
+                time.sleep(2)
+                attempt += 1
+                continue
+
+            # No more retries needed/available
+            break
+
+        # Build retry note for report
+        retry_note = ""
+        if commissioning_attempts > 0:
+            retry_note = f"(commissioning retried {commissioning_attempts}x) "
+        if step_retry_done:
+            retry_note += "(step failure retried 1x) "
+        if retry_note:
+            reason = retry_note.strip() + " | " + (reason or "")
+
+        # Use the last log file as final log
+        if attempt > 1:
+            final_log = log_path.parent / f"{log_path.stem}_attempt{attempt}.log"
+            if not final_log.exists():
+                final_log = log_path
+
+        return self._result(tc, status, counts, elapsed, final_log, note=reason)
 
     def _result(self, tc, status, counts, elapsed, log_path, note=""):
         return {
