@@ -40,6 +40,20 @@ on:
         description: "Override apps to build e.g. all-clusters-app,lighting-app. Empty = use config."
         required: false
         default: ""
+      cluster_filter:
+        description: >
+          Filter by cluster name (comma-separated, must match cluster in tc_list.json).
+          e.g. "Access Control Enforcement" or "Energy EVSE,Door Lock".
+          Empty = run all enabled TCs.
+        required: false
+        default: ""
+      tc_filter:
+        description: >
+          Run specific TC IDs only (comma-separated).
+          e.g. "TC-ACE-1.2,TC-ACL-2.3".
+          Overrides cluster_filter if both provided. Empty = use cluster_filter or all.
+        required: false
+        default: ""
 
 jobs:
   # ──────────────────────────────────────────────────────────
@@ -160,12 +174,14 @@ jobs:
             > artifacts/build_summary.txt 2>&1 || true
           cat artifacts/build_summary.txt
 
-      - name: Upload build summary
+      - name: Upload build summary and error logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-summary-${{ github.run_number }}
-          path: artifacts/
+          path: |
+            artifacts/
+            Matter_CI/logs/build_logs/
           retention-days: 14
 
       - name: Write job summary
@@ -222,6 +238,8 @@ jobs:
       - name: Fetch test commands from Google Sheet
         run: |
           export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          export CLUSTER_FILTER="${{ github.event.inputs.cluster_filter }}"
+          export TC_FILTER="${{ github.event.inputs.tc_filter }}"
           python3 Matter_CI/scripts/fetch_test_commands.py \
             --config Matter_CI/config/build_config.yaml
 
