@@ -139,19 +139,38 @@ def parse_python_command(raw: str) -> str:
 
 
 # =============================================================================
-# Load TC list
+# Load TC list from JSON
+# Returns: dict of {tc_id: cluster_name} for enabled TCs only
 # =============================================================================
-def load_tc_list(path: Path) -> list[str]:
+def load_tc_list(path: Path) -> dict[str, str]:
+    """
+    Loads tc_list.json — returns {tc_id: cluster_name} for enabled entries.
+    If file not found, returns empty dict (run all rows from sheet).
+    """
     if not path.exists():
-        print(f"[WARN] tc_list.txt not found at {path} — will fetch ALL rows from sheet.")
-        return []
-    tcs = []
+        print(f"[WARN] tc_list.json not found at {path} — will fetch ALL rows from sheet.")
+        return {}
+
     with open(path) as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped and not stripped.startswith('#'):
-                tcs.append(stripped)
-    return tcs
+        entries = json.load(f)
+
+    tc_map = {}
+    disabled = []
+    for entry in entries:
+        tc_id   = entry.get("tc_id", "").strip()
+        cluster = entry.get("cluster", "Unknown").strip()
+        enabled = entry.get("enabled", True)
+        if not tc_id:
+            continue
+        if enabled:
+            tc_map[tc_id] = cluster
+        else:
+            disabled.append(tc_id)
+
+    print(f"[INFO] TC list loaded: {len(tc_map)} enabled, {len(disabled)} disabled")
+    if disabled:
+        print(f"[INFO] Disabled TCs: {disabled}")
+    return tc_map
 
 
 # =============================================================================
@@ -233,7 +252,10 @@ def is_app_failed(binary_name: str, failed_apps: set[str], cfg: dict) -> str:
 # =============================================================================
 # Parse rows into test command records
 # =============================================================================
-def parse_rows(rows: list, cfg: dict, tc_list: list[str]) -> list[dict]:
+def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str]) -> list[dict]:
+    """
+    tc_map: {tc_id: cluster_name} for enabled TCs (from tc_list.json)
+    """
     gs      = cfg["google_sheets"]
     cols    = gs["columns"]
     skip    = gs.get("header_rows", 6)
@@ -256,8 +278,8 @@ def parse_rows(rows: list, cfg: dict, tc_list: list[str]) -> list[dict]:
         if not tc_id:
             continue
 
-        # Filter by tc_list if provided
-        if tc_list and tc_id not in tc_list:
+        # Filter by tc_map if provided (only run enabled TCs)
+        if tc_map and tc_id not in tc_map:
             continue
 
         raw_dut = cell(row, col_dut)
@@ -281,9 +303,17 @@ def parse_rows(rows: list, cfg: dict, tc_list: list[str]) -> list[dict]:
                 skipped_build.append(f"{tc_id} (app '{failed_app}' failed to build)")
                 continue
 
+        # Get cluster name from tc_map, fallback to extracting from TC ID
+        cluster = tc_map.get(tc_id, "") if tc_map else ""
+        if not cluster:
+            # Auto-extract from TC ID e.g. TC-ACE-1.2 → Access Control Enforcement
+            parts = tc_id.split("-")
+            cluster = parts[1] if len(parts) > 1 else "Unknown"
+
         commands.append({
             "row":            i,
             "test_case_id":   tc_id,
+            "cluster":        cluster,
             "dut_command":    dut_cmd,
             "python_command": py_cmd,
         })
@@ -325,15 +355,17 @@ def main():
 
     cfg      = load_config(Path(args.config))
     tc_file  = PROJECT_ROOT / cfg["test_execution"]["tc_list_file"]
-    tc_list  = load_tc_list(tc_file)
+    tc_map   = load_tc_list(tc_file)
 
-    if tc_list:
-        print(f"[INFO] TC filter: {len(tc_list)} test cases from {tc_file}")
+    if tc_map:
+        print(f"[INFO] TC filter: {len(tc_map)} enabled test cases from {tc_file}")
+        clusters = sorted(set(tc_map.values()))
+        print(f"[INFO] Clusters  : {clusters}")
     else:
-        print("[INFO] No TC filter — running all rows")
+        print("[INFO] No TC filter — running all rows from sheet")
 
     rows     = fetch_sheet(cfg)
-    commands = parse_rows(rows, cfg, tc_list)
+    commands = parse_rows(rows, cfg, tc_map)
     save(commands, cfg)
 
     print("\n[INFO] Preview of parsed commands:")
