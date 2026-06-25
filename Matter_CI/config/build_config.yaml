@@ -158,4 +158,4 @@ test_execution:
   retry_on_step_failure: 1             # retries if any test step fails
   # PICS file path — used when python command contains --PICS parameter
   # Set to empty string "" to skip PICS injection
-  pics_folder: "/home/ubuntu/Matter_1_6_Final_PICS_XML_For_RPI"    # e.g. "config/pics/all-clusters.yaml"
+  pics_folder: "/home/ubuntu/connectedhomeip/src/app/tests/suites/certification/ci-pics-values"    # e.g. "config/pics/all-clusters.yaml"
