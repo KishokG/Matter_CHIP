@@ -749,10 +749,10 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     .header .meta {{ font-size: 0.85em; opacity: 0.8; margin-top: 4px; }}
 
     .summary {{
-      display: flex;
-      gap: 14px;
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 8px;
       margin-bottom: 24px;
-      flex-wrap: wrap;
     }}
     .card {{
       flex: 1;
@@ -763,16 +763,26 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       text-align: center;
       box-shadow: 0 2px 8px rgba(0,0,0,0.12);
     }}
-    .card .num {{ font-size: 2.2em; font-weight: 700; line-height: 1; }}
-    .card .lbl {{ font-size: 0.75em; font-weight: 600; letter-spacing: 1px; margin-top: 4px; opacity: 0.9; }}
-    .c-total    {{ background: linear-gradient(135deg, #2c3e50, #34495e); }}
-    .c-pass     {{ background: linear-gradient(135deg, #27ae60, #2ecc71); }}
-    .c-passwarn {{ background: linear-gradient(135deg, #1e8449, #27ae60);
-                   border: 2px solid #f39c12; }}
-    .c-fail     {{ background: linear-gradient(135deg, #c0392b, #e74c3c); }}
-    .c-rerun    {{ background: linear-gradient(135deg, #d35400, #e67e22); }}
-    .c-err      {{ background: linear-gradient(135deg, #7f8c8d, #95a5a6); }}
-    .c-cancel   {{ background: linear-gradient(135deg, #7d3c98, #8e44ad); }}
+    .card {{ position: relative; transition: transform .15s; cursor: default; }}
+    .card:hover {{ transform: translateY(-2px); }}
+    .card .num {{ font-size: 2em; font-weight: 600; line-height: 1; }}
+    .card .lbl {{ font-size: 0.7em; font-weight: 600; letter-spacing: .8px; text-transform: uppercase; margin-top: 4px; opacity: .88; }}
+    .card .tip {{
+      position: absolute; bottom: calc(100% + 6px); left: 50%;
+      transform: translateX(-50%); background: #fff; color: #444;
+      border: 1px solid #ddd; border-radius: 6px; padding: 7px 10px;
+      font-size: 11px; line-height: 1.5; white-space: normal; text-align: left;
+      min-width: 160px; max-width: 220px; pointer-events: none;
+      opacity: 0; transition: opacity .2s; z-index: 99;
+    }}
+    .card:hover .tip {{ opacity: 1; }}
+    .c-total    {{ background: #2c3e50; }}
+    .c-pass     {{ background: #27ae60; }}
+    .c-passwarn {{ background: #1e8449; border: 2px solid #f39c12; }}
+    .c-fail     {{ background: #c0392b; }}
+    .c-rerun    {{ background: #d35400; }}
+    .c-err      {{ background: #7f8c8d; }}
+    .c-cancel   {{ background: #7d3c98; }}
 
     .filters {{
       background: #fff;
@@ -894,15 +904,33 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
   </div>
 
   <div class="summary">
-    <div class="card c-total"    ><div class="num">{total}</div><div class="lbl">TOTAL</div></div>
-    <div class="card c-pass"     ><div class="num">{passed}</div><div class="lbl">PASSED</div></div>
-    <div class="card c-passwarn" ><div class="num">{pass_warn}</div><div class="lbl">PASS*</div></div>
-    <div class="card c-fail"     ><div class="num">{failed}</div><div class="lbl">FAILED</div></div>
-    <div class="card c-rerun"    ><div class="num">{rerun}</div><div class="lbl">RERUN</div></div>
-    <div class="card c-err"      ><div class="num">{errors}</div><div class="lbl">ERROR</div></div>
-    <div class="card c-cancel"   ><div class="num">{cancelled}</div><div class="lbl">CANCELLED</div></div>
-    <div style="font-size:0.75em;color:#888;align-self:flex-end;padding-bottom:6px">
-      * PASS with skipped steps — configure pics_folder for full execution
+    <div class="card c-total">
+      <div class="num">{total}</div><div class="lbl">Total</div>
+      <div class="tip">Total number of test cases in this run</div>
+    </div>
+    <div class="card c-pass">
+      <div class="num">{passed}</div><div class="lbl">Passed</div>
+      <div class="tip">All steps executed and passed — clean result</div>
+    </div>
+    <div class="card c-passwarn">
+      <div class="num">{pass_warn}</div><div class="lbl">Pass*</div>
+      <div class="tip"><b>Partial execution</b> — some steps passed, others skipped (PICS-gated). Set pics_folder in build_config.yaml for full execution.</div>
+    </div>
+    <div class="card c-fail">
+      <div class="num">{failed}</div><div class="lbl">Failed</div>
+      <div class="tip">One or more test steps failed. Check Reason column and Ctrl Log for details.</div>
+    </div>
+    <div class="card c-rerun">
+      <div class="num">{rerun}</div><div class="lbl">Rerun</div>
+      <div class="tip">All steps skipped — possible PICS mismatch or unsupported feature. Re-run to investigate.</div>
+    </div>
+    <div class="card c-err">
+      <div class="num">{errors}</div><div class="lbl">Error</div>
+      <div class="tip">Script crashed, timed out, or commissioning failed before steps ran. Check Ctrl Log for traceback.</div>
+    </div>
+    <div class="card c-cancel">
+      <div class="num">{cancelled}</div><div class="lbl">Cancelled</div>
+      <div class="tip">Run was cancelled (SIGTERM / GitHub Actions cancel). These TCs were not executed.</div>
     </div>
   </div>
 
