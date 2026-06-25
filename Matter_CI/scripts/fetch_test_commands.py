@@ -105,6 +105,12 @@ def parse_dut_command(raw: str) -> str:
     # Remove trailing sentence fragments after last valid shell token
     cmd = re.sub(r'\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+).*$', '', cmd).strip()
 
+    # Fix 3: Remove extra trailing quote if quotes are unbalanced (odd count)
+    # This happens when the Google Sheet cell wraps the command in quotes
+    # and the closing cell-quote gets captured as part of the command
+    if cmd.count('"') % 2 != 0 and cmd.endswith('"'):
+        cmd = cmd[:-1].strip()
+
     return cmd
 
 def parse_python_command(raw: str) -> str:
@@ -134,6 +140,10 @@ def parse_python_command(raw: str) -> str:
 
     # Remove Note: suffix if on same line
     cmd = re.sub(r'\s*Note:.*$', '', cmd, flags=re.IGNORECASE).strip()
+
+    # Fix 4: Remove --PICS <path> placeholder — will be resolved at runtime
+    # The actual PICS path comes from build_config.yaml pics_file setting
+    cmd = re.sub(r'--PICS\s+\S+', '--PICS __PICS_PLACEHOLDER__', cmd).strip()
 
     return cmd
 
@@ -348,6 +358,42 @@ def save(commands: list, cfg: dict):
 # =============================================================================
 # Main
 # =============================================================================
+def apply_runtime_filters(tc_map: dict, cluster_filter: str, tc_filter: str) -> dict:
+    """
+    Apply runtime filters from workflow inputs (Issue 5).
+    Priority: tc_filter > cluster_filter > tc_map (all enabled)
+    """
+    if not cluster_filter and not tc_filter:
+        return tc_map   # no runtime filter — use tc_list.json as-is
+
+    # TC filter — specific TC IDs override everything
+    if tc_filter:
+        tc_ids = [t.strip() for t in tc_filter.split(",") if t.strip()]
+        filtered = {tc_id: tc_map.get(tc_id, "Unknown")
+                    for tc_id in tc_ids
+                    if tc_id in tc_map}
+        not_found = [t for t in tc_ids if t not in tc_map]
+        if not_found:
+            print(f"[WARN] TC IDs not in tc_list.json (will skip): {not_found}")
+        print(f"[INFO] TC filter applied: {len(filtered)} TCs from tc_filter input")
+        return filtered
+
+    # Cluster filter — filter by cluster name(s)
+    if cluster_filter:
+        clusters = [c.strip() for c in cluster_filter.split(",") if c.strip()]
+        filtered = {tc_id: cluster
+                    for tc_id, cluster in tc_map.items()
+                    if any(c.lower() in cluster.lower() for c in clusters)}
+        print(f"[INFO] Cluster filter '{cluster_filter}': {len(filtered)} TCs matched")
+        if not filtered:
+            print(f"[WARN] No TCs matched cluster filter. Available clusters:")
+            for c in sorted(set(tc_map.values())):
+                print(f"  - {c}")
+        return filtered
+
+    return tc_map
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default=str(PROJECT_ROOT / "config" / "build_config.yaml"))
@@ -357,12 +403,23 @@ def main():
     tc_file  = PROJECT_ROOT / cfg["test_execution"]["tc_list_file"]
     tc_map   = load_tc_list(tc_file)
 
+    # Fix 5 — Apply runtime filters from GitHub Actions workflow inputs
+    cluster_filter = os.environ.get("CLUSTER_FILTER", "").strip()
+    tc_filter      = os.environ.get("TC_FILTER", "").strip()
+
+    if cluster_filter:
+        print(f"[INFO] Runtime cluster filter: {cluster_filter}")
+    if tc_filter:
+        print(f"[INFO] Runtime TC filter: {tc_filter}")
+
+    tc_map = apply_runtime_filters(tc_map, cluster_filter, tc_filter)
+
     if tc_map:
-        print(f"[INFO] TC filter: {len(tc_map)} enabled test cases from {tc_file}")
+        print(f"[INFO] Running {len(tc_map)} test cases")
         clusters = sorted(set(tc_map.values()))
-        print(f"[INFO] Clusters  : {clusters}")
+        print(f"[INFO] Clusters: {clusters}")
     else:
-        print("[INFO] No TC filter — running all rows from sheet")
+        print("[WARN] No TCs to run after filtering!")
 
     rows     = fetch_sheet(cfg)
     commands = parse_rows(rows, cfg, tc_map)
@@ -370,7 +427,7 @@ def main():
 
     print("\n[INFO] Preview of parsed commands:")
     for c in commands[:3]:
-        print(f"  {c['test_case_id']}")
+        print(f"  {c['test_case_id']} [{c.get('cluster','')}]")
         print(f"    DUT : {c['dut_command'][:80]}")
         print(f"    PY  : {c['python_command'][:80]}")
     if len(commands) > 3:
