@@ -337,9 +337,10 @@ class TestRunner:
             "retry_on_commissioning_failure", 3)
         self.retry_on_step_failure  = cfg["test_execution"].get(
             "retry_on_step_failure", 1)
-        # PICS file path (resolved at runtime for --PICS placeholder)
-        pics_file = cfg["test_execution"].get("pics_file", "")
-        self.pics_file = str(PROJECT_ROOT / pics_file) if pics_file else ""
+        # PICS folder path (resolved at runtime for --PICS placeholder)
+        # The SDK reads all XML files from the folder and picks the right one per cluster
+        pics_folder = cfg["test_execution"].get("pics_folder", "")
+        self.pics_folder = pics_folder  # expected to be an absolute path on RPi
 
     def _clean_storage(self):
         """Remove admin_storage.json before AND after each test.
@@ -367,19 +368,20 @@ class TestRunner:
         """
         cmd = raw_py_cmd
 
-        # Fix 4: Resolve --PICS placeholder
+        # Fix 4: Resolve --PICS placeholder with PICS folder path
+        # The SDK reads all XML files in the folder and picks the right one per cluster
         if "__PICS_PLACEHOLDER__" in cmd:
-            if self.pics_file and Path(self.pics_file).exists():
+            if self.pics_folder and Path(self.pics_folder).is_dir():
                 cmd = cmd.replace("--PICS __PICS_PLACEHOLDER__",
-                                  f"--PICS {self.pics_file}")
-                print(f"  [PICS] Resolved PICS file: {self.pics_file}")
+                                  f"--PICS {self.pics_folder}")
+                print(f"  [PICS] Using PICS folder: {self.pics_folder}")
             else:
-                # Remove --PICS entirely if no pics file configured
+                # Remove --PICS entirely if folder not configured or not found
                 cmd = cmd.replace("--PICS __PICS_PLACEHOLDER__", "").strip()
-                if self.pics_file:
-                    print(f"  [WARN] PICS file not found: {self.pics_file} — removing --PICS flag")
+                if self.pics_folder:
+                    print(f"  [WARN] PICS folder not found: {self.pics_folder} — removing --PICS flag")
                 else:
-                    print("  [WARN] --PICS in command but pics_file not set in config — removing flag")
+                    print("  [WARN] --PICS in command but pics_folder not set in config — removing --PICS flag")
 
         if cmd.startswith("python3 "):
             parts = cmd.split()
