@@ -87,39 +87,116 @@ CANCEL = "CANCEL"
 
 
 # =============================================================================
-# Log parser
-# Looks for: "Test results: Error X, Executed X, Failed X, Passed X, ..."
+# Log parser — Multi-signal pass/fail detection
+#
+# Signal priority:
+#   1. Exception/crash detected          → ERROR  (overrides everything)
+#   2. CommissioningError detected       → ERROR  (DUT pairing failed)
+#   3. Mobly "Test results:" summary     → parse counts → PASS/FAIL/RERUN
+#   4. Non-zero exit code, no summary    → FAIL
+#   5. Per-step "***** Fail *****" found → FAIL   (fallback)
+#   6. Nothing found                     → ERROR
 # =============================================================================
-def parse_result(log_text: str) -> tuple[str, dict]:
-    """Returns (status, counts_dict)"""
-    pattern = (r"Test results:\s*"
-               r"Error\s+(\d+),\s*"
-               r"Executed\s+(\d+),\s*"
-               r"Failed\s+(\d+),\s*"
-               r"Passed\s+(\d+),\s*"
-               r"Requested\s+(\d+),\s*"
-               r"Skipped\s+(\d+)")
+def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
+    """
+    Returns (status, counts_dict, reason_string).
+    reason_string is empty for PASS, populated for all other statuses.
+    """
 
-    match = re.search(pattern, log_text, re.IGNORECASE)
-    if not match:
-        return ERROR, {}
+    # ── Signal 1 — Exception / script crash ───────────────────────────────────
+    exc_match = re.search(
+        r"ERROR\s+Exception occurred in test_(\w+)", log_text, re.IGNORECASE)
+    if exc_match:
+        exc_type = re.search(
+            r"(AssertionError|TimeoutError|AttributeError|ValueError|"
+            r"RuntimeError|ChipStackError|InteractionModelError|"
+            r"MatterStackException|Exception)[^\r\n]*",
+            log_text)
+        reason = (
+            f"Exception in {exc_match.group(1)}: {exc_type.group(0)}"
+            if exc_type else
+            f"Exception in {exc_match.group(1)} — script crashed"
+        )
+        return ERROR, {}, reason
 
-    counts = {
-        "error":     int(match.group(1)),
-        "executed":  int(match.group(2)),
-        "failed":    int(match.group(3)),
-        "passed":    int(match.group(4)),
-        "requested": int(match.group(5)),
-        "skipped":   int(match.group(6)),
-    }
+    # ── Signal 2 — Commissioning / pairing failure ────────────────────────────
+    if re.search(
+            r"CommissioningError|Failed to commission|"
+            r"Commissioning complete failed|"
+            r"CHIP_ERROR_CONNECTION_ABORTED|"
+            r"Failed to pair with device|"
+            r"Unable to find the device",
+            log_text, re.IGNORECASE):
+        return ERROR, {}, (
+            "Commissioning failed — DUT could not be paired. "
+            "Check discriminator, passcode, and that DUT is in commissioning mode."
+        )
 
-    if counts["failed"] > 0:
-        return FAIL, counts
-    # All steps skipped — needs investigation
-    if counts["executed"] > 0 and counts["skipped"] == counts["executed"]:
-        return RERUN, counts
-    return PASS, counts
+    # ── Signal 3 — Mobly summary line ─────────────────────────────────────────
+    summary_pattern = (
+        r"Test results:\s*"
+        r"Error\s+(\d+),\s*"
+        r"Executed\s+(\d+),\s*"
+        r"Failed\s+(\d+),\s*"
+        r"Passed\s+(\d+),\s*"
+        r"Requested\s+(\d+),\s*"
+        r"Skipped\s+(\d+)"
+    )
+    match = re.search(summary_pattern, log_text, re.IGNORECASE)
+    if match:
+        counts = {
+            "error":     int(match.group(1)),
+            "executed":  int(match.group(2)),
+            "failed":    int(match.group(3)),
+            "passed":    int(match.group(4)),
+            "requested": int(match.group(5)),
+            "skipped":   int(match.group(6)),
+        }
 
+        if counts["failed"] > 0 or counts["error"] > 0:
+            # Find which step failed for better reason message
+            fail_step = re.search(
+                r"Test Step\s+(\S+)", log_text)
+            parts = []
+            if counts["failed"] > 0:
+                parts.append(f"{counts['failed']} step(s) failed")
+            if counts["error"] > 0:
+                parts.append(f"{counts['error']} error(s)")
+            reason = ", ".join(parts)
+            return FAIL, counts, reason
+
+        # All steps skipped → needs investigation
+        if counts["executed"] > 0 and counts["skipped"] == counts["executed"]:
+            return RERUN, counts, (
+                f"All {counts['skipped']}/{counts['executed']} steps skipped — "
+                "possible PICS mismatch, unsupported feature, or DUT config issue"
+            )
+
+        # Clean pass
+        return PASS, counts, ""
+
+    # ── Signal 4 — No summary + non-zero exit code ────────────────────────────
+    if exit_code != 0:
+        error_lines = [
+            line.strip() for line in log_text.splitlines()
+            if re.search(r"\bERROR\b|\bFAIL\b|exception|traceback",
+                         line, re.IGNORECASE)
+        ]
+        hint = error_lines[-1][:120] if error_lines else "Check log for details"
+        return FAIL, {}, (
+            f"Script exited with code {exit_code} — no result summary found. "
+            f"Last error hint: {hint}"
+        )
+
+    # ── Signal 5 — Per-step fail lines (fallback) ─────────────────────────────
+    if re.search(r"\*\*\*\*\*\s*Fail\s*\*\*\*\*\*", log_text, re.IGNORECASE):
+        return FAIL, {}, "Step failure detected in log (no summary line found)"
+
+    # ── Signal 6 — Nothing found ──────────────────────────────────────────────
+    return ERROR, {}, (
+        "No result summary found — script may have crashed, timed out, "
+        "or failed before running any steps"
+    )
 
 # =============================================================================
 # DUT manager
@@ -286,12 +363,13 @@ class TestRunner:
         if not dut.launch(dut_cmd, dut_log):
             elapsed = round(time.time() - start, 2)
             return self._result(tc, ERROR, {}, elapsed, log_path,
-                                "DUT failed to launch")
+                                note="DUT failed to launch — binary not found or exited immediately")
 
         # Build and run python command
         cmd_parts = self._build_python_cmd(py_cmd)
         print(f"  [TEST] Running: {' '.join(cmd_parts[:4])}...")
 
+        reason = ""
         try:
             with open(log_path, "w") as lf:
                 proc = subprocess.run(
@@ -304,27 +382,29 @@ class TestRunner:
                          "PATH": f"{self.venv_python.parent}:{os.environ.get('PATH','')}"},
                 )
             log_text = log_path.read_text(errors="replace")
-            status, counts = parse_result(log_text)
+            # Pass exit code for Signal 4 detection
+            status, counts, reason = parse_result(log_text, exit_code=proc.returncode)
             elapsed = round(time.time() - start, 2)
-            print(f"  [{status}] {tc_id} — {elapsed}s  {counts}")
+            reason_short = f" | {reason[:60]}" if reason else ""
+            print(f"  [{status}] {tc_id} — {elapsed}s  {counts}{reason_short}")
 
         except subprocess.TimeoutExpired:
             elapsed = round(time.time() - start, 2)
-            status, counts = ERROR, {}
+            status, counts, reason = ERROR, {}, f"Test timed out after {self.timeout}s"
             with open(log_path, "a") as lf:
                 lf.write(f"\n\n[CI] TIMEOUT after {self.timeout}s\n")
             print(f"  [TIMEOUT] {tc_id} after {elapsed}s")
 
         except Exception as exc:
             elapsed = round(time.time() - start, 2)
-            status, counts = ERROR, {}
+            status, counts, reason = ERROR, {}, f"Runner exception: {exc}"
             print(f"  [ERROR] {tc_id}: {exc}")
 
         finally:
             dut.stop()
             self._clean_storage()   # clean up after test too
 
-        return self._result(tc, status, counts, elapsed, log_path)
+        return self._result(tc, status, counts, elapsed, log_path, note=reason)
 
     def _result(self, tc, status, counts, elapsed, log_path, note=""):
         return {
@@ -414,34 +494,36 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
         return (f'<span class="badge" style="background:{c}">{status}</span>')
 
     def status_reason(r):
-        """Generate reason note for FAIL/RERUN/ERROR statuses."""
+        """
+        Returns reason string for display in report.
+        For FAIL/RERUN/ERROR: uses the reason from parse_result (stored in note).
+        """
         status = r["status"]
-        counts = r.get("counts", {})
         note   = r.get("note", "")
 
         if status == PASS:
             return ""
+        if status == CANCEL:
+            return "Cancelled by user before this test started"
+        # For all other statuses — reason is pre-populated by parse_result
+        # Fall back to generic messages only if note is empty
+        if note:
+            return note
+        counts = r.get("counts", {})
         if status == FAIL:
             f = counts.get("failed", 0)
             e = counts.get("error", 0)
-            reason = f"{f} step(s) failed"
-            if e:
-                reason += f", {e} error(s)"
-            return reason
+            parts = []
+            if f: parts.append(f"{f} step(s) failed")
+            if e: parts.append(f"{e} error(s)")
+            return ", ".join(parts) if parts else "Test failed"
         if status == RERUN:
             s = counts.get("skipped", 0)
             ex = counts.get("executed", 0)
-            return (f"All {s}/{ex} steps skipped — "
-                    "possible setup issue or unsupported config. Re-run to verify.")
+            return f"All {s}/{ex} steps skipped — re-run to investigate"
         if status == ERROR:
-            if note:
-                return note
-            if not counts:
-                return "Test script did not produce result line — may have crashed or timed out"
-            return "Unexpected error during execution"
-        if status == CANCEL:
-            return "Cancelled by user before this test started"
-        return note
+            return "Test script did not produce a result — may have crashed or timed out"
+        return ""
 
     # Build rows
     rows_html = ""
