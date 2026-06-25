@@ -84,9 +84,6 @@ apps:
     binary_name: "matter-network-manager-app"
     extra_gn_args: "chip_inet_config_enable_ipv4=false"
 
-    scripts/examples/gn_build_example.sh      examples/network-manager-app/linux/      examples/network-manager-app/linux/out/network-manager-app   chip_inet_config_enable_ipv4=false 
-
-
 
 # ============================================================
 # chip-tool
