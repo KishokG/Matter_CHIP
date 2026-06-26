@@ -171,7 +171,6 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
 
     safe_branch = branch.replace("/", "-")
     bundle_name = f"matter-sdk-{safe_branch}-{commit}-arm64.tar.gz"
-
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
