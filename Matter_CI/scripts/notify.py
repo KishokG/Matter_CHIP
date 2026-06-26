@@ -89,178 +89,414 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
     # Failed apps section
     failed_section = ""
     if failed_apps:
-        items = "".join(f"""
-            <tr>
-              <td style="padding:6px 12px;border-bottom:1px solid #fde8e8">
-                ❌ {app}
-              </td>
-            </tr>""" for app in failed_apps)
+        items = "".join(
+            f'<div class="app-row" style="background:#fff5f5">❌ {app}</div>'
+            for app in failed_apps)
         failed_section = f"""
-        <div style="margin:20px 0">
-          <p style="font-weight:600;color:#c0392b;margin:0 0 8px">Failed Apps:</p>
-          <table style="width:100%;border-collapse:collapse;background:#fff5f5;
-                        border-radius:6px;overflow:hidden">
+        <div style="margin-bottom:16px">
+          <div class="section-title" style="color:#c0392b">Failed apps</div>
+          <div style="border-radius:6px;overflow:hidden;border:1px solid #fde8e8">
             {items}
-          </table>
+          </div>
         </div>"""
 
     # Passed apps section
     passed_section = ""
     if passed_apps:
-        items = "".join(f"""
-            <tr>
-              <td style="padding:6px 12px;border-bottom:1px solid #e8f8ee">
-                ✅ {app}
-              </td>
-            </tr>""" for app in passed_apps)
+        items = "".join(
+            f'<div class="app-row-pass" style="background:#f0fff4">✅ {app}</div>'
+            for app in passed_apps)
         passed_section = f"""
-        <div style="margin:20px 0">
-          <p style="font-weight:600;color:#27ae60;margin:0 0 8px">
-            Successfully Built:
-          </p>
-          <table style="width:100%;border-collapse:collapse;background:#f0fff4;
-                        border-radius:6px;overflow:hidden">
+        <div style="margin-bottom:16px">
+          <div class="section-title" style="color:#27ae60">Successfully built</div>
+          <div style="border-radius:6px;overflow:hidden;border:1px solid #e8f8ee">
             {items}
-          </table>
+          </div>
         </div>"""
 
     # Download section (only for success/partial)
     download_section = ""
     if drive_link and status in ("success", "partial"):
         download_section = f"""
-        <div style="margin:24px 0;padding:20px;background:#f8f9fa;
-                    border-radius:8px;border-left:4px solid #2c3e50">
-          <p style="font-weight:700;font-size:15px;margin:0 0 12px;color:#2c3e50">
-            📥 Download & Install
-          </p>
-          <p style="margin:0 0 10px;color:#555;font-size:13px">
-            Run these commands on your Raspberry Pi:
-          </p>
-          <div style="background:#1e1e1e;border-radius:6px;padding:16px;
-                      font-family:monospace;font-size:13px;color:#d4d4d4">
-            <div style="color:#569cd6"># Install gdown</div>
-            <div style="margin-bottom:8px">
-              pip3 install gdown --break-system-packages
+        <div style="margin-bottom:16px">
+          <div class="section-label">Download and install</div>
+          <div class="code-wrap">
+            <div class="code-hdr">
+              <div class="code-dot" style="background:#FF5F57"></div>
+              <div class="code-dot" style="background:#FFBD2E"></div>
+              <div class="code-dot" style="background:#28C840"></div>
+              <span class="code-label">Raspberry Pi terminal</span>
             </div>
-            <div style="color:#569cd6"># Download bundle</div>
-            <div style="margin-bottom:8px">gdown {file_id}</div>
-            <div style="color:#569cd6"># Extract and install</div>
-            <div style="margin-bottom:4px">tar -xzf matter-sdk*.tar.gz</div>
-            <div style="margin-bottom:4px">cd matter-sdk-*/</div>
-            <div>chmod +x install.sh &amp;&amp; ./install.sh</div>
+            <div class="code-body">
+              <span class="code-comment"># install gdown</span><br>
+              pip3 install gdown --break-system-packages<br>
+              <span class="code-comment"># download bundle</span><br>
+              gdown {file_id}<br>
+              <span class="code-comment"># extract and install</span><br>
+              tar -xzf matter-sdk*.tar.gz<br>
+              cd matter-sdk-*/<br>
+              chmod +x install.sh &amp;&amp; ./install.sh
+            </div>
           </div>
-          <div style="margin-top:14px;text-align:center">
-            <a href="{drive_link}"
-               style="display:inline-block;background:#2c3e50;color:#fff;
-                      padding:10px 24px;border-radius:6px;text-decoration:none;
-                      font-weight:600;font-size:14px">
-              🔗 Open in Google Drive
-            </a>
-          </div>
+          <a href="{drive_link}" class="drive-btn">
+            <div class="drive-btn-title">Open in Google Drive</div>
+            <div class="drive-btn-sub">{bundle_name}</div>
+          </a>
         </div>"""
 
     # Actions link section
     actions_section = ""
     if run_url:
         actions_section = f"""
-        <div style="margin-top:20px;text-align:center">
-          <a href="{run_url}"
-             style="display:inline-block;background:#f8f9fa;color:#2c3e50;
-                    padding:8px 20px;border-radius:6px;text-decoration:none;
-                    font-size:13px;border:1px solid #dee2e6">
-            📋 View GitHub Actions Run #{run_id}
-          </a>
-        </div>"""
+        <a href="{run_url}" class="gh-btn">
+          <span class="gh-btn-text">View GitHub Actions run #{run_id}</span>
+        </a>"""
+
+    # Status pill colours
+    if status == "success":
+        pill_bg    = "#052E16"
+        pill_border= "#166534"
+        pill_dot   = "#4ADE80"
+        pill_text  = "#4ADE80"
+    elif status == "partial":
+        pill_bg    = "#422006"
+        pill_border= "#92400E"
+        pill_dot   = "#FBBF24"
+        pill_text  = "#FBBF24"
+    else:
+        pill_bg    = "#1C0A0A"
+        pill_border= "#7F1D1D"
+        pill_dot   = "#F87171"
+        pill_text  = "#F87171"
+
+    safe_branch = branch.replace("/", "-")
+    bundle_name = f"matter-sdk-{safe_branch}-{commit}-arm64.tar.gz"
 
     return f"""<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
+  <title>Matter SDK Build</title>
+  <style>
+    body {{
+      margin: 0; padding: 0;
+      background: #ECEEF2;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+    }}
+    .wrapper {{
+      width: 100%;
+      padding: 20px 12px;
+      box-sizing: border-box;
+    }}
+    .card {{
+      max-width: 580px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid #E0E3E8;
+    }}
+    .hdr {{
+      background: #0F1923;
+      padding: 28px 28px 20px;
+    }}
+    .hdr-brand-row {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }}
+    .hdr-dot {{
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #3B82F6;
+      flex-shrink: 0;
+    }}
+    .hdr-brand {{
+      font-size: 10px;
+      font-weight: 600;
+      color: #475569;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }}
+    .hdr-title {{
+      font-size: 22px;
+      font-weight: 700;
+      color: #F8FAFC;
+      letter-spacing: -0.3px;
+      line-height: 1.2;
+      margin-bottom: 6px;
+    }}
+    .hdr-sub {{
+      font-size: 12px;
+      color: #64748B;
+    }}
+    .status-area {{
+      background: #0F1923;
+      padding: 0 28px 22px;
+    }}
+    .status-pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: {pill_bg};
+      border: 1px solid {pill_border};
+      border-radius: 8px;
+      padding: 8px 14px;
+      margin-bottom: 8px;
+    }}
+    .status-pill-dot {{
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: {pill_dot};
+      flex-shrink: 0;
+    }}
+    .status-pill-text {{
+      font-size: 12px;
+      font-weight: 700;
+      color: {pill_text};
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }}
+    .status-desc {{
+      font-size: 12px;
+      color: #64748B;
+    }}
+    .body {{
+      padding: 22px 28px;
+    }}
+    /* 3-col meta — collapses to 1-col on small screens */
+    .meta-table {{
+      width: 100%;
+      border-collapse: collapse;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #E0E3E8;
+      margin-bottom: 20px;
+    }}
+    .meta-table td {{
+      background: #F8FAFC;
+      padding: 12px 14px;
+      vertical-align: top;
+      width: 33.33%;
+      border-right: 1px solid #E0E3E8;
+    }}
+    .meta-table td:last-child {{
+      border-right: none;
+    }}
+    .meta-label {{
+      font-size: 10px;
+      font-weight: 600;
+      color: #94A3B8;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 4px;
+      display: block;
+    }}
+    .meta-value {{
+      font-size: 13px;
+      font-weight: 700;
+      color: #1E293B;
+      word-break: break-all;
+    }}
+    .meta-mono {{ font-family: 'Courier New', monospace; }}
+    /* Download section label */
+    .section-label {{
+      font-size: 10px;
+      font-weight: 600;
+      color: #94A3B8;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #E0E3E8;
+      padding-bottom: 8px;
+    }}
+    /* Code block */
+    .code-wrap {{
+      background: #0D1117;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #1E293B;
+      margin-bottom: 14px;
+    }}
+    .code-hdr {{
+      background: #161B22;
+      padding: 9px 14px;
+      border-bottom: 1px solid #1E293B;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }}
+    .code-dot {{
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }}
+    .code-label {{
+      font-size: 10px;
+      color: #64748B;
+      font-weight: 500;
+      margin-left: 4px;
+    }}
+    .code-body {{
+      padding: 14px 16px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      line-height: 1.9;
+      color: #E2E8F0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }}
+    .code-comment {{ color: #6A9955; }}
+    /* Drive button */
+    .drive-btn {{
+      display: block;
+      background: #1D4ED8;
+      border-radius: 9px;
+      padding: 14px 20px;
+      text-align: center;
+      text-decoration: none;
+      margin-bottom: 10px;
+    }}
+    .drive-btn-title {{
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 3px;
+    }}
+    .drive-btn-sub {{
+      font-size: 10px;
+      color: #93C5FD;
+      word-break: break-all;
+    }}
+    /* GitHub button */
+    .gh-btn {{
+      display: block;
+      background: #F8FAFC;
+      border: 1px solid #E0E3E8;
+      border-radius: 9px;
+      padding: 11px 20px;
+      text-align: center;
+      text-decoration: none;
+      margin-bottom: 4px;
+    }}
+    .gh-btn-text {{
+      font-size: 12px;
+      color: #475569;
+      font-weight: 500;
+    }}
+    /* Failed / passed sections */
+    .section-title {{
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }}
+    .app-row {{
+      padding: 6px 12px;
+      font-size: 12px;
+      border-bottom: 1px solid #fde8e8;
+    }}
+    .app-row-pass {{
+      padding: 6px 12px;
+      font-size: 12px;
+      border-bottom: 1px solid #e8f8ee;
+    }}
+    /* Footer */
+    .footer {{
+      padding: 14px 28px;
+      border-top: 1px solid #F1F5F9;
+      background: #FAFBFC;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 6px;
+    }}
+    .footer-brand {{
+      font-size: 10px;
+      font-weight: 700;
+      color: #94A3B8;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }}
+    .footer-auto {{
+      font-size: 10px;
+      color: #CBD5E1;
+    }}
+    /* Mobile overrides */
+    @media only screen and (max-width: 480px) {{
+      .hdr, .status-area, .body {{ padding-left: 18px !important; padding-right: 18px !important; }}
+      .hdr-title {{ font-size: 19px !important; }}
+      .meta-table, .meta-table tbody,
+      .meta-table tr, .meta-table td {{
+        display: block !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+      }}
+      .meta-table td {{
+        border-right: none !important;
+        border-bottom: 1px solid #E0E3E8 !important;
+      }}
+      .meta-table td:last-child {{ border-bottom: none !important; }}
+      .code-body {{ font-size: 11px !important; }}
+      .drive-btn-sub {{ font-size: 9px !important; }}
+      .footer {{ flex-direction: column; align-items: flex-start; }}
+    }}
+  </style>
 </head>
-<body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',Arial,sans-serif">
-  <div style="max-width:620px;margin:30px auto;background:#fff;
-              border-radius:10px;overflow:hidden;
-              box-shadow:0 2px 12px rgba(0,0,0,0.1)">
+<body>
+<div class="wrapper">
+<div class="card">
 
-    <!-- Header -->
-    <div style="background:linear-gradient(135deg,#1B3A5C,#2E6DA4);
-                padding:28px 32px;text-align:center">
-      <div style="font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:4px">
-        Granite River Labs — Matter CI Pipeline
-      </div>
-      <div style="font-size:22px;font-weight:700;color:#fff">
-        🔬 Matter SDK Build
-      </div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:4px">
-        {date_str}
-      </div>
+  <div class="hdr">
+    <div class="hdr-brand-row">
+      <div class="hdr-dot"></div>
+      <span class="hdr-brand">Granite River Labs &nbsp;—&nbsp; Matter CI</span>
     </div>
+    <div class="hdr-title">Matter SDK build</div>
+    <div class="hdr-sub">{date_str} &nbsp;·&nbsp; Raspberry Pi ARM64</div>
+  </div>
 
-    <!-- Status Banner -->
-    <div style="background:{banner_color};padding:16px 32px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:#fff">
-        {banner_icon} {banner_text}
-      </div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.9);margin-top:4px">
-        {sub_text}
-      </div>
+  <div class="status-area">
+    <div class="status-pill">
+      <div class="status-pill-dot"></div>
+      <span class="status-pill-text">{banner_text}</span>
     </div>
+    <div class="status-desc">{sub_text}</div>
+  </div>
 
-    <!-- Body -->
-    <div style="padding:28px 32px">
+  <div class="body">
 
-      <!-- Build info table -->
-      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;
-                    border-radius:8px;overflow:hidden;
-                    border:1px solid #e9ecef">
-        <tr style="background:#f8f9fa">
-          <td style="padding:8px 16px;font-weight:600;font-size:13px;
-                     color:#555;width:35%;border-bottom:1px solid #e9ecef">
-            Branch
-          </td>
-          <td style="padding:8px 16px;font-size:13px;
-                     border-bottom:1px solid #e9ecef">
-            {branch}
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:8px 16px;font-weight:600;font-size:13px;
-                     color:#555;background:#f8f9fa;border-bottom:1px solid #e9ecef">
-            Commit
-          </td>
-          <td style="padding:8px 16px;font-size:13px;font-family:monospace;
-                     border-bottom:1px solid #e9ecef">
-            {commit}
-          </td>
-        </tr>
-        <tr style="background:#f8f9fa">
-          <td style="padding:8px 16px;font-weight:600;font-size:13px;color:#555">
-            Run ID
-          </td>
-          <td style="padding:8px 16px;font-size:13px">
-            #{run_id}
-          </td>
-        </tr>
-      </table>
+    <!-- Meta grid — 3 col desktop, 1 col mobile -->
+    <table class="meta-table" cellpadding="0" cellspacing="0" role="presentation">
+      <tr>
+        <td><span class="meta-label">Branch</span>
+            <span class="meta-value">{branch}</span></td>
+        <td><span class="meta-label">Commit</span>
+            <span class="meta-value meta-mono">{commit}</span></td>
+        <td><span class="meta-label">Run ID</span>
+            <span class="meta-value">#{run_id}</span></td>
+      </tr>
+    </table>
 
-      {failed_section}
-      {passed_section}
-      {download_section}
-      {actions_section}
-
-    </div>
-
-    <!-- Footer -->
-    <div style="background:#f8f9fa;padding:16px 32px;text-align:center;
-                border-top:1px solid #e9ecef">
-      <p style="margin:0;font-size:12px;color:#aaa">
-        This is an automated notification from Matter CI Pipeline.<br>
-        Granite River Labs — GRLPS Matter Team
-      </p>
-    </div>
+    {failed_section}
+    {passed_section}
+    {download_section}
+    {actions_section}
 
   </div>
+
+  <div class="footer">
+    <span class="footer-brand">GRL &nbsp;·&nbsp; GRLPS Matter Team</span>
+    <span class="footer-auto">Automated notification</span>
+  </div>
+
+</div>
+</div>
 </body>
 </html>"""
 
@@ -274,7 +510,7 @@ def build_plain_text(status: str, commit: str, branch: str,
 
     lines = [
         "=" * 60,
-        "  Matter SDK Build — Granite River Labs",
+        "  Matter SDK Nightly Build — Granite River Labs",
         f"  {date_str}",
         "=" * 60,
         f"  Status : {status.upper()}",
@@ -377,7 +613,7 @@ def main():
     # Build subject line
     icons = {"success": "✅", "partial": "⚠️", "failed": "🔴"}
     labels = {"success": "SUCCESS", "partial": "PARTIAL SUCCESS", "failed": "FAILED"}
-    subject = (f"{icons[args.status]} Matter SDK Build — "
+    subject = (f"{icons[args.status]} Matter SDK Nightly Build — "
                f"{labels[args.status]} | {branch} | {commit}")
 
     html_body  = build_html(
