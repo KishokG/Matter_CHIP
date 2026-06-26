@@ -255,6 +255,10 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
         f"    → Run: source chip_env/bin/activate\n"
         f"    → Or:  pip install wheels/*.whl --break-system-packages\n"
         f"\n"
+        f"  ModuleNotFoundError: No module named 'mobly'\n"
+        f"    → Run: pip install mobly\n"
+        f"    → This is auto-installed by install.sh\n"
+        f"\n"
         f"  chip-all-clusters-app: Permission denied\n"
         f"    → Run: chmod +x apps/*\n"
         f"\n"
@@ -312,11 +316,20 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
         f"pip install --upgrade pip --quiet\n"
         f"ok \"Virtual environment ready: chip_env/\"\n"
         f"\n"
-        f"# ── Step 3: Install python wheels ──────────────────────────────\n"
-        f"log \"Step 3/4 — Installing Matter python wheels...\"\n"
+        f"# ── Step 3: Install python wheels + dependencies ───────────────\n"
+        f"log \"Step 3/4 — Installing Matter python wheels and dependencies...\"\n"
+        f"\n"
+        f"# Install required pip dependencies first\n"
+        f"pip install mobly --quiet\n"
+        f"pip install click --quiet\n"
+        f"pip install colorama --quiet\n"
+        f"pip install pyserial --quiet\n"
+        f"ok \"Dependencies installed (mobly, click, colorama, pyserial)\"\n"
+        f"\n"
+        f"# Install Matter wheels\n"
         f"if ls wheels/*.whl &>/dev/null; then\n"
         f"  pip install wheels/*.whl --quiet\n"
-        f"  ok \"Wheels installed successfully\"\n"
+        f"  ok \"Matter wheels installed successfully\"\n"
         f"else\n"
         f"  echo \"[WARN] No wheels found in wheels/ directory\"\n"
         f"fi\n"
@@ -344,6 +357,19 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
     import stat as stat_mod
     install_sh.chmod(install_sh.stat().st_mode | stat_mod.S_IEXEC | stat_mod.S_IXGRP | stat_mod.S_IXOTH)
     print(f"[BUNDLE]   ✅ install.sh written")
+
+    # ── 6b. pip-requirements.txt ──────────────────────────────────────────
+    pip_reqs = bundle_dir / "pip-requirements.txt"
+    pip_reqs.write_text(
+        "# Matter SDK Python Dependencies\n"
+        "# Install: pip install -r pip-requirements.txt\n"
+        "# (install.sh handles this automatically)\n"
+        "mobly\n"
+        "click\n"
+        "colorama\n"
+        "pyserial\n"
+    )
+    print(f"[BUNDLE]   ✅ pip-requirements.txt written")
 
     # ── 7. Create tar.gz ──────────────────────────────────────────────────
     tar_path = PROJECT_ROOT / "logs" / f"{bundle_name}.tar.gz"
