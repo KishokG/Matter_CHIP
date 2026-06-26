@@ -163,28 +163,189 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
         print("[BUNDLE]   ⚠️  No python wheels found — check SDK build output")
 
     # ── 4. build-info.txt ─────────────────────────────────────────────────
+    ubuntu_ver = subprocess.run(
+        ['lsb_release', '-rs'], capture_output=True, text=True
+    ).stdout.strip()
+
     build_info = bundle_dir / "build-info.txt"
-    build_info.write_text(f"""Matter SDK Build Information
-=============================
-Branch    : {branch}
-Commit    : {commit}
-Date      : {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-Platform  : linux/arm64 (Raspberry Pi)
-Ubuntu    : {subprocess.run(['lsb_release','-rs'],capture_output=True,text=True).stdout.strip()}
-Python    : {sys.version.split()[0]}
-
-Apps bundled:
-{chr(10).join(f'  - {a}' for a in copied_apps)}
-
-Wheels bundled:
-{chr(10).join(f'  - {w.name}' for w in copied_wheels)}
-
-Install wheels:
-  pip install wheels/*.whl --break-system-packages
-""")
+    build_info.write_text(
+        f"Matter SDK Build Information\n"
+        f"=============================\n"
+        f"Branch    : {branch}\n"
+        f"Commit    : {commit}\n"
+        f"Date      : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"Platform  : linux/arm64 (Raspberry Pi)\n"
+        f"Ubuntu    : {ubuntu_ver}\n"
+        f"Python    : {sys.version.split()[0]}\n"
+        f"\n"
+        f"Apps bundled:\n"
+        + "".join(f"  - {a}\n" for a in copied_apps)
+        + f"\nWheels bundled:\n"
+        + "".join(f"  - {w.name}\n" for w in copied_wheels)
+    )
     print(f"[BUNDLE]   ✅ build-info.txt written")
 
-    # ── 5. Create tar.gz ──────────────────────────────────────────────────
+    # ── 5. README.txt — user guide ────────────────────────────────────────
+    readme = bundle_dir / "README.txt"
+    apps_list = "\n".join(f"    apps/{a}" for a in copied_apps)
+    wheels_list = "\n".join(f"    wheels/{w.name}" for w in copied_wheels)
+    readme.write_text(
+        f"╔══════════════════════════════════════════════════════════════╗\n"
+        f"║           Matter SDK Build Bundle — User Guide               ║\n"
+        f"╚══════════════════════════════════════════════════════════════╝\n"
+        f"\n"
+        f"Build Info\n"
+        f"──────────\n"
+        f"  Branch  : {branch}\n"
+        f"  Commit  : {commit}\n"
+        f"  Date    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"  Platform: Raspberry Pi ARM64 (Ubuntu {ubuntu_ver})\n"
+        f"\n"
+        f"Bundle Contents\n"
+        f"───────────────\n"
+        f"  apps/          ← Matter reference app binaries\n"
+        + "".join(f"    {a}\n" for a in copied_apps)
+        + f"  chip-tool      ← Matter commissioner and controller\n"
+        f"  wheels/        ← Python controller wheels\n"
+        + "".join(f"    {w.name}\n" for w in copied_wheels)
+        + f"  install.sh     ← One-command setup script\n"
+        f"  README.txt     ← This file\n"
+        f"  build-info.txt ← Detailed build metadata\n"
+        f"\n"
+        f"Quick Start\n"
+        f"───────────\n"
+        f"  Step 1 — Run the install script (installs all wheels):\n"
+        f"\n"
+        f"    chmod +x install.sh && ./install.sh\n"
+        f"\n"
+        f"  Step 2 — Activate the environment:\n"
+        f"\n"
+        f"    source chip_env/bin/activate\n"
+        f"\n"
+        f"  Step 3 — Copy binaries to your preferred location (optional):\n"
+        f"\n"
+        f"    cp apps/* ~/matter-apps/\n"
+        f"    cp chip-tool ~/matter-apps/\n"
+        f"\n"
+        f"  Step 4 — Launch a sample app:\n"
+        f"\n"
+        f"    rm -rf /tmp/chip_* && ./apps/chip-all-clusters-app &\n"
+        f"\n"
+        f"  Step 5 — Run a python test script:\n"
+        f"\n"
+        f"    python3 /path/to/TC_ACE_1_2.py \\\n"
+        f"      --commissioning-method on-network \\\n"
+        f"      --discriminator 3840 \\\n"
+        f"      --passcode 20202021 \\\n"
+        f"      --storage-path admin_storage.json\n"
+        f"\n"
+        f"Requirements\n"
+        f"────────────\n"
+        f"  • Raspberry Pi 4 or 5 (ARM64)\n"
+        f"  • Ubuntu 22.04 or 24.04 (64-bit)\n"
+        f"  • Python 3.10 or higher\n"
+        f"  • Same Ubuntu version as build machine ({ubuntu_ver}) recommended\n"
+        f"\n"
+        f"  System packages (auto-installed by install.sh):\n"
+        f"    libavahi-client-dev, libdbus-1-dev, libglib2.0-dev\n"
+        f"\n"
+        f"Troubleshooting\n"
+        f"───────────────\n"
+        f"  ImportError: No module named 'chip'\n"
+        f"    → Run: source chip_env/bin/activate\n"
+        f"    → Or:  pip install wheels/*.whl --break-system-packages\n"
+        f"\n"
+        f"  chip-all-clusters-app: Permission denied\n"
+        f"    → Run: chmod +x apps/*\n"
+        f"\n"
+        f"  CHIP Error 0x00000032: Timeout\n"
+        f"    → DUT app may not be running or not in commissioning mode\n"
+        f"    → Check: rm -rf /tmp/chip_* before launching DUT\n"
+        f"\n"
+        f"  Wheel not compatible with this platform\n"
+        f"    → This bundle was built for Ubuntu {ubuntu_ver} ARM64\n"
+        f"    → Ensure your RPi runs the same Ubuntu version\n"
+        f"\n"
+        f"Built by Matter CI Pipeline — Granite River Labs (GRL)\n"
+        f"For issues contact the Matter GRLPS team.\n"
+    )
+    print(f"[BUNDLE]   ✅ README.txt written")
+
+    # ── 6. install.sh — one-command setup ────────────────────────────────
+    install_sh = bundle_dir / "install.sh"
+    install_sh.write_text(
+        f"#!/usr/bin/env bash\n"
+        f"# =============================================================\n"
+        f"# Matter SDK Bundle — Install Script\n"
+        f"# Branch: {branch}  Commit: {commit}\n"
+        f"# =============================================================\n"
+        f"set -e\n"
+        f"\n"
+        f"SCRIPT_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"\n"
+        f"cd \"$SCRIPT_DIR\"\n"
+        f"\n"
+        f"GREEN='\\033[0;32m'; CYAN='\\033[0;36m'; NC='\\033[0m'\n"
+        f"log()  {{ echo -e \"${{CYAN}}[INSTALL]${{NC}} $*\"; }}\n"
+        f"ok()   {{ echo -e \"${{GREEN}}[  OK  ]${{NC}} $*\"; }}\n"
+        f"\n"
+        f"echo \"╔══════════════════════════════════════════════════════╗\"\n"
+        f"echo \"║       Matter SDK Bundle — Installation               ║\"\n"
+        f"echo \"║  Branch : {branch:<42}║\"\n"
+        f"echo \"║  Commit : {commit:<42}║\"\n"
+        f"echo \"╚══════════════════════════════════════════════════════╝\"\n"
+        f"echo\n"
+        f"\n"
+        f"# ── Step 1: System dependencies ────────────────────────────────\n"
+        f"log \"Step 1/4 — Installing system dependencies...\"\n"
+        f"sudo apt-get update -qq\n"
+        f"sudo apt-get install -y \\\n"
+        f"  python3 python3-venv python3-pip \\\n"
+        f"  libavahi-client-dev libdbus-1-dev \\\n"
+        f"  libglib2.0-dev libgirepository1.0-dev \\\n"
+        f"  libcairo2-dev --quiet\n"
+        f"ok \"System dependencies installed\"\n"
+        f"\n"
+        f"# ── Step 2: Create virtual environment ─────────────────────────\n"
+        f"log \"Step 2/4 — Creating Python virtual environment...\"\n"
+        f"python3 -m venv chip_env\n"
+        f"source chip_env/bin/activate\n"
+        f"pip install --upgrade pip --quiet\n"
+        f"ok \"Virtual environment ready: chip_env/\"\n"
+        f"\n"
+        f"# ── Step 3: Install python wheels ──────────────────────────────\n"
+        f"log \"Step 3/4 — Installing Matter python wheels...\"\n"
+        f"if ls wheels/*.whl &>/dev/null; then\n"
+        f"  pip install wheels/*.whl --quiet\n"
+        f"  ok \"Wheels installed successfully\"\n"
+        f"else\n"
+        f"  echo \"[WARN] No wheels found in wheels/ directory\"\n"
+        f"fi\n"
+        f"\n"
+        f"# ── Step 4: Make binaries executable ───────────────────────────\n"
+        f"log \"Step 4/4 — Setting binary permissions...\"\n"
+        f"chmod +x apps/* chip-tool 2>/dev/null || true\n"
+        f"ok \"Binaries are executable\"\n"
+        f"\n"
+        f"# ── Done ────────────────────────────────────────────────────────\n"
+        f"echo\n"
+        f"echo \"╔══════════════════════════════════════════════════════╗\"\n"
+        f"echo \"║  ✅  Installation complete!                          ║\"\n"
+        f"echo \"╚══════════════════════════════════════════════════════╝\"\n"
+        f"echo\n"
+        f"echo \"  Next steps:\"\n"
+        f"echo \"    source chip_env/bin/activate\"\n"
+        f"echo \"    ./apps/chip-all-clusters-app &\"\n"
+        f"echo \"    python3 /path/to/TC_ACE_1_2.py --commissioning-method on-network ...\"\n"
+        f"echo\n"
+        f"echo \"  See README.txt for full usage guide.\"\n"
+        f"echo\n"
+    )
+    # Make install.sh executable
+    import stat as stat_mod
+    install_sh.chmod(install_sh.stat().st_mode | stat_mod.S_IEXEC | stat_mod.S_IXGRP | stat_mod.S_IXOTH)
+    print(f"[BUNDLE]   ✅ install.sh written")
+
+    # ── 7. Create tar.gz ──────────────────────────────────────────────────
     tar_path = PROJECT_ROOT / "logs" / f"{bundle_name}.tar.gz"
     print(f"\n[BUNDLE] Creating archive: {tar_path.name} ...")
 
