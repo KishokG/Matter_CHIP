@@ -4,14 +4,6 @@ on:
   schedule:
     - cron: '30 19 * * *'   # 1:00 AM IST daily (7:30 PM UTC)
   workflow_dispatch:
-
-# ── Concurrency control ───────────────────────────────────────────────────────
-# Only one build runs at a time on the RPi.
-# If a manual trigger comes in while cron is queued → cron is cancelled.
-# If cron comes in while manual is running → cron waits (cancel-in-progress: false).
-concurrency:
-  group: matter-ci-build
-  cancel-in-progress: false
     inputs:
       pipeline:
         description: >
@@ -65,6 +57,13 @@ concurrency:
         required: false
         default: ""
 
+# ── Concurrency control ───────────────────────────────────────────────────────
+# Only one build runs at a time on the RPi.
+# If a manual trigger comes in while cron is queued → it waits behind running job.
+# If cron comes in while manual is running → cron waits (cancel-in-progress: false).
+concurrency:
+  group: matter-ci-build
+  cancel-in-progress: false
 jobs:
   # ──────────────────────────────────────────────────────────
   # Job 1: Validate config — always runs (GitHub cloud runner)
