@@ -197,37 +197,6 @@ jobs:
             Matter_CI/logs/build_logs/
           retention-days: 14
 
-      - name: Upload artifacts to Google Drive
-        if: success()
-        env:
-          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
-        run: |
-          # Write service account key
-          echo "${CREDENTIALS_JSON}" > "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
-          chmod 600 "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
-
-          export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
-          export MATTER_SDK_DIR=$(python3 -c "
-          import yaml
-          cfg = yaml.safe_load(open('Matter_CI/config/build_config.yaml'))
-          print(cfg['rpi']['sdk_dir'])
-          ")
-
-          # Install google api libs if needed
-          pip3 install google-auth google-auth-httplib2 google-api-python-client             --break-system-packages --quiet
-
-          python3 Matter_CI/scripts/upload_artifacts.py             --config Matter_CI/config/build_config.yaml
-
-          # Show drive link in summary if available
-          if [[ -f Matter_CI/logs/gdrive_link.txt ]]; then
-            echo "### 📦 Build Artifacts uploaded to Google Drive" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🔗 **Download latest build:** $(cat Matter_CI/logs/gdrive_link.txt)" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # Cleanup SA key
-          rm -f "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
-
       - name: Write job summary
         if: always()
         run: |
@@ -246,13 +215,73 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
+
+  # ──────────────────────────────────────────────────────────
+  # Job 3: Upload to Google Drive
+  # ──────────────────────────────────────────────────────────
+  upload-artifacts:
+    name: Upload to Google Drive
+    runs-on: self-hosted
+    needs: build
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      (github.event_name == 'schedule' ||
+       github.event.inputs.pipeline == 'build-only' ||
+       github.event.inputs.pipeline == 'build-test')
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Upload artifacts to Google Drive
+        if: success()
+        env:
+          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
+        run: |
+          echo "${CREDENTIALS_JSON}" > "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          chmod 600 "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
+          export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          export MATTER_SDK_DIR=$(python3 -c "
+          import yaml
+          cfg = yaml.safe_load(open('Matter_CI/config/build_config.yaml'))
+          print(cfg['rpi']['sdk_dir'])
+          ")
+
+          pip3 install google-auth google-auth-httplib2 google-api-python-client \
+            --break-system-packages --quiet
+
+          python3 Matter_CI/scripts/upload_artifacts.py \
+            --config Matter_CI/config/build_config.yaml
+
+          if [[ -f Matter_CI/logs/gdrive_link.txt ]]; then
+            echo "### 📦 Build Artifacts" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **Download:** $(cat Matter_CI/logs/gdrive_link.txt)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          rm -f "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
+  # ──────────────────────────────────────────────────────────
+  # Job 4: Send Email Notification
+  # ──────────────────────────────────────────────────────────
+  notify:
+    name: Send Email Notification
+    runs-on: self-hosted
+    needs: [build, upload-artifacts]
+    if: |
+      always() &&
+      (github.event_name == 'schedule' ||
+       github.event.inputs.pipeline == 'build-only' ||
+       github.event.inputs.pipeline == 'build-test')
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Send email notification
-        if: always()
         env:
           GMAIL_SENDER:        ${{ secrets.GMAIL_SENDER }}
           GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAILS:       ${{ secrets.NOTIFY_EMAILS }}
-          MATTER_SDK_DIR:      ${{ env.MATTER_SDK_DIR }}
         run: |
           export MATTER_SDK_DIR=$(python3 -c "
           import yaml
@@ -260,36 +289,32 @@ jobs:
           print(cfg['rpi']['sdk_dir'])
           " 2>/dev/null || echo "/home/ubuntu/connectedhomeip")
 
-          # Determine build status
           BUILD_STATUS="success"
           DRIVE_LINK=""
 
-          # Check for failed apps
           if [[ -f Matter_CI/logs/build_logs/build_status.json ]]; then
             FAILED=$(python3 -c "
           import json
           s = json.load(open('Matter_CI/logs/build_logs/build_status.json'))
-          failed = [k for k,v in s.items() if v=='FAIL']
-          print(len(failed))
+          print(len([k for k,v in s.items() if v=='FAIL']))
           " 2>/dev/null || echo "0")
-            if [[ "${FAILED}" -gt 0 ]]; then
-              BUILD_STATUS="partial"
-            fi
+            [[ "${FAILED}" -gt 0 ]] && BUILD_STATUS="partial"
           fi
 
-          # Check if job itself failed (critical failure)
-          if [[ "${{ job.status }}" == "failure" ]]; then
-            BUILD_STATUS="failed"
-          fi
+          [[ "${{ needs.build.result }}" == "failure" ]] && BUILD_STATUS="failed"
 
-          # Get drive link if available
-          if [[ -f Matter_CI/logs/gdrive_link.txt ]]; then
+          [[ -f Matter_CI/logs/gdrive_link.txt ]] && \
             DRIVE_LINK=$(cat Matter_CI/logs/gdrive_link.txt)
-          fi
 
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          python3 Matter_CI/scripts/notify.py             --config     Matter_CI/config/build_config.yaml             --status     "${BUILD_STATUS}"             --drive-link "${DRIVE_LINK}"             --run-id     "${{ github.run_number }}"             --run-url    "${RUN_URL}"
+          python3 Matter_CI/scripts/notify.py \
+            --config     Matter_CI/config/build_config.yaml \
+            --status     "${BUILD_STATUS}" \
+            --drive-link "${DRIVE_LINK}" \
+            --run-id     "${{ github.run_number }}" \
+            --run-url    "${RUN_URL}"
+
 
   # ──────────────────────────────────────────────────────────
   # Job 3: Fetch test commands from Google Sheet
