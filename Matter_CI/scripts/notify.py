@@ -158,20 +158,20 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
 
     # Status pill colours
     if status == "success":
-        pill_bg    = "#052E16"
-        pill_border= "#166534"
+        pill_bg    = "rgba(255,255,255,0.15)"
+        pill_border= "rgba(255,255,255,0.35)"
         pill_dot   = "#4ADE80"
-        pill_text  = "#4ADE80"
+        pill_text  = "#FFFFFF"
     elif status == "partial":
-        pill_bg    = "#422006"
-        pill_border= "#92400E"
+        pill_bg    = "rgba(251,191,36,0.2)"
+        pill_border= "rgba(251,191,36,0.5)"
         pill_dot   = "#FBBF24"
-        pill_text  = "#FBBF24"
+        pill_text  = "#FEF3C7"
     else:
-        pill_bg    = "#1C0A0A"
-        pill_border= "#7F1D1D"
+        pill_bg    = "rgba(239,68,68,0.2)"
+        pill_border= "rgba(239,68,68,0.5)"
         pill_dot   = "#F87171"
-        pill_text  = "#F87171"
+        pill_text  = "#FEE2E2"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -186,97 +186,67 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
          -webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}}
     .outer{{padding:24px 12px}}
     .card{{max-width:560px;margin:0 auto;background:#ffffff;
-           border-radius:14px;overflow:hidden;border:1px solid #DDE1E7}}
-    /* Header */
-    .hdr{{background:#0F1923;padding:26px 28px 18px}}
-    .hdr-brand{{display:block;font-size:10px;font-weight:600;color:#4B5563;
-                letter-spacing:1.4px;text-transform:uppercase;margin-bottom:14px}}
-    .hdr-brand-dot{{display:inline-block;width:6px;height:6px;border-radius:50%;
-                    background:#3B82F6;vertical-align:middle;margin-right:7px;
-                    margin-top:-2px}}
-    .hdr-title{{font-size:21px;font-weight:700;color:#F9FAFB;
-                letter-spacing:-0.2px;margin:0 0 6px}}
-    .hdr-sub{{font-size:12px;color:#6B7280;margin:0}}
-    /* Status */
-    .status-area{{background:#0F1923;padding:0 28px 22px}}
-    .pill{{display:inline-block;background:{pill_bg};border:1px solid {pill_border};
-           border-radius:20px;padding:6px 12px 6px 10px;margin-bottom:8px}}
-    .pill-dot{{display:inline-block;width:7px;height:7px;border-radius:50%;
-               background:{pill_dot};vertical-align:middle;margin-right:6px;
-               margin-top:-1px}}
-    .pill-text{{font-size:11px;font-weight:700;color:{pill_text};
-                letter-spacing:0.4px;text-transform:uppercase;vertical-align:middle}}
-    .status-desc{{font-size:12px;color:#6B7280;margin:0}}
-    /* Body */
-    .body{{padding:22px 28px}}
-    /* Meta */
-    .meta{{width:100%;border-collapse:collapse;border-radius:10px;
-           border:1px solid #E5E7EB;margin-bottom:20px;table-layout:fixed}}
-    .meta td{{background:#F9FAFB;padding:12px 14px;
-              border-right:1px solid #E5E7EB;vertical-align:top;width:33%}}
+           border-radius:16px;overflow:hidden;border:1px solid #DDE1E7}}
+    .meta{{width:100%;border-collapse:collapse;
+           border:1px solid #E5E7EB;border-radius:10px;
+           margin-bottom:22px;table-layout:fixed}}
+    .meta td{{background:#F9FAFB;padding:13px 14px;
+              border-right:1px solid #E5E7EB;vertical-align:top}}
     .meta td:last-child{{border-right:none}}
     .meta-lbl{{display:block;font-size:10px;font-weight:600;color:#9CA3AF;
                text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px}}
-    .meta-val{{display:block;font-size:13px;font-weight:700;color:#111827;
-               word-break:break-all}}
+    .meta-val{{display:block;font-size:13px;font-weight:700;
+               color:#111827;word-break:break-all}}
     .mono{{font-family:'Courier New',monospace}}
-    /* Section label */
-    .sec-lbl{{font-size:10px;font-weight:600;color:#9CA3AF;text-transform:uppercase;
-              letter-spacing:0.8px;border-bottom:1px solid #E5E7EB;
-              padding-bottom:8px;margin-bottom:14px}}
-    /* Code block */
-    .code-wrap{{border-radius:10px;overflow:hidden;border:1px solid #1E293B;
-                margin-bottom:14px}}
-    .code-hdr{{background:#161B22;padding:9px 14px;border-bottom:1px solid #1E293B}}
-    .code-dot{{display:inline-block;width:10px;height:10px;border-radius:50%;
-               margin-right:5px;vertical-align:middle}}
-    .code-label{{font-size:10px;color:#6B7280;font-weight:500;
-                 margin-left:4px;vertical-align:middle}}
-    .code-body{{background:#0D1117;padding:14px 16px;
+    .sec-lbl{{font-size:10px;font-weight:600;color:#9CA3AF;
+              text-transform:uppercase;letter-spacing:0.8px;
+              border-bottom:1px solid #E5E7EB;padding-bottom:8px;
+              margin-bottom:14px}}
+    .code-wrap{{border-radius:10px;overflow:hidden;
+                border:1px solid #30363D;margin-bottom:14px}}
+    .code-hdr{{background:#161B22;padding:9px 14px;
+               border-bottom:1px solid #30363D;
+               display:flex;align-items:center;gap:6px}}
+    .cdot{{width:10px;height:10px;border-radius:50%;flex-shrink:0}}
+    .code-lbl{{font-size:10px;color:#6E7681;font-weight:500;margin-left:4px}}
+    .code-body{{display:block;background:#0D1117;padding:14px 16px;
                 font-family:'Courier New',Courier,monospace;
-                font-size:12px;line-height:2;color:#E2E8F0;
-                overflow-x:auto;-webkit-overflow-scrolling:touch;
-                display:block;white-space:pre-wrap;word-break:break-word}}
-    .cc{{color:#6A9955}}
-    /* Drive btn */
-    .drive-btn{{display:block;background:#1D4ED8;border-radius:9px;
-                padding:14px 20px;text-align:center;text-decoration:none;
-                margin-bottom:10px}}
-    .drive-title{{display:block;font-size:14px;font-weight:700;color:#FFFFFF;
-                  margin-bottom:4px}}
-    .drive-sub{{display:block;font-size:11px;color:#BFDBFE;
+                font-size:12px;line-height:2;color:#E6EDF3;
+                white-space:pre-wrap;word-break:break-word;
+                -webkit-overflow-scrolling:touch}}
+    .cc{{color:#7EE787}}
+    .drive-btn{{display:block;border-radius:10px;padding:15px 20px;
+                text-align:center;text-decoration:none;margin-bottom:10px;
+                background:#1a5fa8}}
+    .drive-title{{display:block;font-size:14px;font-weight:700;
+                  color:#FFFFFF;margin-bottom:4px}}
+    .drive-sub{{display:block;font-size:11px;color:rgba(255,255,255,0.7);
                 word-break:break-all;line-height:1.4}}
-    /* GH btn */
-    .gh-btn{{display:block;background:#F9FAFB;border:1px solid #E5E7EB;
-             border-radius:9px;padding:11px 20px;text-align:center;
+    .gh-btn{{display:block;background:#FFFFFF;border:1px solid #E5E7EB;
+             border-radius:10px;padding:11px 20px;text-align:center;
              text-decoration:none}}
     .gh-text{{font-size:12px;color:#4B5563;font-weight:500}}
-    /* Failed/Passed rows */
-    .app-section{{margin-bottom:16px}}
+    .app-section{{margin-bottom:18px}}
     .app-title{{font-size:12px;font-weight:700;margin-bottom:8px}}
-    .app-row{{padding:7px 12px;font-size:12px;border-bottom:1px solid #FEE2E2;
+    .app-row{{padding:8px 12px;font-size:12px;
+              border-bottom:1px solid #FEE2E2;
               background:#FFF5F5;color:#7F1D1D}}
-    .app-row-pass{{padding:7px 12px;font-size:12px;border-bottom:1px solid #D1FAE5;
+    .app-row-pass{{padding:8px 12px;font-size:12px;
+                   border-bottom:1px solid #D1FAE5;
                    background:#F0FDF4;color:#14532D}}
     .app-row:last-child,.app-row-pass:last-child{{border-bottom:none}}
-    /* Footer */
-    .footer{{padding:14px 28px;border-top:1px solid #F1F5F9;background:#F9FAFB}}
-    .footer-inner{{display:flex;align-items:center;justify-content:space-between;gap:8px}}
-    .footer-brand{{font-size:10px;font-weight:700;color:#9CA3AF;
-                   letter-spacing:0.5px;text-transform:uppercase}}
-    .footer-auto{{font-size:10px;color:#D1D5DB}}
-    /* Mobile */
     @media only screen and (max-width:480px){{
-      .outer{{padding:16px 8px}}
-      .hdr,.status-area,.body,.footer{{padding-left:18px!important;padding-right:18px!important}}
-      .hdr-title{{font-size:18px!important}}
+      .outer{{padding:12px 6px}}
+      .body-pad{{padding-left:18px!important;padding-right:18px!important}}
+      .hdr-title{{font-size:20px!important}}
       .meta,.meta tbody,.meta tr,.meta td{{
-        display:block!important;width:100%!important;box-sizing:border-box!important}}
-      .meta td{{border-right:none!important;border-bottom:1px solid #E5E7EB!important}}
+        display:block!important;width:100%!important;
+        box-sizing:border-box!important}}
+      .meta td{{border-right:none!important;
+                border-bottom:1px solid #E5E7EB!important}}
       .meta td:last-child{{border-bottom:none!important}}
       .code-body{{font-size:11px!important}}
-      .drive-sub{{font-size:10px!important}}
-      .footer-inner{{flex-direction:column;align-items:flex-start;gap:4px}}
+      .foot-r{{display:block!important;margin-top:4px!important}}
     }}
   </style>
 </head>
@@ -284,23 +254,64 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
 <div class="outer">
 <div class="card">
 
-  <div class="hdr">
-    <span class="hdr-brand">
-      <span class="hdr-brand-dot"></span>Granite River Labs &mdash; Matter CI
-    </span>
-    <p class="hdr-title">Matter SDK build</p>
-    <p class="hdr-sub">{date_str} &nbsp;&middot;&nbsp; Raspberry Pi ARM64</p>
-  </div>
+  <!--
+    GRADIENT HEADER
+    Gmail strips background-image CSS, so we use nested tables with
+    bgcolor attribute (works in all clients) + CSS gradient for modern clients.
+    The three columns fade from dark navy → mid blue → bright blue.
+  -->
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+    <tr>
+      <td width="34%" bgcolor="#0F2752" style="background:#0F2752;padding:30px 0 16px 28px;vertical-align:bottom">
+      </td>
+      <td width="33%" bgcolor="#1a5fa8" style="background:#1a5fa8;padding:30px 0 16px 0;vertical-align:bottom">
+      </td>
+      <td width="33%" bgcolor="#0e7dc2" style="background:#0e7dc2;padding:30px 28px 16px 0;vertical-align:bottom">
+      </td>
+    </tr>
+  </table>
+  <!-- Header text overlapping gradient — using single wide td -->
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+    <tr>
+      <td bgcolor="#1a5fa8" style="background:linear-gradient(135deg,#0F2752 0%,#1a5fa8 55%,#0e7dc2 100%);
+                                   background-color:#1a5fa8;padding:0 28px 16px;margin-top:-30px">
+        <span style="display:block;font-size:10px;font-weight:600;
+                     color:rgba(255,255,255,0.55);letter-spacing:1.8px;
+                     text-transform:uppercase;margin-bottom:14px">
+          Granite River Labs &nbsp;&mdash;&nbsp; Matter CI Pipeline
+        </span>
+        <p style="font-size:24px;font-weight:700;color:#FFFFFF;
+                  letter-spacing:-0.3px;margin:0 0 8px;line-height:1.2"
+           class="hdr-title">Matter SDK build</p>
+        <p style="font-size:12px;color:rgba(255,255,255,0.55);margin:0">
+          {date_str} &nbsp;&middot;&nbsp; Raspberry Pi ARM64
+        </p>
+      </td>
+    </tr>
+    <!-- Status row — slightly lighter end of gradient -->
+    <tr>
+      <td bgcolor="#0e7dc2" style="background:linear-gradient(135deg,#1a5fa8 0%,#0e7dc2 100%);
+                                   background-color:#0e7dc2;padding:14px 28px 24px"
+          class="body-pad">
+        <div style="display:inline-flex;align-items:center;gap:7px;
+                    background:{pill_bg};border:1px solid {pill_border};
+                    border-radius:20px;padding:7px 14px;margin-bottom:10px">
+          <div style="width:8px;height:8px;border-radius:50%;
+                      background:{pill_dot};flex-shrink:0;display:inline-block"></div>
+          <span style="font-size:11px;font-weight:700;color:{pill_text};
+                       letter-spacing:0.5px;text-transform:uppercase">
+            {banner_text}
+          </span>
+        </div>
+        <p style="font-size:12px;color:rgba(255,255,255,0.6);margin:0">
+          {sub_text}
+        </p>
+      </td>
+    </tr>
+  </table>
 
-  <div class="status-area">
-    <div class="pill">
-      <span class="pill-dot"></span>
-      <span class="pill-text">{banner_text}</span>
-    </div>
-    <p class="status-desc">{sub_text}</p>
-  </div>
-
-  <div class="body">
+  <!-- Body -->
+  <div style="padding:24px 28px" class="body-pad">
 
     <table class="meta" cellpadding="0" cellspacing="0" role="presentation">
       <tr>
@@ -326,12 +337,21 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
 
   </div>
 
-  <div class="footer">
-    <div class="footer-inner">
-      <span class="footer-brand">GRL &middot; GRLPS Matter Team</span>
-      <span class="footer-auto">Automated notification</span>
-    </div>
-  </div>
+  <!-- Footer — single clean line -->
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+    <tr>
+      <td style="background:#F9FAFB;padding:14px 28px;
+                 border-top:1px solid #F1F5F9">
+        <span style="font-size:11px;font-weight:700;color:#9CA3AF;
+                     letter-spacing:0.5px;text-transform:uppercase">
+          GRL &nbsp;&middot;&nbsp; GRLPS Matter Team
+        </span>
+        <span class="foot-r" style="font-size:11px;color:#D1D5DB;float:right">
+          Automated notification
+        </span>
+      </td>
+    </tr>
+  </table>
 
 </div>
 </div>
