@@ -66,8 +66,11 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
                drive_link: str, run_url: str, run_id: str,
                failed_apps: list, passed_apps: list) -> str:
 
-    date_str = datetime.now().strftime("%Y-%m-%d %H:%M IST")
-    file_id  = drive_link.split("/d/")[1].split("/")[0] if "/d/" in drive_link else ""
+    date_str    = datetime.now().strftime("%Y-%m-%d %H:%M IST")
+    safe_branch = branch.replace("/", "-")
+    bundle_name = f"matter-sdk-{safe_branch}-{commit}-arm64.tar.gz"
+    file_id     = drive_link.split("/d/")[1].split("/")[0] if "/d/" in drive_link else ""
+
 
     # Status banner
     if status == "success":
@@ -169,8 +172,6 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
         pill_dot   = "#F87171"
         pill_text  = "#F87171"
 
-    safe_branch = branch.replace("/", "-")
-    bundle_name = f"matter-sdk-{safe_branch}-{commit}-arm64.tar.gz"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
