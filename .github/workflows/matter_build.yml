@@ -184,6 +184,37 @@ jobs:
             Matter_CI/logs/build_logs/
           retention-days: 14
 
+      - name: Upload artifacts to Google Drive
+        if: success()
+        env:
+          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
+        run: |
+          # Write service account key
+          echo "${CREDENTIALS_JSON}" > "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          chmod 600 "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
+          export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          export MATTER_SDK_DIR=$(python3 -c "
+          import yaml
+          cfg = yaml.safe_load(open('Matter_CI/config/build_config.yaml'))
+          print(cfg['rpi']['sdk_dir'])
+          ")
+
+          # Install google api libs if needed
+          pip3 install google-auth google-auth-httplib2 google-api-python-client             --break-system-packages --quiet
+
+          python3 Matter_CI/scripts/upload_artifacts.py             --config Matter_CI/config/build_config.yaml
+
+          # Show drive link in summary if available
+          if [[ -f Matter_CI/logs/gdrive_link.txt ]]; then
+            echo "### 📦 Build Artifacts uploaded to Google Drive" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **Download latest build:** $(cat Matter_CI/logs/gdrive_link.txt)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Cleanup SA key
+          rm -f "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
       - name: Write job summary
         if: always()
         run: |
@@ -316,19 +347,23 @@ jobs:
           if [[ -f Matter_CI/logs/test_results.json ]]; then
             python3 - << 'PY'
           import json, os
-          results = json.load(open('Matter_CI/logs/test_results.json'))
-          total   = len(results)
-          passed  = sum(1 for r in results if r['status'] == 'PASS')
-          failed  = sum(1 for r in results if r['status'] == 'FAIL')
-          rerun   = sum(1 for r in results if r['status'] == 'RERUN')
-          errors  = sum(1 for r in results if r['status'] == 'ERROR')
+          results   = json.load(open('Matter_CI/logs/test_results.json'))
+          total     = len(results)
+          passed    = sum(1 for r in results if r['status'] == 'PASS')
+          pass_warn = sum(1 for r in results if r['status'] == 'PASS*')
+          failed    = sum(1 for r in results if r['status'] == 'FAIL')
+          rerun     = sum(1 for r in results if r['status'] == 'RERUN')
+          errors    = sum(1 for r in results if r['status'] == 'ERROR')
+          cancelled = sum(1 for r in results if r['status'] == 'CANCEL')
           summary_file = os.environ['GITHUB_STEP_SUMMARY']
           with open(summary_file, 'a') as f:
-              f.write(f"| Total | Pass | Fail | Rerun | Error |\n")
-              f.write(f"|---|---|---|---|---|\n")
-              f.write(f"| {total} | {passed} | {failed} | {rerun} | {errors} |\n\n")
-              f.write("| TC ID | Status |\n|---|---|\n")
+              f.write(f"| Total | Pass | Pass* | Fail | Rerun | Error | Cancelled |\n")
+              f.write(f"|---|---|---|---|---|---|---|\n")
+              f.write(f"| {total} | {passed} | {pass_warn} | {failed} | {rerun} | {errors} | {cancelled} |\n\n")
+              f.write("> \*PASS with skipped steps — configure pics_folder for full execution\n\n")
+              f.write("| TC ID | Status | Note |\n|---|---|---|\n")
               for r in results:
-                  f.write(f"| {r['test_case_id']} | {r['status']} |\n")
+                  note = r.get("note","")[:80] if r["status"] != "PASS" else ""
+                  f.write(f"| {r['test_case_id']} | {r['status']} | {note} |\n")
           PY
           fi
