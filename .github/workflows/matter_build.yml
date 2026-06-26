@@ -1,7 +1,17 @@
 name: Matter — Build on RPi
 
 on:
+  schedule:
+    - cron: '30 19 * * *'   # 1:00 AM IST daily (7:30 PM UTC)
   workflow_dispatch:
+
+# ── Concurrency control ───────────────────────────────────────────────────────
+# Only one build runs at a time on the RPi.
+# If a manual trigger comes in while cron is queued → cron is cancelled.
+# If cron comes in while manual is running → cron waits (cancel-in-progress: false).
+concurrency:
+  group: matter-ci-build
+  cancel-in-progress: false
     inputs:
       pipeline:
         description: >
@@ -102,7 +112,10 @@ jobs:
     name: Build on Raspberry Pi
     runs-on: self-hosted
     needs: validate
-    if: ${{ github.event.inputs.pipeline != 'test-only' }}
+    # Run on schedule (nightly) OR when pipeline is not test-only
+    if: |
+      github.event_name == 'schedule' ||
+      github.event.inputs.pipeline != 'test-only'
     timeout-minutes: 21600
 
     steps:
@@ -142,6 +155,7 @@ jobs:
 
       - name: Run build.sh
         run: |
+          # Use skip-clone for scheduled runs (SDK already present on RPi)
           BUILD_MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
           CONFIG="${GITHUB_WORKSPACE}/Matter_CI/config/build_config.yaml"
           SCRIPT="${GITHUB_WORKSPACE}/Matter_CI/scripts/build.sh"
@@ -222,8 +236,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| Pipeline | ${{ github.event.inputs.pipeline }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build Mode | ${{ github.event.inputs.build_mode }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pipeline | ${{ github.event.inputs.pipeline || 'scheduled' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Mode | ${{ github.event.inputs.build_mode || 'skip-clone' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
           if [[ -f artifacts/build_summary.txt ]]; then
@@ -232,6 +246,51 @@ jobs:
             cat artifacts/build_summary.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Send email notification
+        if: always()
+        env:
+          GMAIL_SENDER:        ${{ secrets.GMAIL_SENDER }}
+          GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAILS:       ${{ secrets.NOTIFY_EMAILS }}
+          MATTER_SDK_DIR:      ${{ env.MATTER_SDK_DIR }}
+        run: |
+          export MATTER_SDK_DIR=$(python3 -c "
+          import yaml
+          cfg = yaml.safe_load(open('Matter_CI/config/build_config.yaml'))
+          print(cfg['rpi']['sdk_dir'])
+          " 2>/dev/null || echo "/home/ubuntu/connectedhomeip")
+
+          # Determine build status
+          BUILD_STATUS="success"
+          DRIVE_LINK=""
+
+          # Check for failed apps
+          if [[ -f Matter_CI/logs/build_logs/build_status.json ]]; then
+            FAILED=$(python3 -c "
+          import json
+          s = json.load(open('Matter_CI/logs/build_logs/build_status.json'))
+          failed = [k for k,v in s.items() if v=='FAIL']
+          print(len(failed))
+          " 2>/dev/null || echo "0")
+            if [[ "${FAILED}" -gt 0 ]]; then
+              BUILD_STATUS="partial"
+            fi
+          fi
+
+          # Check if job itself failed (critical failure)
+          if [[ "${{ job.status }}" == "failure" ]]; then
+            BUILD_STATUS="failed"
+          fi
+
+          # Get drive link if available
+          if [[ -f Matter_CI/logs/gdrive_link.txt ]]; then
+            DRIVE_LINK=$(cat Matter_CI/logs/gdrive_link.txt)
+          fi
+
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          python3 Matter_CI/scripts/notify.py             --config     Matter_CI/config/build_config.yaml             --status     "${BUILD_STATUS}"             --drive-link "${DRIVE_LINK}"             --run-id     "${{ github.run_number }}"             --run-url    "${RUN_URL}"
 
   # ──────────────────────────────────────────────────────────
   # Job 3: Fetch test commands from Google Sheet
