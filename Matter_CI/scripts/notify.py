@@ -190,7 +190,7 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
         Granite River Labs — Matter CI Pipeline
       </div>
       <div style="font-size:22px;font-weight:700;color:#fff">
-        🔬 Matter SDK Nightly Build
+        🔬 Matter SDK Build
       </div>
       <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:4px">
         {date_str}
@@ -274,7 +274,7 @@ def build_plain_text(status: str, commit: str, branch: str,
 
     lines = [
         "=" * 60,
-        "  Matter SDK Nightly Build — Granite River Labs",
+        "  Matter SDK Build — Granite River Labs",
         f"  {date_str}",
         "=" * 60,
         f"  Status : {status.upper()}",
@@ -377,7 +377,7 @@ def main():
     # Build subject line
     icons = {"success": "✅", "partial": "⚠️", "failed": "🔴"}
     labels = {"success": "SUCCESS", "partial": "PARTIAL SUCCESS", "failed": "FAILED"}
-    subject = (f"{icons[args.status]} Matter SDK Nightly Build — "
+    subject = (f"{icons[args.status]} Matter SDK Build — "
                f"{labels[args.status]} | {branch} | {commit}")
 
     html_body  = build_html(
