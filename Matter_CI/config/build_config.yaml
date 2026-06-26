@@ -132,6 +132,20 @@ rpi:
   sdk_dir: "/home/ubuntu/connectedhomeip"
 
 # ============================================================
+# Google Drive — Build Artifact Upload
+# ============================================================
+google_drive:
+  # Google Drive folder ID where builds will be uploaded
+  # Get from Drive URL: drive.google.com/drive/folders/FOLDER_ID_HERE
+  # Share this folder with your service account email (from CREDENTIALS_JSON)
+  folder_id: "1vdFUEXAeTsZ0J8H9jmN9nT_RvjYpohiT"
+  # Keep last N builds in history/ folder (older ones deleted automatically)
+  keep_history: 5
+  # Upload only on fully successful builds (all enabled targets built)
+  # Set to false to upload even partial builds
+  upload_on_partial: false
+  
+# ============================================================
 # Google Sheets — Test Command Source
 # ============================================================
 google_sheets:
