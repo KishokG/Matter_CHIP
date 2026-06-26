@@ -330,6 +330,8 @@ def send_email(cfg: dict, subject: str, html_body: str, plain_body: str):
         print("[NOTIFY] ⚠️  NOTIFY_EMAILS not set — skipping email")
         return
 
+    # Clean emails — remove spaces, newlines, carriage returns
+    emails = emails.replace("\n", ",").replace("\r", "").replace(" ", "")
     recipients = [e.strip() for e in emails.split(",") if e.strip()]
     print(f"[NOTIFY] Sending email to {len(recipients)} recipient(s)...")
 
