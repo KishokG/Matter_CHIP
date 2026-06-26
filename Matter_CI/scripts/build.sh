@@ -441,21 +441,75 @@ build_apps() {
             continue
         fi
 
-        # Run build, capture output, continue on failure
+        # Run build with live ninja progress, continue on failure
         local err_log="${BUILD_LOG_DIR}/${name}_build_error.log"
         local tmp_log="${BUILD_LOG_DIR}/${name}_build_full.log"
+        local start_ts
+        start_ts=$(date +%s)
 
-        if scripts/examples/gn_build_example.sh \
-                "${source_dir}" \
-                "${build_dir}" \
-                ${extra_gn_args} \
-                > "${tmp_log}" 2>&1; then
+        # Run build in background, pipe output to log + live progress
+        scripts/examples/gn_build_example.sh                 "${source_dir}"                 "${build_dir}"                 ${extra_gn_args}                 > "${tmp_log}" 2>&1 &
+        local build_pid=$!
+
+        # Stream ninja progress — print every 50th step + last step + errors
+        local last_printed=0
+        local last_step=""
+        local step_num=0
+        local step_total=0
+
+        while kill -0 "${build_pid}" 2>/dev/null; do
+            # Read the latest ninja step from log
+            local latest
+            latest=$(tail -1 "${tmp_log}" 2>/dev/null || echo "")
+
+            if [[ "${latest}" =~ ^\[([[:space:]0-9]+)/([0-9]+)\] ]]; then
+                step_num="${BASH_REMATCH[1]// /}"   # trim spaces
+                step_total="${BASH_REMATCH[2]}"
+
+                # Print every 50 steps or when step changes significantly
+                if (( step_num - last_printed >= 50 )) ||                    [[ "${latest}" == *"FAILED:"* ]]; then
+                    echo -e "  ${CYAN}[${step_num}/${step_total}]${NC} ${latest#*\] }"
+                    last_printed="${step_num}"
+                fi
+                last_step="${latest}"
+            elif [[ "${latest}" == *"FAILED:"* ]]; then
+                echo -e "  ${RED}[FAIL]${NC} ${latest}"
+            fi
+
+            sleep 1
+        done
+
+        # Wait for build to finish and get exit code
+        wait "${build_pid}"
+        local build_rc=$?
+
+        # Always print the last ninja step (final link/compile)
+        if [[ -n "${last_step}" ]]; then
+            local elapsed=$(( $(date +%s) - start_ts ))
+            local elapsed_str
+            if (( elapsed >= 60 )); then
+                elapsed_str="$((elapsed/60))m $((elapsed%60))s"
+            else
+                elapsed_str="${elapsed}s"
+            fi
+            echo -e "  ${CYAN}[${step_num}/${step_total}]${NC} ${last_step#*\] }"
+        fi
+
+        if [[ ${build_rc} -eq 0 ]]; then
+            local binary_path="${SDK_DIR}/${build_dir}/$(echo "${line}" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['binary_name'])")"
             BUILD_STATUS["${name}"]="PASS"
             PASSED_APPS+=("${name}")
-            ok "└─ ${name} built successfully"
+            ok "└─ ${name} built successfully → ${binary_path}"
         else
             # Save last 50 lines as error log
             tail -50 "${tmp_log}" > "${err_log}" 2>/dev/null || true
+
+            # Print error lines directly to console
+            echo -e "
+${RED}── Build error output ──────────────────────────────${NC}"
+            grep -E "error:|FAILED:|fatal error:" "${tmp_log}" 2>/dev/null | tail -20 ||                 tail -20 "${tmp_log}" 2>/dev/null
+            echo -e "${RED}────────────────────────────────────────────────────${NC}
+"
 
             # Diagnose and save conclusion
             local conclusion
@@ -464,10 +518,10 @@ build_apps() {
             BUILD_ERROR["${name}"]="${conclusion}"
             FAILED_APPS+=("${name}")
 
-            echo -e "${RED}[FAIL]${NC} └─ ${name} build failed"
+            echo -e "${RED}[FAIL]${NC} └─ ${name} build failed after ${elapsed_str:-?}"
             echo -e "       ${conclusion}"
-            echo -e "       Full log: ${tmp_log}"
-            echo -e "       Error log (last 50 lines): ${err_log}"
+            echo -e "       Full log : ${tmp_log}"
+            echo -e "       Error log: ${err_log}"
         fi
         echo ""
     done
@@ -501,24 +555,61 @@ build_chip_tool() {
 
     local err_log="${BUILD_LOG_DIR}/chip-tool_build_error.log"
     local tmp_log="${BUILD_LOG_DIR}/chip-tool_build_full.log"
+    local start_ts
+    start_ts=$(date +%s)
 
     log "Building chip-tool..."
-    if scripts/examples/gn_build_example.sh \
-            "${source_dir}" \
-            "${build_dir}" \
-            ${extra_gn_args} \
-            > "${tmp_log}" 2>&1; then
+    scripts/examples/gn_build_example.sh             "${source_dir}"             "${build_dir}"             ${extra_gn_args}             > "${tmp_log}" 2>&1 &
+    local build_pid=$!
+
+    local last_printed=0
+    local last_step=""
+    local step_num=0
+    local step_total=0
+
+    while kill -0 "${build_pid}" 2>/dev/null; do
+        local latest
+        latest=$(tail -1 "${tmp_log}" 2>/dev/null || echo "")
+        if [[ "${latest}" =~ ^\[([[:space:]0-9]+)/([0-9]+)\] ]]; then
+            step_num="${BASH_REMATCH[1]// /}"
+            step_total="${BASH_REMATCH[2]}"
+            if (( step_num - last_printed >= 50 )); then
+                echo -e "  ${CYAN}[${step_num}/${step_total}]${NC} ${latest#*\] }"
+                last_printed="${step_num}"
+            fi
+            last_step="${latest}"
+        fi
+        sleep 1
+    done
+    wait "${build_pid}"
+    local build_rc=$?
+
+    local elapsed=$(( $(date +%s) - start_ts ))
+    local elapsed_str
+    if (( elapsed >= 60 )); then elapsed_str="$((elapsed/60))m $((elapsed%60))s"
+    else elapsed_str="${elapsed}s"; fi
+
+    if [[ -n "${last_step}" ]]; then
+        echo -e "  ${CYAN}[${step_num}/${step_total}]${NC} ${last_step#*\] }"
+    fi
+
+    if [[ ${build_rc} -eq 0 ]]; then
+        local binary_path="${SDK_DIR}/${build_dir}/$(cfg_get chip_tool binary_name)"
         BUILD_STATUS["chip-tool"]="PASS"
         PASSED_APPS+=("chip-tool")
-        ok "chip-tool built → ${SDK_DIR}/${build_dir}/$(cfg_get chip_tool binary_name)"
+        ok "└─ chip-tool built successfully → ${binary_path}"
     else
         tail -50 "${tmp_log}" > "${err_log}" 2>/dev/null || true
+        echo -e "
+${RED}── Build error output ──────────────────────────────${NC}"
+        grep -E "error:|FAILED:|fatal error:" "${tmp_log}" 2>/dev/null | tail -20 ||             tail -20 "${tmp_log}" 2>/dev/null
+        echo -e "${RED}────────────────────────────────────────────────────${NC}
+"
         local conclusion
         conclusion=$(diagnose_error "chip-tool" "${err_log}")
         BUILD_STATUS["chip-tool"]="FAIL"
-        echo -e "${RED}[FAIL]${NC} chip-tool build failed"
+        echo -e "${RED}[FAIL]${NC} └─ chip-tool build failed after ${elapsed_str}"
         echo -e "       ${conclusion}"
-        # chip-tool failure is FATAL
         fail "❌ chip-tool build failed — tests cannot run without chip-tool
    Error log: ${err_log}
    ${conclusion}"
@@ -545,25 +636,63 @@ build_python_controller() {
 
     local err_log="${BUILD_LOG_DIR}/python-controller_build_error.log"
     local tmp_log="${BUILD_LOG_DIR}/python-controller_build_full.log"
+    local start_ts
+    start_ts=$(date +%s)
 
     log "Building Python controller..."
-    if scripts/build_python.sh \
-            -m platform \
-            -d true \
-            -i "${install_venv_name}" \
-            ${extra_args} \
-            > "${tmp_log}" 2>&1; then
+    scripts/build_python.sh             -m platform             -d true             -i "${install_venv_name}"             ${extra_args}             > "${tmp_log}" 2>&1 &
+    local build_pid=$!
+
+    local last_printed=0
+    local last_step=""
+    local step_num=0
+    local step_total=0
+
+    while kill -0 "${build_pid}" 2>/dev/null; do
+        local latest
+        latest=$(tail -1 "${tmp_log}" 2>/dev/null || echo "")
+        if [[ "${latest}" =~ ^\[([[:space:]0-9]+)/([0-9]+)\] ]]; then
+            step_num="${BASH_REMATCH[1]// /}"
+            step_total="${BASH_REMATCH[2]}"
+            if (( step_num - last_printed >= 50 )); then
+                echo -e "  ${CYAN}[${step_num}/${step_total}]${NC} ${latest#*\] }"
+                last_printed="${step_num}"
+            fi
+            last_step="${latest}"
+        elif [[ "${latest}" == *"Installing"* || "${latest}" == *"Collecting"* ]]; then
+            # Show pip install progress too
+            echo -e "  ${CYAN}[pip]${NC} ${latest}"
+        fi
+        sleep 1
+    done
+    wait "${build_pid}"
+    local build_rc=$?
+
+    local elapsed=$(( $(date +%s) - start_ts ))
+    local elapsed_str
+    if (( elapsed >= 60 )); then elapsed_str="$((elapsed/60))m $((elapsed%60))s"
+    else elapsed_str="${elapsed}s"; fi
+
+    if [[ -n "${last_step}" ]]; then
+        echo -e "  ${CYAN}[${step_num}/${step_total}]${NC} ${last_step#*\] }"
+    fi
+
+    if [[ ${build_rc} -eq 0 ]]; then
         BUILD_STATUS["python-controller"]="PASS"
         PASSED_APPS+=("python-controller")
-        ok "Python controller built → ${SDK_DIR}/${install_venv_name}"
+        ok "└─ python-controller built successfully → ${SDK_DIR}/${install_venv_name}"
     else
         tail -50 "${tmp_log}" > "${err_log}" 2>/dev/null || true
+        echo -e "
+${RED}── Build error output ──────────────────────────────${NC}"
+        grep -E "error:|FAILED:|fatal error:" "${tmp_log}" 2>/dev/null | tail -20 ||             tail -20 "${tmp_log}" 2>/dev/null
+        echo -e "${RED}────────────────────────────────────────────────────${NC}
+"
         local conclusion
         conclusion=$(diagnose_error "python-controller" "${err_log}")
         BUILD_STATUS["python-controller"]="FAIL"
-        echo -e "${RED}[FAIL]${NC} Python controller build failed"
+        echo -e "${RED}[FAIL]${NC} └─ python-controller build failed after ${elapsed_str}"
         echo -e "       ${conclusion}"
-        # Python controller failure is FATAL
         fail "❌ Python controller build failed — tests cannot run without it
    Error log: ${err_log}
    ${conclusion}"
