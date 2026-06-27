@@ -121,35 +121,62 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
     download_section = ""
     if drive_link and status in ("success", "partial"):
         download_section = (
-            '<div style="margin-bottom:16px">' +
-            '<div class="sec-lbl">Download and install</div>' +
-            '<div class="code-wrap">' +
-            # Mac dots — use table+img trick for Gmail Android compatibility
-            '<table width="100%" cellpadding="0" cellspacing="0" style="background:#161B22;border-bottom:1px solid #30363D" role="presentation"><tr>' +
-            '<td width="12" style="padding:10px 0 10px 14px;width:12px;height:12px;border-radius:50%;background:#FF5F57;font-size:1px;line-height:1px">&nbsp;</td>' +
-            '<td width="8" style="padding:0 5px">&nbsp;</td>' +
-            '<td width="12" style="width:12px;height:12px;border-radius:50%;background:#FFBD2E;font-size:1px;line-height:1px">&nbsp;</td>' +
-            '<td width="8" style="padding:0 5px">&nbsp;</td>' +
-            '<td width="12" style="width:12px;height:12px;border-radius:50%;background:#28C840;font-size:1px;line-height:1px">&nbsp;</td>' +
-            '<td style="padding:10px 14px;font-size:10px;color:#6E7681;font-weight:500">Raspberry Pi terminal</td>' +
-            '</tr></table>' +
-            '<span class="code-body">' +
-            f'<span class="cc"># install gdown</span>\n' +
-            f'pip3 install gdown --break-system-packages\n' +
-            f'<span class="cc"># download bundle</span>\n' +
-            f'gdown {file_id}\n' +
-            f'<span class="cc"># extract and install</span>\n' +
-            f'tar -xzf matter-sdk*.tar.gz\n' +
-            f'cd matter-sdk-*/\n' +
-            f'chmod +x install.sh &amp;&amp; ./install.sh' +
-            '</span></div>' +
-            f'<a href="{drive_link}" class="drive-btn">' +
-            '<span class="drive-title">Open in Google Drive</span>' +
-            f'<span class="drive-sub">{bundle_name}</span>' +
-            '</a>' +
+            '<div style="margin-bottom:16px">'
+            '<div style="font-size:10px;font-weight:600;color:#9CA3AF;'
+            'text-transform:uppercase;letter-spacing:0.8px;'
+            'border-bottom:1px solid #E5E7EB;padding-bottom:8px;'
+            'margin-bottom:14px">Download and install</div>'
+
+            # Code block wrapper
+            '<div style="border-radius:10px;overflow:hidden;'
+            'border:1px solid #30363D;margin-bottom:14px">'
+
+            # Mac dots header — table based for Gmail Android
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="background:#161B22;border-bottom:1px solid #30363D" '
+            'role="presentation"><tr>'
+            '<td style="padding:10px 0 10px 14px;vertical-align:middle">'
+            '<table cellpadding="0" cellspacing="0" role="presentation"><tr>'
+            '<td style="width:11px;height:11px;border-radius:50%;'
+            'background:#FF5F57;font-size:1px;line-height:1px">&nbsp;</td>'
+            '<td style="width:6px">&nbsp;</td>'
+            '<td style="width:11px;height:11px;border-radius:50%;'
+            'background:#FFBD2E;font-size:1px;line-height:1px">&nbsp;</td>'
+            '<td style="width:6px">&nbsp;</td>'
+            '<td style="width:11px;height:11px;border-radius:50%;'
+            'background:#28C840;font-size:1px;line-height:1px">&nbsp;</td>'
+            '</tr></table></td>'
+            '<td style="padding:10px 14px;font-size:10px;color:#6E7681;'
+            'font-weight:500;vertical-align:middle">Raspberry Pi terminal</td>'
+            '</tr></table>'
+
+            # Code body — each line as separate <div> for reliable rendering
+            '<div style="background:#0D1117;padding:14px 16px;'
+            'font-family:Courier New,Courier,monospace;font-size:12px;'
+            'line-height:2;color:#E6EDF3;word-break:break-word">'
+            '<div><span style="color:#7EE787"># install gdown</span></div>'
+            '<div>pip3 install gdown --break-system-packages</div>'
+            '<div><span style="color:#7EE787"># download bundle</span></div>'
+            f'<div>gdown {file_id}</div>'
+            '<div><span style="color:#7EE787"># extract and install</span></div>'
+            '<div>tar -xzf matter-sdk*.tar.gz</div>'
+            '<div>cd matter-sdk-*/</div>'
+            '<div>chmod +x install.sh &amp;&amp; ./install.sh</div>'
+            '</div>'
+            '</div>'
+
+            # Drive button
+            f'<a href="{drive_link}" style="display:block;'
+            'background:#1a5fa8;border-radius:10px;padding:15px 20px;'
+            'text-align:center;text-decoration:none;margin-bottom:10px">'
+            '<span style="display:block;font-size:14px;font-weight:700;'
+            'color:#FFFFFF;margin-bottom:4px">Open in Google Drive</span>'
+            f'<span style="display:block;font-size:11px;'
+            'color:rgba(255,255,255,0.7);word-break:break-all">'
+            f'{bundle_name}</span>'
+            '</a>'
             '</div>'
         )
-
     # Actions link section
     actions_section = ""
     if run_url:
@@ -214,9 +241,8 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
     .code-lbl{{font-size:10px;color:#6E7681;font-weight:500;margin-left:4px}}
     .code-body{{display:block;background:#0D1117;padding:14px 16px;
                 font-family:'Courier New',Courier,monospace;
-                font-size:12px;line-height:1.9;color:#E6EDF3;
-                word-break:break-all;overflow-wrap:break-word;
-                -webkit-overflow-scrolling:touch}}
+                font-size:12px;line-height:2;color:#E6EDF3;
+                word-wrap:break-word;overflow-wrap:break-word}}
     .cc{{color:#7EE787}}
     .drive-btn{{display:block;border-radius:10px;padding:15px 20px;
                 text-align:center;text-decoration:none;margin-bottom:10px;
@@ -344,23 +370,17 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
 
   </div>
 
-  <!-- Footer — single row, inline style for Outlook compatibility -->
+  <!-- Footer — two centered lines -->
   <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
     <tr>
-      <td style="background:#F9FAFB;padding:13px 28px;
-                 border-top:1px solid #F1F5F9">
-        <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
-          <tr>
-            <td style="font-size:11px;font-weight:700;color:#9CA3AF;
-                       letter-spacing:0.5px;text-transform:uppercase">
-              GRL &nbsp;&middot;&nbsp; GRLPS Matter Team
-            </td>
-            <td align="right"
-                style="font-size:11px;color:#D1D5DB;text-align:right">
-              Automated notification
-            </td>
-          </tr>
-        </table>
+      <td style="background:#F9FAFB;padding:16px 28px;
+                 border-top:1px solid #F1F5F9;text-align:center">
+        <div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">
+          This is an automated notification from Matter CI Pipeline.
+        </div>
+        <div style="font-size:12px;color:#9CA3AF">
+          Granite River Labs &mdash; GRLPS Matter Team
+        </div>
       </td>
     </tr>
   </table>
