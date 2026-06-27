@@ -423,6 +423,17 @@ def main():
 
     rows     = fetch_sheet(cfg)
     commands = parse_rows(rows, cfg, tc_map)
+
+    # Error: no commands found — exit clearly before saving empty file
+    if not commands:
+        print("[ERROR] No test commands were parsed from the sheet!")
+        print("[ERROR] Possible causes:")
+        print("  1. Cluster/TC filter matched nothing — check filter values")
+        print("  2. All matched TCs have empty DUT or python commands in sheet")
+        print("  3. spreadsheet_id or sheet_name is wrong in build_config.yaml")
+        print("  4. header_rows value skips too many rows")
+        sys.exit(1)
+
     save(commands, cfg)
 
     print("\n[INFO] Preview of parsed commands:")
