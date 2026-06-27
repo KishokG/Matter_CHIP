@@ -163,6 +163,14 @@ google_sheets:
 # ============================================================
 # Test Execution Settings
 # ============================================================
+storage:
+  # Keep last N test result runs in ~/matter-ci-results/
+  keep_runs: 10
+  # Warn when free disk space drops below this (GB)
+  min_free_gb: 10
+  # Error (block build) when free space drops below this (GB)
+  critical_free_gb: 5
+
 test_execution:
   # .txt file listing TC IDs to run — one per line, # = comment
   tc_list_file: "config/tc_list.json"   # JSON format — see tc_list.json for structure
