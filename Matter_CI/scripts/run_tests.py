@@ -104,20 +104,39 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
     reason_string is empty for PASS, populated for all other statuses.
     """
 
-    # ── Signal 1 — Exception / script crash ───────────────────────────────────
+    # ── Signal 1 — Exception / script crash ─────────────────────────────────
+    # Covers both: "Exception occurred in test_XXX"
+    # and:         "Error in ClassName#setup_class"
     exc_match = re.search(
-        r"ERROR\s+Exception occurred in test_(\w+)", log_text, re.IGNORECASE)
+        r"ERROR\s+(?:Exception occurred in test_(\w+)|Error in (\w+)#setup_class)",
+        log_text, re.IGNORECASE)
     if exc_match:
+        test_name = exc_match.group(1) or exc_match.group(2)
+        is_setup  = "setup_class" in exc_match.group(0)
+
+        # Extract CHIP error code if present (most specific)
+        chip_err = re.search(
+            r"CHIP Error (0x[0-9A-Fa-f]+):\s*([^\n]+)", log_text)
+
+        # Extract Python exception type as fallback
         exc_type = re.search(
-            r"(AssertionError|TimeoutError|AttributeError|ValueError|"
-            r"RuntimeError|ChipStackError|InteractionModelError|"
-            r"MatterStackException|Exception)[^\r\n]*",
+            r"(ChipStackError|AssertionError|TimeoutError|AttributeError|"
+            r"ValueError|RuntimeError|InteractionModelError|Exception)[^\r\n]*",
             log_text)
-        reason = (
-            f"Exception in {exc_match.group(1)}: {exc_type.group(0)}"
-            if exc_type else
-            f"Exception in {exc_match.group(1)} — script crashed"
-        )
+
+        phase = "setup_class" if is_setup else "test"
+        if chip_err:
+            reason = (
+                f"{phase} failed in {test_name}: "
+                f"CHIP Error {chip_err.group(1)}: {chip_err.group(2).strip()}"
+            )
+        elif exc_type:
+            reason = f"{phase} failed in {test_name}: {exc_type.group(0)}"
+        else:
+            reason = (
+                f"{phase} failed in {test_name} — "
+                f"crashed before running any test steps"
+            )
         return ERROR, {}, reason
 
     # ── Signal 2 — Commissioning / pairing failure ────────────────────────────
@@ -361,6 +380,10 @@ class TestRunner:
         self.scripts_dir   = self.sdk_dir / "src" / "python_testing"
         self.venv_name     = cfg["python_controller"].get("install_venv_name", "python_env")
         self.venv_python   = self.sdk_dir / self.venv_name / "bin" / "python3"
+        if not self.venv_python.exists():
+            print(f"[ERROR] Python venv not found: {self.venv_python}")
+            print(f"[ERROR] Run pipeline with build mode to install python controller first")
+            sys.exit(1)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.results: list[dict] = []
         # Retry settings
@@ -1057,9 +1080,14 @@ def main():
 
     # Save JSON results too
     results_path = PROJECT_ROOT / "logs" / "test_results.json"
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"[INFO] Results JSON: {results_path}")
+    try:
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(results_path, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"[INFO] Results JSON : {results_path}")
+    except Exception as e:
+        print(f"[WARN] Could not save results JSON: {e}")
+        print(f"[WARN] Results will not be available for report or summary")
 
     failed = sum(1 for r in results if r["status"] in (FAIL, ERROR))
     # PASS_WARN is not a failure — just a warning that PICS was not configured
