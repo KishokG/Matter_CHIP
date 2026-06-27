@@ -341,6 +341,13 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Storage monitor & cleanup
+        if: always()
+        run: |
+          bash Matter_CI/scripts/cleanup.sh             --keep-runs 10             --min-free-gb 10 || true
+          # || true — cleanup warning doesn't block the build
+          # Script exits with code 1 only on CRITICAL (<5GB)
+
       - name: Deploy service account key
         env:
           CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
