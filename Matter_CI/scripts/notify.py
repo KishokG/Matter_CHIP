@@ -124,12 +124,15 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
             '<div style="margin-bottom:16px">' +
             '<div class="sec-lbl">Download and install</div>' +
             '<div class="code-wrap">' +
-            '<div class="code-hdr">' +
-            '<span class="code-dot" style="background:#FF5F57"></span>' +
-            '<span class="code-dot" style="background:#FFBD2E"></span>' +
-            '<span class="code-dot" style="background:#28C840"></span>' +
-            '<span class="code-label">Raspberry Pi terminal</span>' +
-            '</div>' +
+            # Mac dots — use table+img trick for Gmail Android compatibility
+            '<table width="100%" cellpadding="0" cellspacing="0" style="background:#161B22;border-bottom:1px solid #30363D" role="presentation"><tr>' +
+            '<td width="12" style="padding:10px 0 10px 14px;width:12px;height:12px;border-radius:50%;background:#FF5F57;font-size:1px;line-height:1px">&nbsp;</td>' +
+            '<td width="8" style="padding:0 5px">&nbsp;</td>' +
+            '<td width="12" style="width:12px;height:12px;border-radius:50%;background:#FFBD2E;font-size:1px;line-height:1px">&nbsp;</td>' +
+            '<td width="8" style="padding:0 5px">&nbsp;</td>' +
+            '<td width="12" style="width:12px;height:12px;border-radius:50%;background:#28C840;font-size:1px;line-height:1px">&nbsp;</td>' +
+            '<td style="padding:10px 14px;font-size:10px;color:#6E7681;font-weight:500">Raspberry Pi terminal</td>' +
+            '</tr></table>' +
             '<span class="code-body">' +
             f'<span class="cc"># install gdown</span>\n' +
             f'pip3 install gdown --break-system-packages\n' +
@@ -211,8 +214,8 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
     .code-lbl{{font-size:10px;color:#6E7681;font-weight:500;margin-left:4px}}
     .code-body{{display:block;background:#0D1117;padding:14px 16px;
                 font-family:'Courier New',Courier,monospace;
-                font-size:12px;line-height:2;color:#E6EDF3;
-                white-space:pre-wrap;word-break:break-word;
+                font-size:12px;line-height:1.9;color:#E6EDF3;
+                word-break:break-all;overflow-wrap:break-word;
                 -webkit-overflow-scrolling:touch}}
     .cc{{color:#7EE787}}
     .drive-btn{{display:block;border-radius:10px;padding:15px 20px;
@@ -237,7 +240,7 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
     .app-row:last-child,.app-row-pass:last-child{{border-bottom:none}}
     @media only screen and (max-width:480px){{
       .outer{{padding:12px 6px}}
-      .body-pad{{padding-left:18px!important;padding-right:18px!important}}
+      .pad{{padding-left:16px!important;padding-right:16px!important}}
       .hdr-title{{font-size:20px!important}}
       .meta,.meta tbody,.meta tr,.meta td{{
         display:block!important;width:100%!important;
@@ -246,7 +249,6 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
                 border-bottom:1px solid #E5E7EB!important}}
       .meta td:last-child{{border-bottom:none!important}}
       .code-body{{font-size:11px!important}}
-      .foot-r{{display:block!important;margin-top:4px!important}}
     }}
   </style>
 </head>
@@ -255,55 +257,60 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
 <div class="card">
 
   <!--
-    GRADIENT HEADER
-    Gmail strips background-image CSS, so we use nested tables with
-    bgcolor attribute (works in all clients) + CSS gradient for modern clients.
-    The three columns fade from dark navy → mid blue → bright blue.
+    HEADER — single wide <td> with bgcolor fallback for Gmail
+    + CSS gradient for modern clients. No column split (looks blocky).
   -->
   <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
     <tr>
-      <td width="34%" bgcolor="#0F2752" style="background:#0F2752;padding:30px 0 16px 28px;vertical-align:bottom">
-      </td>
-      <td width="33%" bgcolor="#1a5fa8" style="background:#1a5fa8;padding:30px 0 16px 0;vertical-align:bottom">
-      </td>
-      <td width="33%" bgcolor="#0e7dc2" style="background:#0e7dc2;padding:30px 28px 16px 0;vertical-align:bottom">
-      </td>
-    </tr>
-  </table>
-  <!-- Header text overlapping gradient — using single wide td -->
-  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
-    <tr>
-      <td bgcolor="#1a5fa8" style="background:linear-gradient(135deg,#0F2752 0%,#1a5fa8 55%,#0e7dc2 100%);
-                                   background-color:#1a5fa8;padding:0 28px 16px;margin-top:-30px">
+      <td bgcolor="#1a5fa8"
+          style="background-color:#1a5fa8;
+                 background-image:linear-gradient(135deg,#0F2752 0%,#1a5fa8 55%,#0e7dc2 100%);
+                 padding:28px 28px 16px"
+          class="pad">
         <span style="display:block;font-size:10px;font-weight:600;
-                     color:rgba(255,255,255,0.55);letter-spacing:1.8px;
+                     color:rgba(255,255,255,0.6);letter-spacing:1.8px;
                      text-transform:uppercase;margin-bottom:14px">
           Granite River Labs &nbsp;&mdash;&nbsp; Matter CI Pipeline
         </span>
-        <p style="font-size:24px;font-weight:700;color:#FFFFFF;
-                  letter-spacing:-0.3px;margin:0 0 8px;line-height:1.2"
-           class="hdr-title">Matter SDK build</p>
-        <p style="font-size:12px;color:rgba(255,255,255,0.55);margin:0">
+        <p class="hdr-title"
+           style="font-size:22px;font-weight:700;color:#FFFFFF;
+                  letter-spacing:-0.3px;margin:0 0 8px;line-height:1.2">
+          Matter SDK build
+        </p>
+        <p style="font-size:12px;color:rgba(255,255,255,0.6);margin:0">
           {date_str} &nbsp;&middot;&nbsp; Raspberry Pi ARM64
         </p>
       </td>
     </tr>
-    <!-- Status row — slightly lighter end of gradient -->
     <tr>
-      <td bgcolor="#0e7dc2" style="background:linear-gradient(135deg,#1a5fa8 0%,#0e7dc2 100%);
-                                   background-color:#0e7dc2;padding:14px 28px 24px"
-          class="body-pad">
-        <div style="display:inline-flex;align-items:center;gap:7px;
-                    background:{pill_bg};border:1px solid {pill_border};
-                    border-radius:20px;padding:7px 14px;margin-bottom:10px">
-          <div style="width:8px;height:8px;border-radius:50%;
-                      background:{pill_dot};flex-shrink:0;display:inline-block"></div>
-          <span style="font-size:11px;font-weight:700;color:{pill_text};
-                       letter-spacing:0.5px;text-transform:uppercase">
-            {banner_text}
-          </span>
-        </div>
-        <p style="font-size:12px;color:rgba(255,255,255,0.6);margin:0">
+      <td bgcolor="#0e7dc2"
+          style="background-color:#0e7dc2;
+                 background-image:linear-gradient(135deg,#1a5fa8 0%,#0e7dc2 100%);
+                 padding:14px 28px 22px"
+          class="pad">
+        <table cellpadding="0" cellspacing="0" role="presentation">
+          <tr>
+            <td style="background:rgba(255,255,255,0.15);
+                       border:1px solid rgba(255,255,255,0.35);
+                       border-radius:20px;padding:6px 14px 6px 10px">
+              <table cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td style="vertical-align:middle;padding-right:7px">
+                    <div style="width:8px;height:8px;border-radius:50%;
+                                background:{pill_dot}"></div>
+                  </td>
+                  <td style="vertical-align:middle">
+                    <span style="font-size:11px;font-weight:700;
+                                 color:#FFFFFF;letter-spacing:0.5px;
+                                 text-transform:uppercase">{banner_text}</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="font-size:12px;color:rgba(255,255,255,0.65);
+                  margin:10px 0 0">
           {sub_text}
         </p>
       </td>
@@ -311,7 +318,7 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
   </table>
 
   <!-- Body -->
-  <div style="padding:24px 28px" class="body-pad">
+  <div style="padding:24px 28px" class="pad">
 
     <table class="meta" cellpadding="0" cellspacing="0" role="presentation">
       <tr>
@@ -337,18 +344,23 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
 
   </div>
 
-  <!-- Footer — single clean line -->
+  <!-- Footer — single row, inline style for Outlook compatibility -->
   <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
     <tr>
-      <td style="background:#F9FAFB;padding:14px 28px;
+      <td style="background:#F9FAFB;padding:13px 28px;
                  border-top:1px solid #F1F5F9">
-        <span style="font-size:11px;font-weight:700;color:#9CA3AF;
-                     letter-spacing:0.5px;text-transform:uppercase">
-          GRL &nbsp;&middot;&nbsp; GRLPS Matter Team
-        </span>
-        <span class="foot-r" style="font-size:11px;color:#D1D5DB;float:right">
-          Automated notification
-        </span>
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+          <tr>
+            <td style="font-size:11px;font-weight:700;color:#9CA3AF;
+                       letter-spacing:0.5px;text-transform:uppercase">
+              GRL &nbsp;&middot;&nbsp; GRLPS Matter Team
+            </td>
+            <td align="right"
+                style="font-size:11px;color:#D1D5DB;text-align:right">
+              Automated notification
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>
   </table>
