@@ -362,7 +362,15 @@ clean_old_builds() {
     if cfg_bool python_controller enabled; then
         local venv_name
         venv_name=$(cfg_get python_controller install_venv_name)
-        [[ -d "${venv_name}" ]] && rm -rf "${venv_name}" && log "Removed python venv"
+        [[ -d "${venv_name}" ]] && rm -rf "${venv_name}" && log "Removed python venv: ${venv_name}"
+
+        # Also remove python_lib build output — otherwise ninja does incremental
+        # build (e.g. 140 steps instead of 800+) because .o files are cached
+        if [[ -d "out/python_lib" ]]; then
+            log "Removing: out/python_lib (python controller build cache)..."
+            rm -rf out/python_lib
+            ok "Removed out/python_lib"
+        fi
     fi
 
     ok "Clean complete."
