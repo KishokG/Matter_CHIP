@@ -229,6 +229,7 @@ def main():
             item["author"],
             created_at.strftime("%Y-%m-%d %H:%M:%S"),
             item["updatedAt"],
+            fields.get("Assignees"),
             fields.get("Status"),
             fields.get("Domain"),
             fields.get("Feature Area"),
@@ -258,7 +259,7 @@ def main():
 
     headers = [
         "Repo", "Number", "State", "Title", "Author",
-        "Created", "Updated", "Status", "Domain", "Feature Area",
+        "Created", "Updated", "Status", "Assignees", "Domain", "Feature Area",
         "Found In", "Fix Required For", "PR",
         "Comments", "URL", "Fix Priority"
     ]
