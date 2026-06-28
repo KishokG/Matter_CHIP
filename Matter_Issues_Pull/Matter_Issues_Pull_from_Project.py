@@ -111,6 +111,11 @@ def fetch_project_issues(org, project_number):
                   updatedAt
                   repository { nameWithOwner }
                   author { login }
+                  assignees(first: 10) {
+                    nodes {
+                      login
+                    }
+                  }
                 }
                 ... on PullRequest {
                   number
@@ -121,6 +126,11 @@ def fetch_project_issues(org, project_number):
                   updatedAt
                   repository { nameWithOwner }
                   author { login }
+                  assignees(first: 10) {
+                    nodes {
+                      login
+                    }
+                  }
                 }
               }
             }
@@ -165,6 +175,10 @@ def fetch_project_issues(org, project_number):
                 except:
                     continue
 
+            # Extract assignees from content (not from project fieldValues)
+            assignees_nodes = content.get("assignees", {}).get("nodes", [])
+            assignees_str = ", ".join([a["login"] for a in assignees_nodes]) if assignees_nodes else ""
+
             project_items.append({
                 "repo": content["repository"]["nameWithOwner"],
                 "number": content["number"],
@@ -174,6 +188,7 @@ def fetch_project_issues(org, project_number):
                 "author": content["author"]["login"] if content["author"] else "",
                 "createdAt": content["createdAt"],
                 "updatedAt": content["updatedAt"],
+                "assignees": assignees_str,
                 "fields": field_dict
             })
 
@@ -229,7 +244,7 @@ def main():
             item["author"],
             created_at.strftime("%Y-%m-%d %H:%M:%S"),
             item["updatedAt"],
-            fields.get("Assignees"),
+            item["assignees"],              # ← Fixed: from content, not fields
             fields.get("Status"),
             fields.get("Domain"),
             fields.get("Feature Area"),
