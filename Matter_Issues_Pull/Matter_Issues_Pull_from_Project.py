@@ -259,7 +259,7 @@ def main():
 
     headers = [
         "Repo", "Number", "State", "Title", "Author",
-        "Created", "Updated", "Status", "Assignees", "Domain", "Feature Area",
+        "Created", "Updated", "Assignees", "Status", "Domain", "Feature Area",
         "Found In", "Fix Required For", "PR",
         "Comments", "URL", "Fix Priority"
     ]
