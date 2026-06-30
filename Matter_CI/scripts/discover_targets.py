@@ -25,6 +25,7 @@ Usage:
 """
 
 import os
+import re
 import sys
 import json
 import argparse
@@ -110,9 +111,6 @@ def fetch_targets(sdk_dir: Path) -> list[dict]:
 # =============================================================================
 # Step 2 — Expand brace-notation shorthand into individual target names
 # =============================================================================
-import re
-import itertools
-
 def expand_braces(s: str) -> list[str]:
     """
     Expands bash-style brace notation into individual strings.
@@ -258,6 +256,99 @@ def compare_with_config(targets: list[dict], config_path: Path):
 
 
 # =============================================================================
+# Step 4.5 — Resolve real source_dir + binary_name from BUILD.gn
+# =============================================================================
+def resolve_app_path(sdk_dir: Path, app_guess: str) -> Path | None:
+    """
+    Finds the real examples/<dir> path for a given SDK target shorthand
+    name. The shorthand (e.g. "network-manager") often does NOT match the
+    actual examples/ folder name (e.g. "network-manager-app") — so we
+    search rather than assume.
+
+    Tries, in order:
+      1. examples/<app_guess>/linux/         (exact match)
+      2. examples/<app_guess>-app/linux/     (with -app suffix)
+      3. Fuzzy: any examples/*<app_guess>*/linux/ containing a BUILD.gn
+    """
+    examples_dir = sdk_dir / "examples"
+    if not examples_dir.exists():
+        return None
+
+    candidates = [
+        examples_dir / app_guess / "linux",
+        examples_dir / f"{app_guess}-app" / "linux",
+    ]
+    for c in candidates:
+        if (c / "BUILD.gn").exists():
+            return c
+
+    # Fuzzy fallback — search for any folder containing app_guess
+    for d in examples_dir.glob(f"*{app_guess}*"):
+        linux_dir = d / "linux"
+        if (linux_dir / "BUILD.gn").exists():
+            return linux_dir
+
+    return None
+
+
+def resolve_binary_name(linux_dir: Path) -> str | None:
+    """
+    Parses BUILD.gn for the real executable() target name.
+    Looks for: executable("some-binary-name") { ... }
+    Returns the first match, or None if not found.
+    """
+    build_gn = linux_dir / "BUILD.gn"
+    if not build_gn.exists():
+        return None
+
+    try:
+        text = build_gn.read_text()
+    except Exception:
+        return None
+
+    match = re.search(r'executable\("([^"]+)"\)', text)
+    if match:
+        return match.group(1)
+
+    # Some apps use output_name = "..." inside the executable block instead
+    match = re.search(r'output_name\s*=\s*"([^"]+)"', text)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def resolve_apps(sdk_dir: Path, app_guesses: list[str]) -> list[dict]:
+    """
+    For each candidate app name, attempts to resolve the REAL source_dir
+    and binary_name by inspecting the actual SDK checkout, instead of
+    guessing based on naming convention.
+    """
+    resolved = []
+    for app_guess in app_guesses:
+        linux_dir = resolve_app_path(sdk_dir, app_guess)
+        if linux_dir is None:
+            resolved.append({
+                "name": app_guess,
+                "found": False,
+                "source_dir": None,
+                "binary_name": None,
+            })
+            continue
+
+        binary_name = resolve_binary_name(linux_dir)
+        rel_source_dir = str(linux_dir.relative_to(sdk_dir))
+
+        resolved.append({
+            "name": app_guess,
+            "found": True,
+            "source_dir": rel_source_dir,
+            "binary_name": binary_name,
+        })
+    return resolved
+
+
+# =============================================================================
 # Step 5 — Generate YAML snippet for new apps not yet in config
 # =============================================================================
 # Targets that aren't really "apps" — utility/test/platform targets we
@@ -268,20 +359,22 @@ SKIP_PATTERNS = (
     "python-bindings", "simulated-app", "address-resolve-tool",
 )
 
-def generate_yaml_snippet(targets: list[dict]):
+def generate_yaml_snippet(targets: list[dict], sdk_dir: Path):
     """
-    Prints a ready-to-paste YAML snippet for apps/ entries, using the
-    individual app names expanded from the SDK's brace-notation shorthand.
+    Prints a ready-to-paste YAML snippet for apps/ entries, using REAL
+    source_dir and binary_name values resolved by inspecting the actual
+    SDK checkout (examples/ folders + BUILD.gn executable() targets) —
+    not guessed from naming convention.
     """
     print()
     print("=" * 78)
     print("  Suggested build_config.yaml 'apps:' entries")
-    print("  (Review and adjust source_dir/build_dir before pasting!)")
+    print("  (source_dir + binary_name resolved from actual SDK checkout)")
     print("=" * 78)
     print()
 
     seen = set()
-    count = 0
+    app_guesses = []
     for t in sorted(targets, key=lambda x: x.get("shorthand", "")):
         shorthand = t.get("shorthand", "")
         for prefix in ("linux-x64-", "linux-arm64-"):
@@ -290,31 +383,44 @@ def generate_yaml_snippet(targets: list[dict]):
                 break
         else:
             continue
-
         if app_guess in seen or not app_guess:
             continue
         if any(skip in app_guess for skip in SKIP_PATTERNS):
             continue
         seen.add(app_guess)
-        count += 1
+        app_guesses.append(app_guess)
 
-        # chip-tool already matches our existing config's naming —
-        # binary_name for most apps follows chip-<app>-app or matter-<app>-app
-        binary_guess = f"chip-{app_guess}-app" if app_guess != "chip-tool" else "chip-tool"
+    print(f"[INFO] Resolving {len(app_guesses)} app paths against SDK checkout...")
+    resolved = resolve_apps(sdk_dir, app_guesses)
 
-        print(f'  - name: "{app_guess}"')
+    found_count = 0
+    not_found = []
+    for r in resolved:
+        if not r["found"]:
+            not_found.append(r["name"])
+            continue
+
+        found_count += 1
+        binary = r["binary_name"] or f'UNKNOWN   # could not parse BUILD.gn — check manually'
+        binary_line = (f'"{r["binary_name"]}"' if r["binary_name"]
+                       else '"UNKNOWN"   # could not parse BUILD.gn — check manually')
+
+        print(f'  - name: "{r["name"]}"')
         print(f'    enabled: false   # review before enabling')
-        print(f'    source_dir: "examples/{app_guess}/linux"   # VERIFY this path exists')
-        print(f'    build_dir: "examples/{app_guess}/linux/out/{app_guess}"')
-        print(f'    binary_name: "{binary_guess}"   # VERIFY actual binary name (check examples/{app_guess}/linux/BUILD.gn)')
+        print(f'    source_dir: "{r["source_dir"]}"')
+        print(f'    build_dir: "{r["source_dir"]}/out/{r["name"]}"')
+        print(f'    binary_name: {binary_line}')
         print(f'    extra_gn_args: "chip_inet_config_enable_ipv4=false"')
         print()
 
     print("=" * 78)
-    print(f"[INFO] Generated {count} candidate entries (filtered out test/utility targets).")
-    print("[INFO] These are HEURISTIC GUESSES based on target name parsing.")
-    print("[INFO] Always verify source_dir/binary_name against the actual")
-    print("[INFO] examples/<app>/linux/BUILD.gn before adding to your config.")
+    print(f"[INFO] Resolved {found_count}/{len(app_guesses)} apps with verified paths + binary names.")
+    if not_found:
+        print(f"[WARN] Could not locate examples/ folder for {len(not_found)} target(s):")
+        for n in not_found:
+            print(f"         - {n}")
+        print("[WARN] These may be virtual/meta targets, renamed, or require")
+        print("[WARN] a different folder structure. Skipped from output above.")
     print("=" * 78)
 
 
@@ -349,7 +455,7 @@ def main():
     if args.compare:
         compare_with_config(filtered, Path(args.compare))
     elif args.generate_yaml:
-        generate_yaml_snippet(filtered)
+        generate_yaml_snippet(filtered, sdk_dir)
     else:
         print_targets(filtered)
 
