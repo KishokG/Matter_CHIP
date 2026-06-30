@@ -265,10 +265,17 @@ def resolve_app_path(sdk_dir: Path, app_guess: str) -> Path | None:
     actual examples/ folder name (e.g. "network-manager-app") — so we
     search rather than assume.
 
+    Two folder conventions exist in the SDK:
+      A. Most device apps:  examples/<name>-app/linux/BUILD.gn
+      B. Tool-type binaries: examples/<name>/BUILD.gn (NO linux/ subfolder)
+         e.g. chip-tool, fabric-admin, fabric-sync, chip-cert
+
     Tries, in order:
-      1. examples/<app_guess>/linux/         (exact match)
-      2. examples/<app_guess>-app/linux/     (with -app suffix)
-      3. Fuzzy: any examples/*<app_guess>*/linux/ containing a BUILD.gn
+      1. examples/<app_guess>/linux/BUILD.gn          (device app, exact name)
+      2. examples/<app_guess>-app/linux/BUILD.gn       (device app, -app suffix)
+      3. examples/<app_guess>/BUILD.gn                 (tool-type, no linux/)
+      4. Fuzzy: any examples/*<app_guess>*/linux/BUILD.gn
+      5. Fuzzy: any examples/*<app_guess>*/BUILD.gn (no linux/)
     """
     examples_dir = sdk_dir / "examples"
     if not examples_dir.exists():
@@ -277,6 +284,7 @@ def resolve_app_path(sdk_dir: Path, app_guess: str) -> Path | None:
     candidates = [
         examples_dir / app_guess / "linux",
         examples_dir / f"{app_guess}-app" / "linux",
+        examples_dir / app_guess,                  # tool-type, no linux/
     ]
     for c in candidates:
         if (c / "BUILD.gn").exists():
@@ -287,6 +295,9 @@ def resolve_app_path(sdk_dir: Path, app_guess: str) -> Path | None:
         linux_dir = d / "linux"
         if (linux_dir / "BUILD.gn").exists():
             return linux_dir
+        # Also check the dir itself (tool-type, no linux/)
+        if (d / "BUILD.gn").exists():
+            return d
 
     return None
 
@@ -295,7 +306,11 @@ def resolve_binary_name(linux_dir: Path) -> str | None:
     """
     Parses BUILD.gn for the real executable() target name.
     Looks for: executable("some-binary-name") { ... }
-    Returns the first match, or None if not found.
+
+    Some BUILD.gn files declare MULTIPLE executable() blocks — e.g.
+    a normal variant plus a "-fuzzing" or "-test" variant. We must
+    prefer the standard/normal one, not just take the first regex match
+    (which can incorrectly grab a fuzzing-only build target).
     """
     build_gn = linux_dir / "BUILD.gn"
     if not build_gn.exists():
@@ -306,16 +321,31 @@ def resolve_binary_name(linux_dir: Path) -> str | None:
     except Exception:
         return None
 
-    match = re.search(r'executable\("([^"]+)"\)', text)
-    if match:
-        return match.group(1)
+    all_matches = re.findall(r'executable\("([^"]+)"\)', text)
 
-    # Some apps use output_name = "..." inside the executable block instead
-    match = re.search(r'output_name\s*=\s*"([^"]+)"', text)
-    if match:
-        return match.group(1)
+    if not all_matches:
+        # Some apps use output_name = "..." inside the executable block instead
+        match = re.search(r'output_name\s*=\s*"([^"]+)"', text)
+        return match.group(1) if match else None
 
-    return None
+    if len(all_matches) == 1:
+        return all_matches[0]
+
+    # Multiple executable() blocks found — filter out known variant suffixes
+    # and prefer the "plain" one (no -fuzzing/-test/-asan/etc suffix)
+    SKIP_SUFFIXES = ("-fuzzing", "-test", "-tests", "-asan", "-tsan", "-ubsan")
+    plain_candidates = [
+        m for m in all_matches
+        if not any(m.endswith(suffix) for suffix in SKIP_SUFFIXES)
+    ]
+
+    if plain_candidates:
+        # Prefer the shortest plain candidate (most likely the base name,
+        # since variant names tend to be longer with extra suffixes)
+        return min(plain_candidates, key=len)
+
+    # All matches had variant suffixes — fall back to shortest overall
+    return min(all_matches, key=len)
 
 
 def resolve_apps(sdk_dir: Path, app_guesses: list[str]) -> list[dict]:
@@ -405,12 +435,21 @@ def generate_yaml_snippet(targets: list[dict], sdk_dir: Path):
         binary_line = (f'"{r["binary_name"]}"' if r["binary_name"]
                        else '"UNKNOWN"   # could not parse BUILD.gn — check manually')
 
+        # build_dir convention differs: device apps use <source_dir>/out/<name>,
+        # tool-type apps (no linux/ subfolder) use out/<name> at SDK root instead
+        is_tool_type = not r["source_dir"].endswith("/linux")
+        build_dir = (f'out/{r["name"]}' if is_tool_type
+                    else f'{r["source_dir"]}/out/{r["name"]}')
+
         print(f'  - name: "{r["name"]}"')
         print(f'    enabled: false   # review before enabling')
         print(f'    source_dir: "{r["source_dir"]}"')
-        print(f'    build_dir: "{r["source_dir"]}/out/{r["name"]}"')
+        print(f'    build_dir: "{build_dir}"')
         print(f'    binary_name: {binary_line}')
         print(f'    extra_gn_args: "chip_inet_config_enable_ipv4=false"')
+        if is_tool_type:
+            print(f'    # NOTE: tool-type app — verify build_dir against actual')
+            print(f'    #       gn_build_example.sh invocation; may need different args')
         print()
 
     print("=" * 78)
