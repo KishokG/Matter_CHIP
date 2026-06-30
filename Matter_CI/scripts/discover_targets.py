@@ -108,25 +108,76 @@ def fetch_targets(sdk_dir: Path) -> list[dict]:
 
 
 # =============================================================================
-# Step 2 — Filter targets relevant to our pipeline (Linux host builds)
+# Step 2 — Expand brace-notation shorthand into individual target names
+# =============================================================================
+import re
+import itertools
+
+def expand_braces(s: str) -> list[str]:
+    """
+    Expands bash-style brace notation into individual strings.
+    e.g. "linux-arm64-{a,b,c}[-x][-y]" with all bracket groups OPTIONAL
+    (each [-x] either present or absent) and all {a,b,c} groups REQUIRED
+    (exactly one alternative chosen).
+
+    Returns the base combinations WITHOUT optional modifiers expanded
+    (modifiers are returned separately) — we only need the base app names
+    for our purposes, not the full combinatorial explosion (which would
+    be in the tens of thousands).
+    """
+    # Step 1: extract and replace {a,b,c} groups (required, pick one)
+    brace_groups = re.findall(r'\{([^}]+)\}', s)
+    # Step 2: extract [optional] groups separately — we don't expand these,
+    # just strip them, since we only care about base app names for config
+    base = re.sub(r'\[[^\]]*\]', '', s)  # strip all [optional] modifiers
+    base = re.sub(r'\{[^}]+\}', '\0', base)  # placeholder for brace group
+
+    if not brace_groups:
+        return [base] if base else []
+
+    # Replace the {…} placeholder with each alternative
+    results = []
+    for group in brace_groups:
+        alternatives = group.split(',')
+        for alt in alternatives:
+            expanded = re.sub(r'\{[^}]+\}', alt, s, count=1)
+            expanded = re.sub(r'\[[^\]]*\]', '', expanded)  # strip modifiers
+            results.append(expanded)
+    return results
+
+
+def get_modifiers(s: str) -> list[str]:
+    """Extracts the list of optional [-modifier] suffixes available."""
+    return re.findall(r'\[-([^\]]+)\]', s)
+
+
+# =============================================================================
+# Step 3 — Filter + expand targets relevant to our pipeline
 # =============================================================================
 def filter_targets(targets: list[dict], platform_filter: str = "") -> list[dict]:
     """
     Filters the full SDK target list down to what's relevant for our
     RPi-based Matter CI pipeline — Linux host builds only by default.
+    Expands brace-notation shorthand into individual app target names.
     """
-    filtered = []
+    expanded = []
     for t in targets:
         shorthand = t.get("shorthand", "") or t.get("name", "")
-        if platform_filter:
-            if not shorthand.startswith(platform_filter):
+        prefix = platform_filter if platform_filter else "linux"
+        if not shorthand.startswith(prefix):
+            continue
+
+        modifiers = get_modifiers(shorthand)
+        for individual in expand_braces(shorthand):
+            if not individual:
                 continue
-        else:
-            # Default: only linux-* targets (what we actually build on RPi)
-            if not shorthand.startswith("linux"):
-                continue
-        filtered.append(t)
-    return filtered
+            expanded.append({
+                "shorthand": individual,
+                "raw": shorthand,
+                "modifiers": modifiers,
+                "name": t.get("name", individual),
+            })
+    return expanded
 
 
 # =============================================================================
@@ -135,11 +186,29 @@ def filter_targets(targets: list[dict], platform_filter: str = "") -> list[dict]
 def print_targets(targets: list[dict]):
     print()
     print("=" * 78)
-    print(f"  Available targets ({len(targets)} matched)")
+    print(f"  Available app targets ({len(targets)} matched, expanded from SDK shorthand)")
     print("=" * 78)
-    for t in sorted(targets, key=lambda x: x.get("shorthand", x.get("name", ""))):
-        shorthand = t.get("shorthand", t.get("name", "?"))
+    seen = set()
+    for t in sorted(targets, key=lambda x: x.get("shorthand", "")):
+        shorthand = t.get("shorthand", "?")
+        if shorthand in seen:
+            continue
+        seen.add(shorthand)
         print(f"  {shorthand}")
+
+    # Show available modifiers once (same set applies to all linux-arm64 targets)
+    all_modifiers = set()
+    for t in targets:
+        all_modifiers.update(t.get("modifiers", []))
+    if all_modifiers:
+        print()
+        print(f"  Available optional modifiers ({len(all_modifiers)}):")
+        for m in sorted(all_modifiers):
+            print(f"    [-{m}]")
+        print()
+        print("  Modifiers can be appended to any target above, e.g.:")
+        print("    linux-arm64-chip-tool-ipv6only-platform-mdns")
+        print("    linux-arm64-all-clusters-no-ble-platform-mdns")
     print("=" * 78)
 
 
@@ -191,11 +260,18 @@ def compare_with_config(targets: list[dict], config_path: Path):
 # =============================================================================
 # Step 5 — Generate YAML snippet for new apps not yet in config
 # =============================================================================
+# Targets that aren't really "apps" — utility/test/platform targets we
+# don't want suggested as buildable reference apps for the CI pipeline
+SKIP_PATTERNS = (
+    "test", "fuzz", "tests", "minmdns", "rpc-console", "shell",
+    "java-matter-controller", "kotlin-matter-controller",
+    "python-bindings", "simulated-app", "address-resolve-tool",
+)
+
 def generate_yaml_snippet(targets: list[dict]):
     """
-    Prints a ready-to-paste YAML snippet for apps/ entries based on
-    discovered SDK example app directories — cross-referenced against
-    the standard examples/ folder naming convention.
+    Prints a ready-to-paste YAML snippet for apps/ entries, using the
+    individual app names expanded from the SDK's brace-notation shorthand.
     """
     print()
     print("=" * 78)
@@ -204,11 +280,10 @@ def generate_yaml_snippet(targets: list[dict]):
     print("=" * 78)
     print()
 
-    # Known example app name patterns we can map to source_dir convention
     seen = set()
-    for t in targets:
-        shorthand = t.get("shorthand", t.get("name", ""))
-        # crude heuristic: strip linux-x64- / linux-arm64- prefix
+    count = 0
+    for t in sorted(targets, key=lambda x: x.get("shorthand", "")):
+        shorthand = t.get("shorthand", "")
         for prefix in ("linux-x64-", "linux-arm64-"):
             if shorthand.startswith(prefix):
                 app_guess = shorthand[len(prefix):]
@@ -216,28 +291,30 @@ def generate_yaml_snippet(targets: list[dict]):
         else:
             continue
 
-        # Strip common suffix modifiers
-        for suffix in ("-ipv6only-platform-mdns", "-platform-mdns", "-mdns"):
-            if app_guess.endswith(suffix):
-                app_guess = app_guess[: -len(suffix)]
-
         if app_guess in seen or not app_guess:
             continue
+        if any(skip in app_guess for skip in SKIP_PATTERNS):
+            continue
         seen.add(app_guess)
+        count += 1
+
+        # chip-tool already matches our existing config's naming —
+        # binary_name for most apps follows chip-<app>-app or matter-<app>-app
+        binary_guess = f"chip-{app_guess}-app" if app_guess != "chip-tool" else "chip-tool"
 
         print(f'  - name: "{app_guess}"')
         print(f'    enabled: false   # review before enabling')
         print(f'    source_dir: "examples/{app_guess}/linux"   # VERIFY this path exists')
         print(f'    build_dir: "examples/{app_guess}/linux/out/{app_guess}"')
-        print(f'    binary_name: "chip-{app_guess}"   # VERIFY actual binary name')
+        print(f'    binary_name: "{binary_guess}"   # VERIFY actual binary name (check examples/{app_guess}/linux/BUILD.gn)')
         print(f'    extra_gn_args: "chip_inet_config_enable_ipv4=false"')
         print()
 
     print("=" * 78)
-    print(f"[INFO] Generated {len(seen)} candidate entries.")
+    print(f"[INFO] Generated {count} candidate entries (filtered out test/utility targets).")
     print("[INFO] These are HEURISTIC GUESSES based on target name parsing.")
     print("[INFO] Always verify source_dir/binary_name against the actual")
-    print("[INFO] examples/ folder structure before adding to your config.")
+    print("[INFO] examples/<app>/linux/BUILD.gn before adding to your config.")
     print("=" * 78)
 
 
