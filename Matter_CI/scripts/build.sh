@@ -441,7 +441,9 @@ discover_apps() {
     if [[ "${n}" -eq 0 ]]; then
         cat "${discover_log}" >&2
         fail "❌ APP DISCOVERY returned 0 apps
-   Check discovery.include in build_config.yaml (names must be SDK shorthands).
+   See the [INFO] discovery summary + [WARN] lines above for the exact cause.
+   Check that discovery.apps in build_config.yaml has enabled: true entries
+   whose names match the SDK shorthands listed above.
    Log: ${discover_log}"
     fi
 

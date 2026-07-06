@@ -521,13 +521,14 @@ def extract_app_parts(targets: list[dict]) -> list[dict]:
 
     NOTE: several targets share name == "linux" (linux-fake-tests,
     linux-x64-efr32-test-runner, and the main linux-{arm64,x64}-{...} host
-    target). We therefore scan ALL targets and return the LARGEST app
-    dimension found — the real host-app list, not a stray tests-only group.
+    target). We do NOT filter by target name (it has varied across SDK
+    versions) — instead we scan ALL targets' part groups and return the
+    LARGEST group whose entries carry a `build_arguments.app` of the form
+    "HostApp.XXX". Only the linux host target uses HostApp.* enums, so this
+    reliably isolates the linux reference-app list regardless of target name.
     """
     best: list[dict] = []
     for t in targets:
-        if t.get("name") != "linux":
-            continue
         for group in t.get("parts", []):
             if not isinstance(group, list):
                 continue
@@ -679,8 +680,16 @@ def resolve_pipeline_apps(sdk_dir, config: dict) -> list[dict]:
 
     resolved.sort(key=lambda a: a["name"])
 
-    # Warn about requested names that couldn't be resolved.
     requested = set(wanted) if use_apps_model else set(disc.get("include") or [])
+
+    # Always print a one-line diagnostic summary (goes to stderr → CI log via
+    # build.sh). Makes a 0-app result self-explanatory instead of silent.
+    model = "apps" if use_apps_model else ("include" if requested else "include(empty→all)")
+    print(f"[INFO] discovery summary: model={model}, config-selected={len(requested)}, "
+          f"SDK-app-parts={len(app_parts)}, HostApp={'imported' if HostApp else 'FALLBACK'}, "
+          f"resolved={len(resolved)}", file=sys.stderr)
+
+    # Warn about requested names that couldn't be resolved.
     if requested:
         got = {a["name"] for a in resolved}
         missing = sorted(requested - got - SEPARATELY_BUILT)
@@ -688,6 +697,24 @@ def resolve_pipeline_apps(sdk_dir, config: dict) -> list[dict]:
             src = "discovery.apps (enabled)" if use_apps_model else "discovery.include"
             print(f"[WARN] {len(missing)} name(s) in {src} could not be resolved "
                   f"and will NOT be built: {', '.join(missing)}", file=sys.stderr)
+
+    # If nothing resolved, dump enough context to diagnose from the log alone.
+    if not resolved:
+        if use_apps_model:
+            enabled_names = sorted(
+                e.get("name") for e in apps_cfg
+                if isinstance(e, dict) and e.get("enabled") and e.get("name"))
+            print(f"[WARN] 0 apps resolved. discovery.apps parsed as list with "
+                  f"{len(apps_cfg)} entries, {len(enabled_names)} enabled: "
+                  f"{enabled_names}", file=sys.stderr)
+        else:
+            print(f"[WARN] 0 apps resolved. discovery.apps is NOT a list "
+                  f"(type={type(disc.get('apps')).__name__}); using legacy "
+                  f"include model with include={sorted(requested)}.", file=sys.stderr)
+        sample = sorted(p["name"] for p in app_parts)
+        print(f"[WARN] SDK exposed {len(app_parts)} host-app shorthand(s): "
+              f"{sample if len(sample) <= 40 else sample[:40] + ['...']}",
+              file=sys.stderr)
 
     return resolved
 
