@@ -40,6 +40,11 @@ from datetime import datetime
 SCRIPT_DIR   = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
+# Reference apps are resolved dynamically from the SDK (see discover_targets.py)
+# instead of a hardcoded apps: block in build_config.yaml.
+sys.path.insert(0, str(SCRIPT_DIR))
+from discover_targets import resolve_pipeline_apps
+
 try:
     from google.oauth2 import service_account
     from googleapiclient.discovery import build as gapi_build
@@ -101,7 +106,7 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
     apps_dir.mkdir(exist_ok=True)
     copied_apps = []
 
-    for app in cfg.get("apps", []):
+    for app in resolve_pipeline_apps(sdk_dir, cfg):
         if not app.get("enabled"):
             continue
         binary = sdk_dir / app["build_dir"] / app["binary_name"]

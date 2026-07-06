@@ -37,7 +37,7 @@ def validate(config_path: str) -> bool:
     passed = True
 
     # ── Top-level sections ────────────────────────────────────────────────────
-    for key in ["sdk", "apps", "chip_tool", "python_controller", "rpi"]:
+    for key in ["sdk", "discovery", "chip_tool", "python_controller", "rpi"]:
         if key not in cfg:
             error(f"Missing required section: '{key}'")
             passed = False
@@ -62,23 +62,55 @@ def validate(config_path: str) -> bool:
     else:
         ok(f"SDK branch: {cfg['sdk']['branch']} (floating HEAD)")
 
-    # ── Apps ──────────────────────────────────────────────────────────────────
-    if not isinstance(cfg["apps"], list):
-        error("'apps' must be a list")
+    # ── Discovery (dynamic reference apps) ──────────────────────────────────────
+    # Reference apps are resolved from the SDK at build time by
+    # discover_targets.py. Here we validate only the SHAPE of the discovery
+    # block — the SDK isn't present on this (ubuntu-latest) runner, so the
+    # shorthand names and modifiers are validated against the SDK during build.
+    KNOWN_MODIFIERS = {"ipv6only", "platform-mdns", "nfc-commission",
+                       "nlfaultinject", "rpc", "clang"}
+    disc = cfg["discovery"]
+    if not isinstance(disc, dict):
+        error("'discovery' must be a mapping (see build_config.yaml)")
         passed = False
-    else:
+    elif isinstance(disc.get("apps"), list):
+        # Primary model: explicit per-app list with enabled + modifiers.
         enabled_apps = []
-        for i, app in enumerate(cfg["apps"]):
-            for key in ["name", "enabled", "source_dir", "build_dir", "binary_name"]:
-                if key not in app:
-                    error(f"apps[{i}] '{app.get('name','?')}' missing key: '{key}'")
-                    passed = False
+        for i, app in enumerate(disc["apps"]):
+            if not isinstance(app, dict) or not app.get("name"):
+                error(f"discovery.apps[{i}] must be a mapping with a 'name'")
+                passed = False
+                continue
+            mods = app.get("modifiers", [])
+            if mods is not None and not isinstance(mods, list):
+                error(f"discovery.apps[{i}] '{app['name']}' modifiers must be a list")
+                passed = False
+            for m in (mods or []):
+                if m not in KNOWN_MODIFIERS:
+                    warn(f"discovery.apps '{app['name']}' has unknown modifier "
+                         f"'{m}' — it will be ignored at build time")
             if app.get("enabled"):
                 enabled_apps.append(app["name"])
         if enabled_apps:
-            ok(f"Enabled apps: {enabled_apps}")
+            ok(f"Discovery: {len(enabled_apps)}/{len(disc['apps'])} app(s) enabled: {enabled_apps}")
         else:
-            warn("No reference apps enabled")
+            warn("No apps enabled in discovery.apps — only chip-tool / python "
+                 "controller will build")
+    else:
+        # Legacy fallback model: include / exclude allowlists.
+        inc = disc.get("include", [])
+        exc = disc.get("exclude", [])
+        if inc is not None and not isinstance(inc, list):
+            error("discovery.include must be a list (or omitted)")
+            passed = False
+        if exc is not None and not isinstance(exc, list):
+            error("discovery.exclude must be a list (or omitted)")
+            passed = False
+        if inc:
+            ok(f"Discovery (legacy include): {len(inc)} app(s): {inc}")
+        else:
+            warn("discovery has neither 'apps' nor a non-empty 'include' — ALL "
+                 "discoverable reference apps will be built (heavy on the RPi)")
 
     # ── chip-tool ─────────────────────────────────────────────────────────────
     if cfg["chip_tool"].get("enabled"):
@@ -108,7 +140,7 @@ def validate(config_path: str) -> bool:
 
     # ── At least one target enabled ───────────────────────────────────────────
     any_enabled = (
-        any(a.get("enabled") for a in cfg["apps"])
+        isinstance(cfg.get("discovery"), dict)
         or cfg["chip_tool"].get("enabled")
         or cfg["python_controller"].get("enabled")
     )

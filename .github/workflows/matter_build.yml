@@ -2,7 +2,11 @@ name: Matter — Build on RPi
 
 on:
   schedule:
-    - cron: '30 19 * * *'   # 1:00 AM IST daily (7:30 PM UTC)
+    # 00:00 (12 AM) IST, Monday–Friday.
+    # GitHub cron is UTC-only. 00:00 IST = 18:30 UTC the PREVIOUS day, so the
+    # UTC day-of-week is Sun–Thu (0-4) — that is Mon–Fri in IST. (Do NOT use
+    # 1-5 here; that would run Tue–Sat IST.)
+    - cron: '30 18 * * 0-4'
   workflow_dispatch:
     inputs:
       pipeline:
@@ -39,7 +43,7 @@ on:
         required: false
         default: ""
       target_apps:
-        description: "Override apps to build e.g. all-clusters-app,lighting-app. Empty = use config."
+        description: "Override discovery.include (SDK shorthands, e.g. all-clusters,light,network-manager). Empty = use config."
         required: false
         default: ""
       cluster_filter:
@@ -129,21 +133,68 @@ jobs:
           echo "Date       : $(date)"
 
       - name: Apply target_apps override
-        if: ${{ github.event.inputs.target_apps != '' }}
+        # ONLY on a manual run with a non-empty value. NOTE: on scheduled runs
+        # github.event.inputs is null and `null != ''` is TRUE in GitHub
+        # Actions — so we must also gate on event_name, otherwise every cron
+        # run would execute this with an empty target and disable ALL apps.
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_apps != '' }}
         env:
           TARGET_APPS: ${{ github.event.inputs.target_apps }}
         run: |
+          # Apps are resolved dynamically from the SDK (discover_targets.py).
+          # Overriding "which apps to build" means flipping the enabled flags in
+          # discovery.apps: only the named apps are enabled, all others disabled.
+          # Names are SDK shorthands (e.g. all-clusters, light, network-manager)
+          # — NOT examples/ folder names.
           python3 - << 'PY'
-          import yaml, os
+          import yaml, os, sys
           path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'Matter_CI/config/build_config.yaml')
+          raw = {t.strip() for t in os.environ.get('TARGET_APPS', '').split(',') if t.strip()}
+          # Belt-and-suspenders: never rewrite the config for an empty target
+          # (would disable every app). Leave the committed enabled flags intact.
+          if not raw:
+              print('target_apps is empty — leaving build_config.yaml unchanged.')
+              sys.exit(0)
           with open(path) as f:
               cfg = yaml.safe_load(f)
-          target = [t.strip() for t in os.environ['TARGET_APPS'].split(',') if t.strip()]
-          for app in cfg['apps']:
-              app['enabled'] = app['name'] in target
+          disc = cfg.setdefault('discovery', {})
+          apps = disc.get('apps')
+          if isinstance(apps, list):
+              known = {a.get('name') for a in apps if isinstance(a, dict)}
+              # Lenient matching: accept the SDK shorthand, or the folder/binary
+              # style the user may type (strip chip-/matter- prefix and -app suffix).
+              def norm(s):
+                  s = s.strip()
+                  for p in ('chip-', 'matter-'):
+                      if s.startswith(p):
+                          s = s[len(p):]
+                  return s[:-4] if s.endswith('-app') else s
+              norm_known = {}
+              for k in known:
+                  norm_known.setdefault(norm(k), k)
+              target, unknown = set(), []
+              for t in raw:
+                  if t in known:
+                      target.add(t)
+                  elif norm(t) in norm_known:
+                      target.add(norm_known[norm(t)])
+                  else:
+                      unknown.append(t)
+              if unknown:
+                  print(f'WARNING: target_apps not recognized: {sorted(unknown)}')
+              if not target:
+                  print(f'ERROR: no target_apps matched a config app; refusing to '
+                        f'disable everything. Valid names: {sorted(known)}')
+                  sys.exit(1)
+              for app in apps:
+                  app['enabled'] = app.get('name') in target
+              print('Enabled apps overridden to:', sorted(target))
+          else:
+              # legacy include model
+              disc['include'] = sorted(raw)
+              print('discovery.include set to:', sorted(raw))
           with open(path, 'w') as f:
-              yaml.dump(cfg, f, default_flow_style=False)
-          print('Enabled apps set to:', target)
+              yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
           PY
 
       - name: Check PyYAML
