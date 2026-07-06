@@ -2,7 +2,11 @@ name: Matter — Build on RPi
 
 on:
   schedule:
-    - cron: '30 19 * * *'   # 1:00 AM IST daily (7:30 PM UTC)
+    # 00:00 (12 AM) IST, Monday–Friday.
+    # GitHub cron is UTC-only. 00:00 IST = 18:30 UTC the PREVIOUS day, so the
+    # UTC day-of-week is Sun–Thu (0-4) — that is Mon–Fri in IST. (Do NOT use
+    # 1-5 here; that would run Tue–Sat IST.)
+    - cron: '30 18 * * 0-4'
   workflow_dispatch:
     inputs:
       pipeline:
