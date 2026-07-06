@@ -145,10 +145,10 @@ jobs:
           python3 - << 'PY'
           import yaml, os, sys
           path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'Matter_CI/config/build_config.yaml')
-          target = {t.strip() for t in os.environ.get('TARGET_APPS', '').split(',') if t.strip()}
+          raw = {t.strip() for t in os.environ.get('TARGET_APPS', '').split(',') if t.strip()}
           # Belt-and-suspenders: never rewrite the config for an empty target
           # (would disable every app). Leave the committed enabled flags intact.
-          if not target:
+          if not raw:
               print('target_apps is empty — leaving build_config.yaml unchanged.')
               sys.exit(0)
           with open(path) as f:
@@ -157,21 +157,40 @@ jobs:
           apps = disc.get('apps')
           if isinstance(apps, list):
               known = {a.get('name') for a in apps if isinstance(a, dict)}
-              unknown = target - known
+              # Lenient matching: accept the SDK shorthand, or the folder/binary
+              # style the user may type (strip chip-/matter- prefix and -app suffix).
+              def norm(s):
+                  s = s.strip()
+                  for p in ('chip-', 'matter-'):
+                      if s.startswith(p):
+                          s = s[len(p):]
+                  return s[:-4] if s.endswith('-app') else s
+              norm_known = {}
+              for k in known:
+                  norm_known.setdefault(norm(k), k)
+              target, unknown = set(), []
+              for t in raw:
+                  if t in known:
+                      target.add(t)
+                  elif norm(t) in norm_known:
+                      target.add(norm_known[norm(t)])
+                  else:
+                      unknown.append(t)
               if unknown:
-                  print(f'WARNING: target_apps names not found in config: {sorted(unknown)}')
-              if not (target & known):
-                  print(f'ERROR: none of target_apps {sorted(target)} match config '
-                        f'app names; refusing to disable everything. Leaving config unchanged.')
+                  print(f'WARNING: target_apps not recognized: {sorted(unknown)}')
+              if not target:
+                  print(f'ERROR: no target_apps matched a config app; refusing to '
+                        f'disable everything. Valid names: {sorted(known)}')
                   sys.exit(1)
               for app in apps:
                   app['enabled'] = app.get('name') in target
+              print('Enabled apps overridden to:', sorted(target))
           else:
               # legacy include model
-              disc['include'] = sorted(target)
+              disc['include'] = sorted(raw)
+              print('discovery.include set to:', sorted(raw))
           with open(path, 'w') as f:
               yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
-          print('Enabled apps overridden to:', sorted(target & known if isinstance(apps, list) else target))
           PY
 
       - name: Check PyYAML
