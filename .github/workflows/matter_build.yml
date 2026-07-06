@@ -129,7 +129,11 @@ jobs:
           echo "Date       : $(date)"
 
       - name: Apply target_apps override
-        if: ${{ github.event.inputs.target_apps != '' }}
+        # ONLY on a manual run with a non-empty value. NOTE: on scheduled runs
+        # github.event.inputs is null and `null != ''` is TRUE in GitHub
+        # Actions — so we must also gate on event_name, otherwise every cron
+        # run would execute this with an empty target and disable ALL apps.
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_apps != '' }}
         env:
           TARGET_APPS: ${{ github.event.inputs.target_apps }}
         run: |
@@ -139,14 +143,27 @@ jobs:
           # Names are SDK shorthands (e.g. all-clusters, light, network-manager)
           # — NOT examples/ folder names.
           python3 - << 'PY'
-          import yaml, os
+          import yaml, os, sys
           path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'Matter_CI/config/build_config.yaml')
+          target = {t.strip() for t in os.environ.get('TARGET_APPS', '').split(',') if t.strip()}
+          # Belt-and-suspenders: never rewrite the config for an empty target
+          # (would disable every app). Leave the committed enabled flags intact.
+          if not target:
+              print('target_apps is empty — leaving build_config.yaml unchanged.')
+              sys.exit(0)
           with open(path) as f:
               cfg = yaml.safe_load(f)
-          target = {t.strip() for t in os.environ['TARGET_APPS'].split(',') if t.strip()}
           disc = cfg.setdefault('discovery', {})
           apps = disc.get('apps')
           if isinstance(apps, list):
+              known = {a.get('name') for a in apps if isinstance(a, dict)}
+              unknown = target - known
+              if unknown:
+                  print(f'WARNING: target_apps names not found in config: {sorted(unknown)}')
+              if not (target & known):
+                  print(f'ERROR: none of target_apps {sorted(target)} match config '
+                        f'app names; refusing to disable everything. Leaving config unchanged.')
+                  sys.exit(1)
               for app in apps:
                   app['enabled'] = app.get('name') in target
           else:
@@ -154,7 +171,7 @@ jobs:
               disc['include'] = sorted(target)
           with open(path, 'w') as f:
               yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
-          print('Enabled apps overridden to:', sorted(target))
+          print('Enabled apps overridden to:', sorted(target & known if isinstance(apps, list) else target))
           PY
 
       - name: Check PyYAML
