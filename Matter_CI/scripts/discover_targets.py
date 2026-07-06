@@ -44,24 +44,30 @@ except ImportError:
 # =============================================================================
 # Step 1 — Query the SDK for its canonical target list
 # =============================================================================
-def fetch_targets(sdk_dir: Path) -> list[dict]:
+def fetch_targets(sdk_dir: Path, quiet: bool = False) -> list[dict]:
     """
     Runs `scripts/build/build_examples.py targets --format json` inside
     the SDK directory and returns the parsed list of target dicts.
+
+    When quiet=True, all progress/diagnostic output goes to stderr so that
+    stdout can carry machine-readable JSON only (used by --emit-apps-json).
     """
+    # Progress lines go to stderr in quiet mode; errors always to stderr.
+    out = sys.stderr if quiet else sys.stdout
+
     if not sdk_dir.exists():
-        print(f"[ERROR] SDK directory not found: {sdk_dir}")
+        print(f"[ERROR] SDK directory not found: {sdk_dir}", file=sys.stderr)
         sys.exit(1)
 
     build_examples = sdk_dir / "scripts" / "build" / "build_examples.py"
     if not build_examples.exists():
-        print(f"[ERROR] build_examples.py not found at: {build_examples}")
-        print(f"[ERROR] Is this a valid connectedhomeip checkout?")
+        print(f"[ERROR] build_examples.py not found at: {build_examples}", file=sys.stderr)
+        print(f"[ERROR] Is this a valid connectedhomeip checkout?", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[INFO] Querying SDK target list from: {sdk_dir}")
+    print(f"[INFO] Querying SDK target list from: {sdk_dir}", file=out)
     print(f"[INFO] Running: source scripts/activate.sh && "
-          f"scripts/build/build_examples.py targets --format json")
+          f"scripts/build/build_examples.py targets --format json", file=out)
 
     # Run inside a bash subshell so `source scripts/activate.sh` works,
     # exactly like the official TH Dockerfile does.
@@ -80,31 +86,31 @@ def fetch_targets(sdk_dir: Path) -> list[dict]:
         )
     except subprocess.TimeoutExpired:
         print("[ERROR] Timed out querying targets (120s). "
-              "Has scripts/bootstrap.sh been run at least once?")
+              "Has scripts/bootstrap.sh been run at least once?", file=sys.stderr)
         sys.exit(1)
 
     if result.returncode != 0:
-        print(f"[ERROR] build_examples.py exited with code {result.returncode}")
-        print(f"[ERROR] stderr:\n{result.stderr[-2000:]}")
-        print()
-        print("[HINT] Common causes:")
+        print(f"[ERROR] build_examples.py exited with code {result.returncode}", file=sys.stderr)
+        print(f"[ERROR] stderr:\n{result.stderr[-2000:]}", file=sys.stderr)
+        print(file=sys.stderr)
+        print("[HINT] Common causes:", file=sys.stderr)
         print("  - scripts/activate.sh not bootstrapped yet "
-              "(run scripts/bootstrap.sh once first)")
-        print("  - SDK checkout is incomplete (missing submodules)")
+              "(run scripts/bootstrap.sh once first)", file=sys.stderr)
+        print("  - SDK checkout is incomplete (missing submodules)", file=sys.stderr)
         sys.exit(1)
 
     try:
         targets = json.loads(result.stdout)
     except json.JSONDecodeError as e:
-        print(f"[ERROR] Could not parse JSON output: {e}")
-        print(f"[ERROR] Raw output (first 500 chars):\n{result.stdout[:500]}")
-        print()
+        print(f"[ERROR] Could not parse JSON output: {e}", file=sys.stderr)
+        print(f"[ERROR] Raw output (first 500 chars):\n{result.stdout[:500]}", file=sys.stderr)
+        print(file=sys.stderr)
         print("[HINT] --format json requires a recent SDK checkout "
               "(merged via PR #25810). If your SDK predates this, "
-              "upgrade or use the plain-text 'targets' command manually.")
+              "upgrade or use the plain-text 'targets' command manually.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[INFO] SDK reports {len(targets)} total buildable targets")
+    print(f"[INFO] SDK reports {len(targets)} total buildable targets", file=out)
     return targets
 
 
@@ -113,35 +119,43 @@ def fetch_targets(sdk_dir: Path) -> list[dict]:
 # =============================================================================
 def expand_braces(s: str) -> list[str]:
     """
-    Expands bash-style brace notation into individual strings.
-    e.g. "linux-arm64-{a,b,c}[-x][-y]" with all bracket groups OPTIONAL
-    (each [-x] either present or absent) and all {a,b,c} groups REQUIRED
-    (exactly one alternative chosen).
+    Expands bash-style brace notation into individual strings via a proper
+    CARTESIAN PRODUCT over every {a,b,c} group.
 
-    Returns the base combinations WITHOUT optional modifiers expanded
-    (modifiers are returned separately) — we only need the base app names
-    for our purposes, not the full combinatorial explosion (which would
-    be in the tens of thousands).
+    e.g. "linux-{arm64,x64}-{light,lock}[-clang]" has TWO required brace
+    groups, so it expands to the 2x2 product:
+        linux-arm64-light, linux-arm64-lock, linux-x64-light, linux-x64-lock
+
+    [optional] modifier groups are stripped (returned separately via
+    get_modifiers) — we only want the base target names, not the full
+    combinatorial explosion of every modifier permutation.
+
+    NOTE: The previous implementation only handled a single brace group and
+    produced garbage on the real multi-brace linux target
+    (linux-{arm64,x64}-{...apps...}). This is the fix for that.
     """
-    # Step 1: extract and replace {a,b,c} groups (required, pick one)
-    brace_groups = re.findall(r'\{([^}]+)\}', s)
-    # Step 2: extract [optional] groups separately — we don't expand these,
-    # just strip them, since we only care about base app names for config
-    base = re.sub(r'\[[^\]]*\]', '', s)  # strip all [optional] modifiers
-    base = re.sub(r'\{[^}]+\}', '\0', base)  # placeholder for brace group
+    # Strip [optional] modifier groups first — we don't expand those.
+    s = re.sub(r'\[[^\]]*\]', '', s)
 
-    if not brace_groups:
-        return [base] if base else []
+    # Split the string into literal chunks and {…} brace groups, preserving order.
+    parts: list[list[str]] = []
+    pos = 0
+    for m in re.finditer(r'\{([^}]+)\}', s):
+        if m.start() > pos:
+            parts.append([s[pos:m.start()]])          # literal chunk
+        parts.append(m.group(1).split(','))           # brace alternatives
+        pos = m.end()
+    if pos < len(s):
+        parts.append([s[pos:]])
 
-    # Replace the {…} placeholder with each alternative
-    results = []
-    for group in brace_groups:
-        alternatives = group.split(',')
-        for alt in alternatives:
-            expanded = re.sub(r'\{[^}]+\}', alt, s, count=1)
-            expanded = re.sub(r'\[[^\]]*\]', '', expanded)  # strip modifiers
-            results.append(expanded)
-    return results
+    if not parts:
+        return [s] if s else []
+
+    # Cartesian product across all chunks.
+    results = [""]
+    for options in parts:
+        results = [prefix + opt for prefix in results for opt in options]
+    return [r for r in results if r]
 
 
 def get_modifiers(s: str) -> list[str]:
@@ -225,7 +239,12 @@ def compare_with_config(targets: list[dict], config_path: Path):
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
 
-    configured_apps = {app["binary_name"] for app in cfg.get("apps", [])}
+    # Apps are now resolved dynamically via discovery.include (the hardcoded
+    # apps: block is gone). Show the include allowlist for cross-reference.
+    disc = cfg.get("discovery", {}) or {}
+    configured_apps = set(disc.get("include") or [])
+    if not configured_apps:
+        configured_apps = {"<all discoverable reference apps — include list is empty>"}
     configured_apps.add(cfg.get("chip_tool", {}).get("binary_name", ""))
 
     # Build a set of "known good" shorthand target names from SDK
@@ -379,6 +398,359 @@ def resolve_apps(sdk_dir: Path, app_guesses: list[str]) -> list[dict]:
 
 
 # =============================================================================
+# Authoritative resolution via the SDK's own HostApp mapping
+#
+# This is the CANONICAL way to map an SDK target shorthand (e.g. "light")
+# to its real source dir + output binary. The SDK's build system defines
+# HostApp.ExamplePath() and HostApp.OutputNames() in
+#   scripts/build/builders/host.py
+# and build_examples.py tags each linux app part with its HostApp enum
+# (parts[...].build_arguments.app = "HostApp.LIGHT"). We reuse that mapping
+# directly instead of guessing folder names — which is fragile (e.g. the
+# shorthand "light" must map to examples/lighting-app, NOT light-switch-app).
+# =============================================================================
+
+# Apps built via their own dedicated pipeline step (not as reference apps).
+SEPARATELY_BUILT = {"chip-tool"}
+
+# -----------------------------------------------------------------------------
+# Matter Test Harness build parity
+#
+# The TH's DUT binaries are the SDK's chip-cert-bins outputs, built via
+#   scripts/build/build_examples.py --target linux-<arch>-<app>-<modifiers>
+# (see integrations/docker/images/chip-cert-bins/Dockerfile). We build the
+# same apps NATIVELY on the RPi with gn_build_example.sh, so we translate each
+# TH target modifier into its gn arg(s). This mapping is taken verbatim from
+# the SDK:
+#   scripts/build/build/targets.py   (AppendModifier(<name>, <kwarg>=...))
+#   scripts/build/builders/host.py   (kwarg -> self.extra_gn_options)
+# Keeping it here means one edit to add a modifier the SDK later introduces.
+# -----------------------------------------------------------------------------
+MODIFIER_GN_ARGS = {
+    "ipv6only":       "chip_inet_config_enable_ipv4=false",
+    "platform-mdns":  'chip_mdns="platform"',
+    "nfc-commission": "chip_enable_nfc_based_commissioning=true",
+    "nlfaultinject":  "chip_with_nlfaultinjection=true",
+    "rpc":            'import("//with_pw_rpc.gni")',
+    "clang":          "is_clang=true",
+}
+
+# TH default for virtually every linux reference app (ipv6-only host).
+DEFAULT_MODIFIERS = ["ipv6only"]
+
+# Reference apps the Test Harness builds with NON-default modifiers, taken from
+# chip-cert-bins (integrations/docker/images/chip-cert-bins/Dockerfile). Every
+# other reference app uses DEFAULT_MODIFIERS.
+CERT_BINS_MODIFIERS = {
+    "fabric-bridge": ["rpc", "ipv6only"],   # linux-*-fabric-bridge-rpc-ipv6only
+    "fabric-admin":  ["rpc", "ipv6only"],   # linux-*-fabric-admin-rpc-ipv6only
+    "camera":        ["clang", "ipv6only"], # linux-arm64-camera-clang-ipv6only (RPi is arm64)
+}
+
+# HostApp enum members that are NOT deployable sample/DUT apps — tools, test
+# harnesses, language-binding controllers, and meta targets (their ExamplePath
+# is '../', 'placeholder/', 'minimal-mdns', 'shell/standalone', etc.). These are
+# omitted from the generated app menu. (chip-tool is handled via SEPARATELY_BUILT.)
+NON_APP_ENUMS = {
+    "ADDRESS_RESOLVE", "TESTS", "PYTHON_BINDINGS", "CERT_TOOL",
+    "SIMULATED_APP1", "SIMULATED_APP2", "MIN_MDNS", "SHELL",
+    "RPC_CONSOLE", "EFR32_TEST_RUNNER", "CHIP_TOOL_DARWIN",
+    "JAVA_MATTER_CONTROLLER", "KOTLIN_MATTER_CONTROLLER",
+}
+
+# Apps enabled by default when generating a fresh discovery.apps block —
+# mirrors the pipeline's original curated set. Everything else is emitted
+# enabled: false so the operator opts in explicitly.
+DEFAULT_ENABLED = {
+    "all-clusters", "light", "lock", "thermostat", "bridge",
+    "air-purifier", "evse", "closure", "network-manager",
+}
+
+
+def modifiers_to_gn_args(modifiers) -> str:
+    """Translate a list of TH target modifiers into a gn-args string."""
+    args = []
+    for m in modifiers:
+        gn = MODIFIER_GN_ARGS.get(m)
+        if gn is None:
+            print(f"[WARN] Unknown TH modifier '{m}' — skipped (no gn-arg "
+                  f"mapping in MODIFIER_GN_ARGS).", file=sys.stderr)
+            continue
+        args.append(gn)
+    return " ".join(args)
+
+
+def _resolve_source_binary(name, enum_name, HostApp, sdk_dir):
+    """
+    Resolve (source_dir, binary_name, is_reference_app) for one app, preferring
+    the authoritative HostApp mapping and falling back to BUILD.gn parsing.
+    Returns (None, None, False) if unresolvable.
+    """
+    source_dir = binary_name = None
+    if HostApp is not None and enum_name:
+        try:
+            app_enum = HostApp[enum_name]
+            source_dir = f"examples/{app_enum.ExamplePath()}"
+            binary_name = _first_binary(app_enum.OutputNames())
+        except Exception:  # noqa: BLE001 — unknown enum → fall back
+            source_dir = binary_name = None
+
+    if not source_dir or not binary_name:
+        linux_dir = resolve_app_path(sdk_dir, name)
+        if linux_dir is not None:
+            source_dir = str(linux_dir.relative_to(sdk_dir))
+            binary_name = binary_name or resolve_binary_name(linux_dir)
+
+    if not source_dir or not binary_name:
+        return None, None, False
+
+    is_ref = source_dir.endswith("/linux") or source_dir.endswith("/posix")
+    return source_dir, binary_name, is_ref
+
+
+def extract_app_parts(targets: list[dict]) -> list[dict]:
+    """
+    Finds the native 'linux' host target in the SDK target list and returns
+    its application dimension as [{"name": <shorthand>, "hostapp": <ENUM>}].
+
+    The linux target is described as linux-{arm64,x64}-{...apps...}; its
+    'parts' is a list of dimension groups. We pick the group whose entries
+    carry a `build_arguments.app` = "HostApp.XXX" (the app dimension). The
+    arm64/x64 dimension is irrelevant here — source dirs and binary names
+    are architecture-independent (native gn_build_example.sh builds).
+
+    NOTE: several targets share name == "linux" (linux-fake-tests,
+    linux-x64-efr32-test-runner, and the main linux-{arm64,x64}-{...} host
+    target). We therefore scan ALL targets and return the LARGEST app
+    dimension found — the real host-app list, not a stray tests-only group.
+    """
+    best: list[dict] = []
+    for t in targets:
+        if t.get("name") != "linux":
+            continue
+        for group in t.get("parts", []):
+            if not isinstance(group, list):
+                continue
+            apps = []
+            for part in group:
+                ba = (part or {}).get("build_arguments", {}) or {}
+                app_val = ba.get("app", "")
+                if isinstance(app_val, str) and app_val.startswith("HostApp."):
+                    apps.append({
+                        "name": part.get("name", ""),
+                        "hostapp": app_val.split(".", 1)[1],
+                    })
+            if len(apps) > len(best):
+                best = apps
+    return best
+
+
+def import_hostapp(sdk_dir: Path):
+    """
+    Imports the SDK's HostApp enum so we can call ExamplePath()/OutputNames().
+    Returns the HostApp class, or None if it can't be imported (in which case
+    callers fall back to BUILD.gn resolution).
+    """
+    build_dir = sdk_dir / "scripts" / "build"
+    if not (build_dir / "builders" / "host.py").exists():
+        return None
+    if str(build_dir) not in sys.path:
+        sys.path.insert(0, str(build_dir))
+    try:
+        from builders.host import HostApp
+        return HostApp
+    except Exception as e:  # noqa: BLE001 — any import failure → fallback
+        print(f"[WARN] Could not import HostApp from SDK ({e}); "
+              f"falling back to BUILD.gn resolution.", file=sys.stderr)
+        return None
+
+
+def _first_binary(output_names) -> str | None:
+    """First real executable from HostApp.OutputNames() (skip .map + dirs)."""
+    for n in output_names:
+        if n.endswith(".map") or "/" in n:
+            continue
+        return n
+    return None
+
+
+def resolve_pipeline_apps(sdk_dir, config: dict) -> list[dict]:
+    """
+    Return the list of reference apps the pipeline should build, resolved
+    dynamically from the SDK's own HostApp mapping. This is the single source
+    of truth shared by build.sh (--emit-apps-json), upload_artifacts.py and
+    run_tests.py. Each returned dict matches the schema those consumers expect:
+        {name, enabled, source_dir, build_dir, binary_name, extra_gn_args}
+
+    Two config models are supported, in priority order:
+
+      1. discovery.apps  (PRIMARY) — an explicit list enumerating every app
+         with per-app enable + Test-Harness build modifiers:
+             apps:
+               - {name: all-clusters, enabled: true,  modifiers: [ipv6only]}
+               - {name: fabric-bridge, enabled: false, modifiers: [rpc, ipv6only]}
+         Only enabled entries build; extra_gn_args comes from modifiers
+         (see MODIFIER_GN_ARGS) so builds match the Matter Test Harness.
+
+      2. discovery.include / discovery.exclude  (LEGACY fallback, used only if
+         discovery.apps is absent) — an allowlist of shorthand names, all built
+         with discovery.default_gn_args.
+
+    chip-tool is always excluded here — it is built by its own pipeline step.
+    """
+    sdk_dir = Path(sdk_dir)
+    disc = (config or {}).get("discovery", {}) or {}
+
+    targets = fetch_targets(sdk_dir, quiet=True)
+    app_parts = extract_app_parts(targets)
+    HostApp = import_hostapp(sdk_dir)
+
+    apps_cfg = disc.get("apps")
+    use_apps_model = isinstance(apps_cfg, list)
+
+    # Selection: name -> extra_gn_args (only for enabled apps).
+    if use_apps_model:
+        wanted: dict[str, str] = {}
+        for entry in apps_cfg:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            if not name or name in SEPARATELY_BUILT:
+                continue
+            if not entry.get("enabled", False):
+                continue
+            mods = entry.get("modifiers")
+            if not isinstance(mods, list) or not mods:
+                mods = list(DEFAULT_MODIFIERS)
+            wanted[name] = modifiers_to_gn_args(mods)
+    else:
+        include = set(disc.get("include") or [])
+        exclude = set(disc.get("exclude") or [])
+        default_gn_args = disc.get("default_gn_args", "") or ""
+
+    resolved = []
+    for part in app_parts:
+        name = part["name"]
+        enum_name = part["hostapp"]
+        if not name or name in SEPARATELY_BUILT:
+            continue
+
+        # --- selection + gn args ---
+        if use_apps_model:
+            if name not in wanted:
+                continue
+            extra_gn_args = wanted[name]
+        else:
+            if name in exclude:
+                continue
+            extra_gn_args = default_gn_args
+
+        source_dir, binary_name, is_ref = _resolve_source_binary(
+            name, enum_name, HostApp, sdk_dir)
+        if not source_dir or not binary_name:
+            if use_apps_model:
+                print(f"[WARN] Skipping '{name}': could not resolve source/"
+                      f"binary from SDK.", file=sys.stderr)
+            continue
+
+        # In legacy mode, honor include/reference-app filtering after resolution.
+        if not use_apps_model:
+            if include:
+                if name not in include:
+                    continue
+            elif not is_ref:
+                continue
+
+        # Guard against emitting a target whose source dir isn't in this
+        # checkout (would otherwise fail the build with a wrong-path error).
+        if not (sdk_dir / source_dir).exists():
+            print(f"[WARN] Skipping '{name}': source dir not found in checkout "
+                  f"({source_dir})", file=sys.stderr)
+            continue
+
+        resolved.append({
+            "name": name,
+            "enabled": True,
+            "source_dir": source_dir,
+            "build_dir": f"out/{name}",
+            "binary_name": binary_name,
+            "extra_gn_args": extra_gn_args,
+        })
+
+    resolved.sort(key=lambda a: a["name"])
+
+    # Warn about requested names that couldn't be resolved.
+    requested = set(wanted) if use_apps_model else set(disc.get("include") or [])
+    if requested:
+        got = {a["name"] for a in resolved}
+        missing = sorted(requested - got - SEPARATELY_BUILT)
+        if missing:
+            src = "discovery.apps (enabled)" if use_apps_model else "discovery.include"
+            print(f"[WARN] {len(missing)} name(s) in {src} could not be resolved "
+                  f"and will NOT be built: {', '.join(missing)}", file=sys.stderr)
+
+    return resolved
+
+
+def load_config(config_path: Path) -> dict:
+    """Load build_config.yaml (used by --emit-apps-json)."""
+    if yaml is None:
+        print("[ERROR] pyyaml not installed — run: "
+              "pip3 install pyyaml --break-system-packages", file=sys.stderr)
+        sys.exit(1)
+    if not config_path.exists():
+        print(f"[ERROR] Config file not found: {config_path}", file=sys.stderr)
+        sys.exit(1)
+    with open(config_path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def generate_config_apps(sdk_dir):
+    """
+    Emit a ready-to-paste discovery.apps: YAML block listing EVERY discoverable
+    linux reference app with an enabled flag and its Test-Harness build
+    modifiers. Paste under `discovery:` in build_config.yaml and flip the
+    enabled flags. Regenerate when the SDK adds/removes apps.
+    """
+    sdk_dir = Path(sdk_dir)
+    targets = fetch_targets(sdk_dir, quiet=True)
+    app_parts = extract_app_parts(targets)
+    HostApp = import_hostapp(sdk_dir)
+
+    rows = []
+    for part in app_parts:
+        name, enum_name = part["name"], part["hostapp"]
+        if not name or name in SEPARATELY_BUILT or enum_name in NON_APP_ENUMS:
+            continue
+        source_dir, binary_name, is_ref = _resolve_source_binary(
+            name, enum_name, HostApp, sdk_dir)
+        if not source_dir or not binary_name:
+            continue
+        # Real example subfolder only (NON_APP_ENUMS already drops '../' meta paths).
+        if not (sdk_dir / source_dir).exists():
+            continue
+        mods = CERT_BINS_MODIFIERS.get(name, list(DEFAULT_MODIFIERS))
+        rows.append((name, name in DEFAULT_ENABLED, mods, binary_name))
+
+    rows.sort(key=lambda r: (not r[1], r[0]))   # enabled first, then alpha
+    name_w = max((len(r[0]) for r in rows), default=4)
+
+    print("discovery:")
+    print("  # Full reference-app menu — flip enabled: true/false per app.")
+    print("  # modifiers mirror the Matter Test Harness (chip-cert-bins) targets.")
+    print("  apps:")
+    for name, enabled, mods, binary in rows:
+        modstr = "[" + ", ".join(mods) + "]"
+        pad = " " * (name_w - len(name))
+        en = "true " if enabled else "false"
+        print(f"    - {{ name: {name},{pad} enabled: {en}, "
+              f"modifiers: {modstr} }}"
+              f"{' ' * max(1, 22 - len(modstr))}# {binary}")
+    print(f"[INFO] Emitted {len(rows)} reference app(s) "
+          f"({sum(1 for r in rows if r[1])} enabled).", file=sys.stderr)
+
+
+# =============================================================================
 # Step 5 — Generate YAML snippet for new apps not yet in config
 # =============================================================================
 # Targets that aren't really "apps" — utility/test/platform targets we
@@ -477,11 +849,38 @@ def main():
                              "build_config.yaml")
     parser.add_argument("--generate-yaml", action="store_true",
                         help="Print a suggested YAML snippet for apps: section")
+    parser.add_argument("--emit-apps-json", action="store_true",
+                        help="Emit the resolved pipeline apps list as JSON to "
+                             "stdout (machine-readable — consumed by build.sh). "
+                             "Requires --config. All diagnostics go to stderr.")
+    parser.add_argument("--emit-config-apps", action="store_true",
+                        help="Print a ready-to-paste discovery.apps: YAML block "
+                             "listing every reference app with enabled flags + "
+                             "Test-Harness modifiers.")
+    parser.add_argument("--config", metavar="CONFIG_PATH",
+                        help="build_config.yaml to read discovery.include/"
+                             "exclude/default_gn_args from (for --emit-apps-json)")
     parser.add_argument("--save-json", metavar="PATH",
                         help="Save raw SDK target list as JSON to this path")
     args = parser.parse_args()
 
     sdk_dir = Path(args.sdk_dir).expanduser().resolve()
+
+    # --emit-apps-json short-circuits: stdout must carry ONLY the JSON array.
+    if args.emit_apps_json:
+        if not args.config:
+            print("[ERROR] --emit-apps-json requires --config <build_config.yaml>",
+                  file=sys.stderr)
+            sys.exit(1)
+        cfg = load_config(Path(args.config).expanduser().resolve())
+        apps = resolve_pipeline_apps(sdk_dir, cfg)
+        print(json.dumps(apps, indent=2))
+        print(f"[DONE] Emitted {len(apps)} resolved app(s).", file=sys.stderr)
+        return
+
+    if args.emit_config_apps:
+        generate_config_apps(sdk_dir)
+        return
 
     all_targets = fetch_targets(sdk_dir)
 

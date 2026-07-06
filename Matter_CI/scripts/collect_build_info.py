@@ -10,6 +10,11 @@ import os, sys, subprocess, yaml, json
 from pathlib import Path
 from datetime import datetime
 
+# Reference apps are resolved dynamically from the SDK (see discover_targets.py)
+# instead of a hardcoded apps: block in build_config.yaml.
+sys.path.insert(0, str(Path(__file__).parent))
+from discover_targets import resolve_pipeline_apps
+
 
 def size_mb(path: Path) -> str:
     try:
@@ -58,9 +63,9 @@ def main():
     all_ok = True
     failed_apps = []
 
-    # Reference apps
+    # Reference apps (dynamically discovered)
     print("── Reference Apps " + "─" * 44)
-    for app in cfg.get("apps", []):
+    for app in resolve_pipeline_apps(sdk_dir, cfg):
         if not app.get("enabled"):
             print(f"  ⏭   {app['name']:<32} disabled")
             continue

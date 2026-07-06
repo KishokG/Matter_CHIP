@@ -32,6 +32,11 @@ from pathlib import Path
 SCRIPT_DIR   = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
+# Reference apps are resolved dynamically from the SDK (see discover_targets.py)
+# instead of a hardcoded apps: block in build_config.yaml.
+sys.path.insert(0, str(SCRIPT_DIR))
+from discover_targets import resolve_pipeline_apps
+
 # =============================================================================
 # Global cancel flag — set by SIGTERM/SIGINT handler
 # =============================================================================
@@ -255,14 +260,17 @@ class DUTManager:
     def __init__(self, cfg: dict):
         self.sdk_dir   = Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
         self.cfg       = cfg
+        # Resolve the reference-app list once (dynamic discovery) — same list
+        # the build produced. Used to map a DUT command to its binary.
+        self.apps      = resolve_pipeline_apps(self.sdk_dir, cfg)
         self._proc     = None
         self._log_file = None
         self._app_name = None
 
     def _find_binary(self, dut_cmd: str) -> tuple[Path | None, str]:
         """
-        Find binary for DUT command from build_config.yaml only.
-        Returns (binary_path, error_message).
+        Find binary for DUT command from the dynamically discovered app list
+        (plus chip_tool). Returns (binary_path, error_message).
         If binary not found, returns (None, reason).
         """
         match = re.search(r"\./([^\s]+)", dut_cmd)
@@ -270,13 +278,13 @@ class DUTManager:
             return None, "Could not extract binary name from DUT command"
         bin_name = match.group(1)
 
-        # Check enabled apps in config
-        for app in self.cfg.get("apps", []):
+        # Check the dynamically discovered reference apps
+        for app in self.apps:
             if app.get("binary_name") == bin_name:
                 if not app.get("enabled"):
                     return None, (
-                        f"App '{app['name']}' is disabled in build_config.yaml. "
-                        f"Set enabled: true to include it in the build."
+                        f"App '{app['name']}' is not enabled for build. "
+                        f"Add it to discovery.include in build_config.yaml."
                     )
                 binary = self.sdk_dir / app["build_dir"] / app["binary_name"]
                 if binary.exists():
@@ -296,11 +304,12 @@ class DUTManager:
                 return binary, ""
             return None, f"chip-tool not built. Expected at: {binary}"
 
-        # Not in config at all
+        # Not among discovered apps or chip_tool
         return None, (
-            f"Binary '{bin_name}' is not defined in build_config.yaml. "
-            f"Add it to the apps list and rebuild, or check if the DUT command "
-            f"is using the correct binary name."
+            f"Binary '{bin_name}' was not produced by this build. "
+            f"Add the app's SDK shorthand to discovery.include in "
+            f"build_config.yaml and rebuild, or check that the DUT command "
+            f"uses the correct binary name."
         )
 
 

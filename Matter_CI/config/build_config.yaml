@@ -12,114 +12,107 @@ sdk:
   submodule_jobs: 4 # Parallel jobs for submodule checkout
 
 # ============================================================
-# Reference Apps
+# Reference Apps — DYNAMIC DISCOVERY + TEST-HARNESS BUILD PARITY
 #
-# Built using the real SDK helper:
-#   scripts/examples/gn_build_example.sh <source_dir> <build_dir> [extra_gn_args]
+# There is no hardcoded source_dir/binary_name list. At build time,
+# scripts/discover_targets.py resolves each app's real source_dir + binary
+# from the SDK's own HostApp mapping. You only choose WHICH apps to build
+# and with WHICH modifiers — every consumer (build.sh, upload_artifacts.py,
+# run_tests.py, fetch_test_commands.py, collect_build_info.py) reads this
+# same block via resolve_pipeline_apps(), so it is the single source of truth.
 #
-# extra_gn_args are passed directly — no quoting needed in the value.
+# Apps are built natively on the RPi with:
+#   scripts/examples/gn_build_example.sh <source_dir> out/<name> <gn_args>
+# where <gn_args> come from each app's `modifiers` — these mirror the Matter
+# Test Harness targets (chip-cert-bins), so binaries match how the TH builds:
+#   modifier        gn arg
+#   --------        ------
+#   ipv6only        chip_inet_config_enable_ipv4=false
+#   platform-mdns   chip_mdns="platform"
+#   nfc-commission  chip_enable_nfc_based_commissioning=true
+#   nlfaultinject   chip_with_nlfaultinjection=true
+#   rpc             import("//with_pw_rpc.gni")
+#   clang           is_clang=true
+#
+# To build an app: flip its `enabled` to true. To regenerate this full menu
+# (e.g. after an SDK bump adds apps):
+#   python3 scripts/discover_targets.py --sdk-dir <SDK> --emit-config-apps
+#
+# chip-tool and the python controller are built by their own sections below.
 # ============================================================
-apps:
-  - name: "all-clusters-app"
-    enabled: true
-    source_dir: "examples/all-clusters-app/linux"
-    build_dir:  "examples/all-clusters-app/linux/out/all-clusters-app"
-    binary_name: "chip-all-clusters-app"
-    # Exact args from your working manual command:
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "lighting-app"
-    enabled: true
-    source_dir: "examples/lighting-app/linux"
-    build_dir:  "out/lighting-app"
-    binary_name: "chip-lighting-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "lock-app"
-    enabled: true
-    source_dir: "examples/lock-app/linux"
-    build_dir:  "out/lock-app"
-    binary_name: "chip-lock-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "thermostat-app"
-    enabled: true
-    source_dir: "examples/thermostat/linux"
-    build_dir:  "out/thermostat"
-    binary_name: "thermostat-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "bridge-app"
-    enabled: true
-    source_dir: "examples/bridge-app/linux"
-    build_dir:  "out/bridge-app"
-    binary_name: "chip-bridge-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "air-purifier-app"
-    enabled: true
-    source_dir: "examples/air-purifier-app/linux"
-    build_dir:  "out/air-purifier-app"
-    binary_name: "chip-air-purifier-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "evse-app"
-    enabled: true
-    source_dir: "examples/evse-app/linux"
-    build_dir:  "out/evse-app"
-    binary_name: "chip-evse-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "closure-app"
-    enabled: true
-    source_dir: "examples/closure-app/linux"
-    build_dir:  "out/closure-app"
-    binary_name: "closure-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-  - name: "network-manager-app"
-    enabled: true
-    source_dir: "examples/network-manager-app/linux"
-    build_dir: "examples/network-manager-app/linux/out/network-manager-app"
-    binary_name: "matter-network-manager-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+discovery:
+  apps:
+    # --- currently enabled (the pipeline's active DUT set) ---
+    - { name: all-clusters,                enabled: true,  modifiers: [ipv6only] }        # chip-all-clusters-app
+    - { name: light,                       enabled: true,  modifiers: [ipv6only] }        # chip-lighting-app
+    - { name: lock,                        enabled: true,  modifiers: [ipv6only] }        # chip-lock-app
+    - { name: thermostat,                  enabled: true,  modifiers: [ipv6only] }        # thermostat-app
+    - { name: bridge,                      enabled: true,  modifiers: [ipv6only] }        # chip-bridge-app
+    - { name: air-purifier,                enabled: true,  modifiers: [ipv6only] }        # chip-air-purifier-app
+    - { name: evse,                        enabled: true,  modifiers: [ipv6only] }        # chip-evse-app
+    - { name: closure,                     enabled: true,  modifiers: [ipv6only] }        # closure-app
+    - { name: network-manager,             enabled: true,  modifiers: [ipv6only] }        # matter-network-manager-app (TC-ACL-2.x)
+    # --- available, disabled by default (flip enabled: true to build) ---
+    - { name: air-quality-sensor,          enabled: false, modifiers: [ipv6only] }        # air-quality-sensor-app
+    - { name: all-clusters-minimal,        enabled: false, modifiers: [ipv6only] }        # chip-all-clusters-minimal-app
+    - { name: all-devices,                 enabled: false, modifiers: [ipv6only] }        # all-devices-app
+    - { name: camera,                      enabled: false, modifiers: [clang, ipv6only] } # chip-camera-app  (TH arm64: camera-clang-ipv6only)
+    - { name: camera-controller,           enabled: false, modifiers: [ipv6only] }        # chip-camera-controller
+    - { name: contact-sensor,              enabled: false, modifiers: [ipv6only] }        # contact-sensor-app
+    - { name: dishwasher,                  enabled: false, modifiers: [ipv6only] }        # dishwasher-app
+    - { name: energy-gateway,              enabled: false, modifiers: [ipv6only] }        # chip-energy-gateway-app
+    - { name: fabric-admin,                enabled: false, modifiers: [rpc, ipv6only] }   # fabric-admin
+    - { name: fabric-bridge,               enabled: false, modifiers: [rpc, ipv6only] }   # fabric-bridge-app
+    - { name: fabric-sync,                 enabled: false, modifiers: [ipv6only] }        # fabric-sync
+    - { name: jf-admin-app,                enabled: false, modifiers: [ipv6only] }        # jfa-app
+    - { name: jf-control-app,              enabled: false, modifiers: [ipv6only] }        # jfc-app
+    - { name: light-data-model-no-unique-id, enabled: false, modifiers: [ipv6only] }      # chip-lighting-app
+    - { name: lit-icd,                     enabled: false, modifiers: [ipv6only] }        # lit-icd-app
+    - { name: microwave-oven,              enabled: false, modifiers: [ipv6only] }        # chip-microwave-oven-app
+    - { name: ota-provider,                enabled: false, modifiers: [ipv6only] }        # chip-ota-provider-app
+    - { name: ota-requestor,               enabled: false, modifiers: [ipv6only] }        # chip-ota-requestor-app
+    - { name: refrigerator,                enabled: false, modifiers: [ipv6only] }        # refrigerator-app
+    - { name: rvc,                         enabled: false, modifiers: [ipv6only] }        # chip-rvc-app
+    - { name: terms-and-conditions,        enabled: false, modifiers: [ipv6only] }        # chip-terms-and-conditions-app
+    - { name: tv-app,                      enabled: false, modifiers: [ipv6only] }        # chip-tv-app
+    - { name: tv-casting-app,              enabled: false, modifiers: [ipv6only] }        # chip-tv-casting-app
+    - { name: water-heater,                enabled: false, modifiers: [ipv6only] }        # matter-water-heater-app
+    - { name: water-leak-detector,         enabled: false, modifiers: [ipv6only] }        # water-leak-detector-app
 
 
 # ============================================================
-# chip-tool
+# chip-tool  (built separately — tests require it)
 #
-# Manual command equivalent:
-#   scripts/examples/gn_build_example.sh \
-#       examples/chip-tool \
-#       out/chip-tool \
-#       'chip_mdns="platform" chip_inet_config_enable_ipv4=false'
+# Matches the Test Harness target:
+#   linux-<arch>-chip-tool-ipv6only-platform-mdns-nfc-commission
 # ============================================================
 chip_tool:
   enabled: true
   source_dir: "examples/chip-tool"
   build_dir:  "out/chip-tool"
   binary_name: "chip-tool"
-  extra_gn_args: 'chip_mdns="platform" chip_inet_config_enable_ipv4=false'
+  extra_gn_args: 'chip_mdns="platform" chip_inet_config_enable_ipv4=false chip_enable_nfc_based_commissioning=true chip_device_config_enable_thread_meshcop=true'
 
 # ============================================================
 # Python Controller
 #
-# Manual command equivalent:
-#   source scripts/activate.sh
-#   scripts/build_python.sh -m platform -d true -i python_env
+# Matter Test Harness builds this (chip-cert-bins Dockerfile) with:
+#   scripts/build_python.sh -m platform -d true --enable_nfc true -i out/python_env
+#
+# build.sh always passes: -m platform -d true -i <install_venv_name>
+# extra_args below appends the rest. We match the TH (--enable_nfc true) and
+# ALSO keep --enable_thread_meshcop true (needed for our Thread testing; the
+# TH does not set it). ble stays on (build_python.sh default, as in the TH).
 #
 # install_venv_name: the -i argument — venv created inside the SDK dir
 # ============================================================
 python_controller:
   enabled: true
   install_venv_name: "python_env"   # SDK creates <sdk_dir>/python_env/
-  # Optional extra arguments passed directly to build_python.sh
-  # Examples:
-  #   "--enable_thread_meshcop true"
-  #   "--enable_ble false"
-  #   "--enable_thread_meshcop true --enable_ble false"
-  # Leave empty string "" to pass no extra args
-  extra_args: "--enable_thread_meshcop true"
+  # Appended to build_python.sh after "-m platform -d true -i <venv>".
+  # TH parity = "--enable_nfc true"; we add "--enable_thread_meshcop true" too.
+  # Leave empty string "" to pass no extra args.
+  extra_args: "--enable_nfc true --enable_thread_meshcop true"
 
 # ============================================================
 # Raspberry Pi target

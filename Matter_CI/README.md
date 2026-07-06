@@ -32,9 +32,10 @@ Trigger builds from your browser — no SSH, no Tailscale, no secrets needed.
 Matter_CHIP/
 ├── Matter_CI/
 │   ├── config/
-│   │   └── build_config.yaml      ← All build settings (SDK branch/SHA, apps, RPi path)
+│   │   └── build_config.yaml      ← All build settings (SDK branch/SHA, app selection, RPi path)
 │   ├── scripts/
 │   │   ├── build.sh               ← Main build script — runs ON the RPi
+│   │   ├── discover_targets.py    ← Resolves reference apps dynamically from the SDK
 │   │   ├── validate_config.py     ← Config validator — runs on GitHub cloud runner
 │   │   └── collect_build_info.py  ← Post-build summary — runs ON the RPi
 │   ├── apt-packages.txt           ← System packages auto-installed before every build
@@ -67,6 +68,7 @@ GitHub Actions
                 │     ├── Step 1: git clone / git pull SDK        [full / skip-clone]
                 │     ├── Step 2: clean old builds + .environment [full / skip-clone]
                 │     ├── Step 3: source scripts/bootstrap.sh     [full / skip-clone]
+                │     ├── Step 3.5: discover_targets.py (resolve reference apps from SDK)
                 │     ├── Step 4: source scripts/activate.sh
                 │     ├── Step 5: gn_build_example.sh (reference apps)
                 │     ├── Step 6: gn_build_example.sh (chip-tool)
@@ -347,7 +349,7 @@ When clicking **Run workflow**, you can override config values at runtime:
 | **Build mode** | `full` / `skip-clone` / `skip-all` | `skip-clone` |
 | **SDK branch** | Override branch (e.g. `v1.6-branch`, `master`) | Uses `build_config.yaml` value |
 | **SDK SHA** | Pin to a specific commit hash | Uses `build_config.yaml` value |
-| **Target apps** | Comma-separated apps to build (e.g. `all-clusters-app`) | Uses `build_config.yaml` enabled list |
+| **Target apps** | Comma-separated SDK shorthands (e.g. `all-clusters,light`) — enables exactly these in `discovery.apps`, disables the rest | Uses `enabled` flags in `discovery.apps` |
 
 **Priority:** Runtime input → `build_config.yaml` value → branch HEAD
 
@@ -368,27 +370,29 @@ sdk:
                              # Multiple: "linux esp32"
   submodule_jobs: 4          # Parallel submodule checkout jobs
 
-apps:
-  - name: "all-clusters-app"
-    enabled: true            # true = build, false = skip
-    source_dir: "examples/all-clusters-app/linux"
-    build_dir: "examples/all-clusters-app/linux/out/all-clusters-app"
-    binary_name: "chip-all-clusters-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
+# Reference apps are DISCOVERED DYNAMICALLY from the SDK — there is no
+# hardcoded source_dir/binary_name list. At build time discover_targets.py
+# resolves each app's real source_dir + binary from the SDK's HostApp
+# mapping. discovery.apps enumerates EVERY buildable app (~34); you flip
+# `enabled` per app. `modifiers` mirror the Matter Test Harness targets
+# (chip-cert-bins) and become gn args, so binaries build like the TH:
+#   ipv6only → chip_inet_config_enable_ipv4=false | platform-mdns → chip_mdns="platform"
+#   nfc-commission → chip_enable_nfc_based_commissioning=true | rpc → import("//with_pw_rpc.gni")
+#   nlfaultinject → chip_with_nlfaultinjection=true | clang → is_clang=true
+discovery:
+  apps:
+    - { name: all-clusters,    enabled: true,  modifiers: [ipv6only] }        # chip-all-clusters-app
+    - { name: light,           enabled: true,  modifiers: [ipv6only] }        # chip-lighting-app
+    - { name: network-manager, enabled: true,  modifiers: [ipv6only] }        # matter-network-manager-app
+    - { name: fabric-admin,    enabled: false, modifiers: [rpc, ipv6only] }   # fabric-admin
+    # ... ~34 apps total; regenerate with --emit-config-apps (see below)
 
-  - name: "lighting-app"
-    enabled: false
-    source_dir: "examples/lighting-app/linux"
-    build_dir: "out/lighting-app"
-    binary_name: "chip-lighting-app"
-    extra_gn_args: "chip_inet_config_enable_ipv4=false"
-
-chip_tool:
+chip_tool:               # built separately; matches TH chip-tool target
   enabled: true
   source_dir: "examples/chip-tool"
   build_dir: "out/chip-tool"
   binary_name: "chip-tool"
-  extra_gn_args: 'chip_mdns="platform" chip_inet_config_enable_ipv4=false'
+  extra_gn_args: 'chip_mdns="platform" chip_inet_config_enable_ipv4=false chip_enable_nfc_based_commissioning=true'
 
 python_controller:
   enabled: true
@@ -422,29 +426,42 @@ automatically via `pip3 install --break-system-packages`.
 
 ---
 
-## Adding a New Reference App
+## Enabling / Adding a Reference App
 
-In `build_config.yaml`, add under `apps:` and set `enabled: true`:
+`discovery.apps` in `build_config.yaml` already lists **every** buildable
+reference app (~34). To build one, just flip its `enabled` to `true` — no
+`source_dir` / `binary_name` to look up (resolved automatically from the SDK):
 
 ```yaml
-- name: "lock-app"
-  enabled: true
-  source_dir: "examples/lock-app/linux"
-  build_dir: "out/lock-app"
-  binary_name: "chip-lock-app"
-  extra_gn_args: "chip_inet_config_enable_ipv4=false"
+discovery:
+  apps:
+    - { name: refrigerator, enabled: true, modifiers: [ipv6only] }   # ← was false
 ```
 
-Available reference apps:
-- `all-clusters-app` — all clusters
-- `lighting-app` — on/off light
-- `lock-app` — door lock
-- `thermostat` — thermostat
-- `bridge-app` — bridge
-- `contact-sensor-app` — contact sensor
-- `window-app` — window covering
+**`modifiers`** control the gn build args and mirror the Matter Test Harness
+(`chip-cert-bins`) targets, so your binaries build the same way the TH does:
 
-Trigger with `skip-all` if SDK hasn't changed.
+| modifier | gn arg | used by (TH) |
+|---|---|---|
+| `ipv6only` | `chip_inet_config_enable_ipv4=false` | every reference app |
+| `platform-mdns` | `chip_mdns="platform"` | chip-tool, shell, chip-cert |
+| `nfc-commission` | `chip_enable_nfc_based_commissioning=true` | chip-tool |
+| `rpc` | `import("//with_pw_rpc.gni")` | fabric-admin, fabric-bridge |
+| `nlfaultinject` | `chip_with_nlfaultinjection=true` | all-clusters fault-injection variant |
+| `clang` | `is_clang=true` | camera (arm64) |
+
+**To regenerate the full app menu** (e.g. after an SDK bump adds apps), paste
+the output under `discovery:`:
+
+```bash
+python3 Matter_CI/scripts/discover_targets.py \
+    --sdk-dir /home/ubuntu/connectedhomeip --emit-config-apps
+```
+
+> Enabling many apps is heavy on RPi build time + disk — enable only what you
+> test. `chip-tool` and the python controller build from their own sections.
+
+Trigger with `skip-all` if the SDK hasn't changed.
 
 ---
 
@@ -468,8 +485,8 @@ GitHub → Actions → (click run) → Artifacts → build-summary-N
   Commit     : d89f71558bf0c429ec60f3f76ea371775731701d
 
 ── Reference Apps ────────────────────────────────────────────
-  ✅  all-clusters-app    48.2 MB
-  ⏭   lighting-app        disabled
+  ✅  all-clusters         48.2 MB
+  ✅  light                41.7 MB
 
 ── chip-tool ─────────────────────────────────────────────────
   ✅  chip-tool           22.1 MB
@@ -565,7 +582,7 @@ sudo ./svc.sh start
 
 | File | Runs on | Purpose |
 |---|---|---|
-| `config/build_config.yaml` | — | All settings — SDK branch/SHA, apps, RPi path |
+| `config/build_config.yaml` | — | All settings — SDK branch/SHA, app selection (`discovery:`), RPi path |
 | `apt-packages.txt` | RPi | System packages auto-installed before every build |
 | `scripts/build.sh` | RPi | Main build orchestrator — all 3 modes |
 | `scripts/validate_config.py` | GitHub cloud runner | Validates YAML before any build starts |

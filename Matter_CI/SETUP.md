@@ -137,17 +137,23 @@ sdk:
   branch: "master"          # or "v1.4-branch", "v1.5-branch", etc.
   sha: ""                   # leave empty, or pin to a commit hash
 
-apps:
-  - name: "all-clusters-app"
-    enabled: true           # ← set to true/false per your needs
-    ...
+discovery:                  # reference apps are discovered from the SDK
+  apps:                     # ← full menu (~34); flip enabled per app
+    - { name: all-clusters,    enabled: true,  modifiers: [ipv6only] }
+    - { name: light,           enabled: true,  modifiers: [ipv6only] }
+    - { name: network-manager, enabled: true,  modifiers: [ipv6only] }
+    - { name: refrigerator,    enabled: false, modifiers: [ipv6only] }
+    # ... etc — modifiers mirror the Matter Test Harness build args
 
 rpi:
   user: "ubuntu"            # your RPi SSH user
   sdk_dir: "/home/ubuntu/connectedhomeip"   # where SDK will be cloned on RPi
 ```
 
-**To enable/disable a specific app**, just flip `enabled: true` or `enabled: false`.
+**To build an app**, flip its `enabled` to `true`. `modifiers` mirror how the
+Matter Test Harness builds each app (`ipv6only`, `rpc`, `platform-mdns`, …).
+Regenerate the full menu after an SDK bump with:
+`python3 scripts/discover_targets.py --sdk-dir <SDK> --emit-config-apps`.
 
 **To pin to a specific Matter SDK commit:**
 ```yaml
@@ -209,7 +215,7 @@ Push any change to `config/build_config.yaml` or `scripts/build.sh` to
 3. Click **"Run workflow"** button (top right)
 4. Options:
    - **Skip SDK clone** — check this if the SDK is already cloned on RPi and you only want to rebuild binaries (saves 30–60 min)
-   - **Target apps** — type comma-separated app names to override the config (e.g. `all-clusters-app,lighting-app`). Leave empty to use the config file.
+   - **Target apps** — type comma-separated SDK shorthand names to build (e.g. `all-clusters,light`); enables exactly those in `discovery.apps` and disables the rest. Leave empty to use the config file.
 
 ### 5.3 Watch the run
 
@@ -242,8 +248,8 @@ SDK Branch    : master
 SDK Commit    : a1b2c3d4e5f6...
 
 ── Reference Apps ──────────────────────────────────────────
-  ✅  all-clusters-app              48.2 MB   /home/ubuntu/.../chip-all-clusters-app
-  ⏭  lighting-app                            (disabled)
+  ✅  all-clusters                  48.2 MB   /home/ubuntu/.../chip-all-clusters-app
+  ✅  light                         41.7 MB   /home/ubuntu/.../chip-lighting-app
 
 ── chip-tool ───────────────────────────────────────────────
   ✅  chip-tool                     22.1 MB   /home/ubuntu/.../chip-tool
@@ -328,7 +334,7 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 | File | Where it runs | Purpose |
 |---|---|---|
-| `config/build_config.yaml` | Config only | All settings: SDK branch/SHA, which apps to build |
+| `config/build_config.yaml` | Config only | All settings: SDK branch/SHA, app selection (`discovery.apps`) |
 | `scripts/validate_config.py` | GitHub runner | Catches config errors before touching RPi |
 | `scripts/build.sh` | RPi | Clones SDK, bootstraps, builds everything |
 | `scripts/collect_build_info.py` | RPi | Post-build summary of binary sizes |

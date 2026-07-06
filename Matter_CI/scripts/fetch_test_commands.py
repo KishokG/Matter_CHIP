@@ -27,6 +27,12 @@ except ImportError:
 
 SCRIPT_DIR  = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
+
+# Reference apps are resolved dynamically from the SDK (see discover_targets.py)
+# instead of a hardcoded apps: block in build_config.yaml.
+sys.path.insert(0, str(SCRIPT_DIR))
+from discover_targets import resolve_pipeline_apps
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 
@@ -249,9 +255,13 @@ def extract_binary_from_dut(dut_cmd: str) -> str:
 # =============================================================================
 # Check if a binary name belongs to a failed app
 # =============================================================================
-def is_app_failed(binary_name: str, failed_apps: set[str], cfg: dict) -> str:
-    """Returns app name if binary belongs to a failed app, else empty string."""
-    for app in cfg.get("apps", []):
+def is_app_failed(binary_name: str, failed_apps: set[str], apps: list[dict]) -> str:
+    """Returns app name if binary belongs to a failed app, else empty string.
+
+    `apps` is the dynamically resolved reference-app list (from
+    resolve_pipeline_apps) — same names build.sh used for its status logs.
+    """
+    for app in apps:
         if app.get("binary_name") == binary_name:
             # Match by name in failed_apps set
             if app["name"] in failed_apps:
@@ -275,6 +285,12 @@ def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str]) -> list[dict]:
 
     # Load failed build status to skip TCs for failed apps
     failed_apps = load_build_status(cfg)
+    # Resolve the reference-app list once (only needed to map a failed binary
+    # back to its app name) — skipped entirely if nothing failed to build.
+    resolved_apps = []
+    if failed_apps:
+        sdk_dir = Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
+        resolved_apps = resolve_pipeline_apps(sdk_dir, cfg)
 
     def cell(row, idx):
         return row[idx].strip() if len(row) > idx else ""
@@ -308,7 +324,7 @@ def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str]) -> list[dict]:
         # Skip if the required app failed to build
         if failed_apps:
             binary = extract_binary_from_dut(dut_cmd)
-            failed_app = is_app_failed(binary, failed_apps, cfg)
+            failed_app = is_app_failed(binary, failed_apps, resolved_apps)
             if failed_app:
                 skipped_build.append(f"{tc_id} (app '{failed_app}' failed to build)")
                 continue

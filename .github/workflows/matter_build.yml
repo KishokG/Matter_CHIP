@@ -39,7 +39,7 @@ on:
         required: false
         default: ""
       target_apps:
-        description: "Override apps to build e.g. all-clusters-app,lighting-app. Empty = use config."
+        description: "Override discovery.include (SDK shorthands, e.g. all-clusters,light,network-manager). Empty = use config."
         required: false
         default: ""
       cluster_filter:
@@ -133,17 +133,28 @@ jobs:
         env:
           TARGET_APPS: ${{ github.event.inputs.target_apps }}
         run: |
+          # Apps are resolved dynamically from the SDK (discover_targets.py).
+          # Overriding "which apps to build" means flipping the enabled flags in
+          # discovery.apps: only the named apps are enabled, all others disabled.
+          # Names are SDK shorthands (e.g. all-clusters, light, network-manager)
+          # — NOT examples/ folder names.
           python3 - << 'PY'
           import yaml, os
           path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'Matter_CI/config/build_config.yaml')
           with open(path) as f:
               cfg = yaml.safe_load(f)
-          target = [t.strip() for t in os.environ['TARGET_APPS'].split(',') if t.strip()]
-          for app in cfg['apps']:
-              app['enabled'] = app['name'] in target
+          target = {t.strip() for t in os.environ['TARGET_APPS'].split(',') if t.strip()}
+          disc = cfg.setdefault('discovery', {})
+          apps = disc.get('apps')
+          if isinstance(apps, list):
+              for app in apps:
+                  app['enabled'] = app.get('name') in target
+          else:
+              # legacy include model
+              disc['include'] = sorted(target)
           with open(path, 'w') as f:
-              yaml.dump(cfg, f, default_flow_style=False)
-          print('Enabled apps set to:', target)
+              yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+          print('Enabled apps overridden to:', sorted(target))
           PY
 
       - name: Check PyYAML

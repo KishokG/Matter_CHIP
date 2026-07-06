@@ -69,12 +69,20 @@ print("" if val is None else val)
 PY
 }
 
+# Emits one JSON object per line for each enabled reference app, read from
+# the discovered-apps cache produced by discover_apps(). Same output contract
+# as before (one compact JSON dict per line) so build_apps/clean/summary are
+# unchanged. Returns nothing if discovery hasn't run yet.
 cfg_apps() {
-    python3 - "${CONFIG_FILE}" <<'PY'
-import sys, yaml, json
-cfg = yaml.safe_load(open(sys.argv[1]))
-for a in cfg.get("apps", []):
-    if a.get("enabled", False):
+    [[ -f "${DISCOVERED_APPS_JSON}" ]] || return 0
+    python3 - "${DISCOVERED_APPS_JSON}" <<'PY'
+import sys, json
+try:
+    apps = json.load(open(sys.argv[1]))
+except Exception:
+    apps = []
+for a in apps:
+    if a.get("enabled", True):
         print(json.dumps(a))
 PY
 }
@@ -98,6 +106,12 @@ SDK_SHA="${RUNTIME_SDK_SHA:-${CONFIG_SHA}}"
 # Log dir for build error logs
 BUILD_LOG_DIR="${PROJECT_ROOT}/logs/build_logs"
 mkdir -p "${BUILD_LOG_DIR}"
+
+# Resolved reference-app list, produced once by discover_apps() and read by
+# cfg_apps() everywhere else. This is the single source of truth for the
+# build — the hardcoded apps: block in build_config.yaml is gone; apps are
+# resolved dynamically from the SDK's own HostApp mapping.
+DISCOVERED_APPS_JSON="${BUILD_LOG_DIR}/discovered_apps.json"
 
 # =============================================================================
 # Error conclusion helper
@@ -344,33 +358,25 @@ clean_old_builds() {
         ok "Removed .environment/"
     fi
 
-    while IFS= read -r line; do
-        local build_dir
-        build_dir=$(echo "${line}" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['build_dir'])")
-        if [[ -d "${build_dir}" ]]; then
-            log "Removing: ${build_dir}"
-            rm -rf "${build_dir}"
-        fi
-    done < <(cfg_apps)
-
-    if cfg_bool chip_tool enabled; then
-        local ct_build
-        ct_build=$(cfg_get chip_tool build_dir)
-        [[ -d "${ct_build}" ]] && rm -rf "${ct_build}" && log "Removed chip-tool build dir"
+    # All reference apps, chip-tool and the python controller build into
+    # out/<name> (see discovery + chip_tool config; python_lib lives under
+    # out/ too). Removing out/ gives a clean rebuild without needing the
+    # resolved app list here — which isn't available yet, since discovery
+    # runs after bootstrap (it needs scripts/activate.sh).
+    if [[ -d "out" ]]; then
+        log "Removing out/ (all reference app + chip-tool build outputs)..."
+        rm -rf out
+        ok "Removed out/"
     fi
 
     if cfg_bool python_controller enabled; then
+        # The python venv lives at the SDK root (not under out/), so remove it
+        # explicitly. Its build output (out/python_lib) was already removed
+        # with out/ above — otherwise ninja would do an incremental build
+        # (e.g. 140 steps instead of 800+) from cached .o files.
         local venv_name
         venv_name=$(cfg_get python_controller install_venv_name)
         [[ -d "${venv_name}" ]] && rm -rf "${venv_name}" && log "Removed python venv: ${venv_name}"
-
-        # Also remove python_lib build output — otherwise ninja does incremental
-        # build (e.g. 140 steps instead of 800+) because .o files are cached
-        if [[ -d "out/python_lib" ]]; then
-            log "Removing: out/python_lib (python controller build cache)..."
-            rm -rf out/python_lib
-            ok "Removed out/python_lib"
-        fi
     fi
 
     ok "Clean complete."
@@ -404,6 +410,51 @@ activate_env() {
     fi
 
     ok "Environment activated. gn=$(command -v gn)  ninja=$(command -v ninja)"
+}
+
+# =============================================================================
+# STEP 3.5 — Discover reference apps from the SDK (replaces hardcoded apps:)
+#
+# Runs discover_targets.py --emit-apps-json to resolve each app's real
+# source_dir + binary_name from the SDK's own HostApp mapping, filtered by
+# discovery.include / discovery.exclude in build_config.yaml. Must run AFTER
+# bootstrap — it sources scripts/activate.sh to query build_examples.py.
+# =============================================================================
+discover_apps() {
+    banner "Step 3.5 — Discover Reference Apps"
+
+    local discover_log="${BUILD_LOG_DIR}/discover.log"
+    log "Resolving reference apps from SDK (discover_targets.py)..."
+    log "  SDK    : ${SDK_DIR}"
+    log "  Config : ${CONFIG_FILE}"
+
+    if ! python3 "${SCRIPT_DIR}/discover_targets.py"             --sdk-dir "${SDK_DIR}"             --config "${CONFIG_FILE}"             --emit-apps-json             > "${DISCOVERED_APPS_JSON}" 2> "${discover_log}"; then
+        cat "${discover_log}" >&2
+        fail "❌ APP DISCOVERY FAILED — could not resolve apps from SDK
+   Log: ${discover_log}
+   Common causes: SDK not bootstrapped, or build_examples.py query failed."
+    fi
+
+    local n
+    n=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))"             "${DISCOVERED_APPS_JSON}" 2>/dev/null || echo 0)
+
+    if [[ "${n}" -eq 0 ]]; then
+        cat "${discover_log}" >&2
+        fail "❌ APP DISCOVERY returned 0 apps
+   Check discovery.include in build_config.yaml (names must be SDK shorthands).
+   Log: ${discover_log}"
+    fi
+
+    ok "Discovered ${n} reference app(s) → ${DISCOVERED_APPS_JSON}"
+    # Surface any resolution warnings (e.g. an include name that didn't resolve)
+    grep -E "^\[WARN\]" "${discover_log}" >&2 || true
+
+    python3 - "${DISCOVERED_APPS_JSON}" <<'PY'
+import json, sys
+for a in json.load(open(sys.argv[1])):
+    print(f"   • {a['name']:24} {a['source_dir']:44} -> {a['binary_name']}")
+PY
+    echo ""
 }
 
 # =============================================================================
@@ -833,6 +884,11 @@ main() {
             fi
             ;;
     esac
+
+    # Resolve the reference-app list from the SDK (needs activate.sh, so it
+    # must come after bootstrap in full/skip-clone; in skip-all the SDK was
+    # already bootstrapped by a previous run).
+    discover_apps
 
     build_apps
     build_chip_tool
