@@ -486,6 +486,7 @@ build_apps() {
         log "│  source   : ${source_dir}"
         log "│  output   : ${build_dir}"
         log "│  gn_args  : ${extra_gn_args:-<none>}"
+        log "│  command  : cd ${SDK_DIR} && scripts/examples/gn_build_example.sh ${source_dir} ${build_dir} ${extra_gn_args}"
 
         # Validate source directory exists before attempting build
         if [[ ! -d "${source_dir}" ]]; then
@@ -618,6 +619,7 @@ build_chip_tool() {
     start_ts=$(date +%s)
 
     log "Building chip-tool..."
+    log "  command : cd ${SDK_DIR} && scripts/examples/gn_build_example.sh ${source_dir} ${build_dir} ${extra_gn_args}"
     scripts/examples/gn_build_example.sh             "${source_dir}"             "${build_dir}"             ${extra_gn_args}             > "${tmp_log}" 2>&1 &
     local build_pid=$!
 
@@ -699,6 +701,7 @@ build_python_controller() {
     start_ts=$(date +%s)
 
     log "Building Python controller..."
+    log "  command : cd ${SDK_DIR} && source scripts/activate.sh && scripts/build_python.sh -m platform -d true -i ${install_venv_name} ${extra_args}"
     scripts/build_python.sh             -m platform             -d true             -i "${install_venv_name}"             ${extra_args}             > "${tmp_log}" 2>&1 &
     local build_pid=$!
 
