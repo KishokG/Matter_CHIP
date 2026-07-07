@@ -304,7 +304,8 @@ jobs:
           # ~/matter-output on this same mac-mini runner. No SDK on the host.
           export MATTER_OUTPUT_DIR="${HOME}/matter-output"
 
-          pip3 install google-auth google-auth-httplib2 google-api-python-client \
+          # Host-side deps (macOS Mac mini has no apt python3-yaml like the RPi).
+          pip3 install pyyaml google-auth google-auth-httplib2 google-api-python-client \
             --break-system-packages --quiet
 
           python3 Matter_CI/scripts/upload_artifacts.py \
@@ -343,20 +344,20 @@ jobs:
           GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAILS:       ${{ secrets.NOTIFY_EMAILS }}
         run: |
-          export MATTER_SDK_DIR=$(python3 -c "
-          import yaml
-          cfg = yaml.safe_load(open('Matter_CI/config/build_config.yaml'))
-          print(cfg['rpi']['sdk_dir'])
-          " 2>/dev/null || echo "/home/ubuntu/connectedhomeip")
+          # Host-side deps (macOS has no apt python3-yaml like the RPi).
+          pip3 install pyyaml --break-system-packages --quiet
+
+          export MATTER_OUTPUT_DIR="${HOME}/matter-output"
 
           BUILD_STATUS="success"
           # Get drive link from upload-artifacts job output
           DRIVE_LINK="${{ needs.upload-artifacts.outputs.drive_link }}"
 
-          if [[ -f Matter_CI/logs/build_logs/build_status.json ]]; then
+          # build_status.json is written by the container into ~/matter-output.
+          if [[ -f "${MATTER_OUTPUT_DIR}/build_status.json" ]]; then
             FAILED=$(python3 -c "
           import json
-          s = json.load(open('Matter_CI/logs/build_logs/build_status.json'))
+          s = json.load(open('${MATTER_OUTPUT_DIR}/build_status.json'))
           print(len([k for k,v in s.items() if v=='FAIL']))
           " 2>/dev/null || echo "0")
             [[ "${FAILED}" -gt 0 ]] && BUILD_STATUS="partial"
