@@ -71,7 +71,7 @@ discovery:
     - { name: microwave-oven,              enabled: true, modifiers: [ipv6only] }        # chip-microwave-oven-app
     - { name: ota-provider,                enabled: true, modifiers: [ipv6only] }        # chip-ota-provider-app
     - { name: ota-requestor,               enabled: true, modifiers: [ipv6only] }        # chip-ota-requestor-app
-    - { name: refrigerator,                enabled: true, modifiers: [ipv6only] }        # refrigerator-app
+    - { name: refrigerator,                enabled: false, modifiers: [ipv6only] }        # refrigerator-app
     - { name: rvc,                         enabled: true, modifiers: [ipv6only] }        # chip-rvc-app
     - { name: terms-and-conditions,        enabled: true, modifiers: [ipv6only] }        # chip-terms-and-conditions-app
     - { name: tv-app,                      enabled: true, modifiers: [ipv6only] }        # chip-tv-app
