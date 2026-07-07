@@ -62,13 +62,15 @@ libusb-1.0-0-dev
 libudev-dev
 
 # ── PC/SC lite (required when NFC commissioning is enabled) ───────────────────
-# Needed at gn-gen time by src/platform/Linux nfc_commissioning_config whenever
-# chip_enable_nfc_based_commissioning=true (chip-tool nfc-commission modifier
-# and python controller --enable_nfc true). Matches the Matter Test Harness
-# build image (chip-cert-bins installs libpcsclite-dev). The -dev package pulls
-# in the libpcsclite1 runtime lib. (pcscd daemon is only needed to actually run
-# NFC commissioning against a reader — not required to build.)
+# NFC commissioning (chip_enable_nfc_based_commissioning=true — chip-tool
+# nfc-commission modifier and python controller --enable_nfc true) needs:
+#   libpcsclite-dev  — build/gn-gen time (pkg-config libpcsclite); pulls in
+#                      the libpcsclite1 runtime lib.
+#   pcscd            — PC/SC smart-card daemon, needed at RUN time to talk to
+#                      an NFC reader during commissioning.
+# Matches the Matter Test Harness image (chip-cert-bins installs all three).
 libpcsclite-dev
+pcscd
 
 # ── GD library ───────────────────────────────────────────────────────────────
 libgd-dev
