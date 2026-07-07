@@ -39,6 +39,25 @@ LOG_DIR="${OUTPUT}/build_logs"
 DISCOVERED_APPS_JSON="${LOG_DIR}/discovered_apps.json"
 mkdir -p "${LOG_DIR}" "${OUTPUT}/apps" "${OUTPUT}/wheels"
 
+# ── Build mode ───────────────────────────────────────────────────────────────
+# Mirrors the RPi build.sh modes, adapted to the container:
+#   full        → re-clone SDK + clean + bootstrap + build   (ignore baked SDK)
+#   skip-clone  → git-pull SDK   + clean + bootstrap + build  (DEFAULT)
+#   skip-all    → build only, using the SDK + env baked into the image as-is
+# The image already has a clone + bootstrap baked; full/skip-clone re-do them so
+# the environment matches freshly-pulled code, skip-all is the fast path.
+BUILD_MODE="skip-clone"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode) BUILD_MODE="$2"; shift 2 ;;
+        *) echo "[WARN] Unknown arg: $1"; shift ;;
+    esac
+done
+case "${BUILD_MODE}" in
+    full|skip-clone|skip-all) ;;
+    *) echo "[ERROR] Invalid --mode '${BUILD_MODE}' (full|skip-clone|skip-all)"; exit 1 ;;
+esac
+
 # ── Colours / logging ────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
@@ -159,39 +178,9 @@ do_build() {
 }
 
 # =============================================================================
-# STEP 1 — Update SDK to latest (no clone, no bootstrap — those are baked)
+# STEP 1 — Prepare the SDK (clone / pull / nothing, per --mode)
 # =============================================================================
-update_sdk() {
-    banner "Step 1 — Update SDK (git pull)"
-    [[ -d "${SDK_DIR}/.git" ]] || fail "❌ SDK not found at ${SDK_DIR} — is the image built correctly?"
-
-    local branch; branch=$(cfg_get sdk branch); branch="${branch:-master}"
-    local sha;    sha=$(cfg_get sdk sha)
-    local image_branch=""; [[ -f /image-sdk-branch ]] && image_branch=$(cat /image-sdk-branch)
-
-    log "SDK dir      : ${SDK_DIR}"
-    log "Config branch: ${branch}"
-    [[ -n "${image_branch}" ]] && log "Image branch : ${image_branch}"
-    if [[ -n "${image_branch}" && "${image_branch}" != "${branch}" ]]; then
-        warn "Config branch (${branch}) differs from image branch (${image_branch})."
-        warn "The image was bootstrapped for '${image_branch}'; switching branches may need an image rebuild."
-    fi
-
-    cd "${SDK_DIR}"
-    log "Current commit: $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
-    git fetch --tags origin "${branch}" || fail "❌ git fetch failed for branch '${branch}'"
-
-    if [[ -n "${sha}" ]]; then
-        log "Pinning to SHA: ${sha}"
-        git checkout -f "${sha}" || fail "❌ Could not checkout SHA '${sha}'"
-    else
-        # Hard-reset to the remote branch tip (out/ and .environment are
-        # git-ignored, so they survive; guarantees a clean, latest tree).
-        git checkout -f "${branch}" 2>/dev/null || git checkout -B "${branch}" "origin/${branch}"
-        git reset --hard "origin/${branch}" || fail "❌ Could not reset to origin/${branch}"
-    fi
-    ok "SDK now at: $(git rev-parse --short HEAD)  ($(git rev-parse --abbrev-ref HEAD 2>/dev/null))"
-
+_checkout_submodules() {
     log "Syncing submodules (platform: linux)..."
     for attempt in 1 2 3; do
         python3 scripts/checkout_submodules.py \
@@ -200,6 +189,72 @@ update_sdk() {
             && break || { warn "submodule checkout attempt ${attempt}/3 failed — retrying in 5s"; sleep 5; }
     done
     ok "Submodules synced."
+}
+
+# full — re-clone the SDK fresh (ignore the baked checkout entirely)
+sdk_clone() {
+    banner "Step 1 — Clone SDK (full)"
+    local repo branch
+    repo=$(cfg_get sdk repo); branch=$(cfg_get sdk branch); branch="${branch:-master}"
+    [[ -n "${repo}" ]] || fail "❌ sdk.repo is empty in build_config.yaml"
+    log "Repo   : ${repo}"
+    log "Branch : ${branch}"
+    warn "full mode: re-cloning + re-bootstrapping inside the container (slow — "
+    warn "this re-does the work baked into the image)."
+    rm -rf "${SDK_DIR}"
+    git clone --branch "${branch}" "${repo}" "${SDK_DIR}" \
+        || fail "❌ Clone failed: ${repo} (${branch})"
+    cd "${SDK_DIR}"
+    local sha; sha=$(cfg_get sdk sha)
+    [[ -n "${sha}" ]] && { log "Pinning to SHA: ${sha}"; git checkout -f "${sha}" || fail "❌ checkout ${sha} failed"; }
+    ok "SDK cloned → $(git rev-parse --short HEAD)"
+    _checkout_submodules
+}
+
+# skip-clone — update the baked SDK checkout to latest (git pull)
+sdk_update() {
+    banner "Step 1 — Update SDK (skip-clone / git pull)"
+    [[ -d "${SDK_DIR}/.git" ]] || fail "❌ SDK not found at ${SDK_DIR} — image built correctly?"
+    local branch sha image_branch
+    branch=$(cfg_get sdk branch); branch="${branch:-master}"
+    sha=$(cfg_get sdk sha)
+    image_branch=""; [[ -f /image-sdk-branch ]] && image_branch=$(cat /image-sdk-branch)
+    log "Config branch: ${branch}"
+    if [[ -n "${image_branch}" && "${image_branch}" != "${branch}" ]]; then
+        warn "Config branch (${branch}) != image branch (${image_branch}) — consider rebuilding the image."
+    fi
+    cd "${SDK_DIR}"
+    log "Current commit: $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
+    git fetch --tags origin "${branch}" || fail "❌ git fetch failed for '${branch}'"
+    if [[ -n "${sha}" ]]; then
+        log "Pinning to SHA: ${sha}"
+        git checkout -f "${sha}" || fail "❌ checkout ${sha} failed"
+    else
+        git checkout -f "${branch}" 2>/dev/null || git checkout -B "${branch}" "origin/${branch}"
+        git reset --hard "origin/${branch}" || fail "❌ reset to origin/${branch} failed"
+    fi
+    ok "SDK now at: $(git rev-parse --short HEAD)"
+    _checkout_submodules
+}
+
+# clean — remove build outputs + the pigweed env (forces a clean bootstrap),
+# mirroring build.sh's clean_old_builds. Used by full + skip-clone.
+clean_builds() {
+    banner "Step 1b — Clean old builds + environment"
+    cd "${SDK_DIR}"
+    [[ -d out ]] && { log "Removing out/ ..."; rm -rf out; }
+    [[ -d .environment ]] && { log "Removing .environment/ ..."; rm -rf .environment; }
+    ok "Clean complete."
+}
+
+# bootstrap — recreate the pigweed env. Used by full + skip-clone (after clean),
+# so the environment matches freshly-cloned/pulled code.
+bootstrap_sdk() {
+    banner "Step 1c — Bootstrap"
+    cd "${SDK_DIR}"
+    log "Running scripts/bootstrap.sh (this is the slow step)..."
+    bash scripts/bootstrap.sh || fail "❌ bootstrap.sh failed — check apt-packages.txt / SDK deps."
+    ok "Bootstrap complete."
 }
 
 # =============================================================================
@@ -412,10 +467,27 @@ main() {
     log "Config : ${CONFIG_FILE}"
     log "SDK    : ${SDK_DIR}"
     log "Output : ${OUTPUT}"
+    log "Mode   : ${BUILD_MODE}"
 
     [[ -f "${CONFIG_FILE}" ]] || fail "❌ build_config.yaml not found at ${CONFIG_FILE} (is /matter-ci mounted?)"
 
-    update_sdk
+    # Mode dispatch (mirrors build.sh):
+    #   full       → clone + clean + bootstrap
+    #   skip-clone → pull  + clean + bootstrap
+    #   skip-all   → nothing (use the SDK + env baked into the image as-is)
+    case "${BUILD_MODE}" in
+        full)
+            sdk_clone; clean_builds; bootstrap_sdk ;;
+        skip-clone)
+            sdk_update; clean_builds; bootstrap_sdk ;;
+        skip-all)
+            banner "Step 1 — Skip SDK update (skip-all)"
+            [[ -d "${SDK_DIR}/.git" ]] || fail "❌ SDK not found at ${SDK_DIR}"
+            cd "${SDK_DIR}"
+            warn "skip-all: building the image's baked SDK commit as-is ($(git rev-parse --short HEAD 2>/dev/null)) — no pull, no bootstrap."
+            ;;
+    esac
+
     activate_env
     discover_apps
     build_apps
