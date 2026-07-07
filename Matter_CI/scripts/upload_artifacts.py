@@ -40,10 +40,10 @@ from datetime import datetime
 SCRIPT_DIR   = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
-# Reference apps are resolved dynamically from the SDK (see discover_targets.py)
-# instead of a hardcoded apps: block in build_config.yaml.
-sys.path.insert(0, str(SCRIPT_DIR))
-from discover_targets import resolve_pipeline_apps
+# NOTE: this runs on the Mac mini HOST, which has no SDK checkout. Binaries,
+# wheels and build metadata are read from the Docker build's output dir
+# (~/matter-output) — not resolved from an SDK. So we do NOT import
+# discover_targets/resolve_pipeline_apps here.
 
 try:
     from google.oauth2 import service_account
@@ -66,30 +66,31 @@ def load_config(path: Path) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
 
-def get_sdk_dir(cfg: dict) -> Path:
-    return Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
+def get_output_dir() -> Path:
+    """Docker build output dir on the Mac mini host (binaries + wheels + metadata)."""
+    return Path(os.environ.get("MATTER_OUTPUT_DIR", "~/matter-output")).expanduser()
 
-def get_git_info(sdk_dir: Path) -> tuple[str, str]:
-    def run(cmd):
+def get_build_info(output_dir: Path) -> tuple[str, str]:
+    """(commit_short, branch) from the container-written build-info.json."""
+    info_file = output_dir / "build-info.json"
+    if info_file.exists():
         try:
-            return subprocess.run(cmd, cwd=sdk_dir, capture_output=True,
-                                  text=True).stdout.strip()
+            info = json.loads(info_file.read_text())
+            return info.get("commit_short", "unknown"), info.get("branch", "unknown")
         except Exception:
-            return "unknown"
-    commit = run(["git", "rev-parse", "--short", "HEAD"])
-    branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-    return commit, branch
+            pass
+    return "unknown", "unknown"
 
 # =============================================================================
 # Bundle builder
 # =============================================================================
-def build_bundle(cfg: dict) -> tuple[Path, str]:
+def build_bundle(cfg: dict, output_dir: Path) -> tuple[Path, str]:
     """
-    Creates a .tar.gz bundle of all built artifacts.
+    Creates a .tar.gz bundle of all built artifacts, read from the Docker
+    build's output dir (~/matter-output) — NOT from an SDK checkout.
     Returns (tar_path, bundle_name).
     """
-    sdk_dir   = get_sdk_dir(cfg)
-    commit, branch = get_git_info(sdk_dir)
+    commit, branch = get_build_info(output_dir)
     date_str  = datetime.now().strftime("%Y-%m-%d")
     safe_branch = branch.replace("/", "-")
 
@@ -98,49 +99,47 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
     bundle_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[BUNDLE] Creating: {bundle_name}")
+    print(f"[BUNDLE] Source : {output_dir}")
     print(f"[BUNDLE] Branch : {branch}")
     print(f"[BUNDLE] Commit : {commit}")
 
-    # ── 1. Reference app binaries ─────────────────────────────────────────
+    if not output_dir.exists():
+        print(f"[BUNDLE] ❌ Output dir not found: {output_dir}")
+        print(f"[BUNDLE]    Did the Docker build run and write to ~/matter-output?")
+        sys.exit(1)
+
+    # ── 1. Reference app binaries (from <output>/apps/) ───────────────────
     apps_dir = bundle_dir / "apps"
     apps_dir.mkdir(exist_ok=True)
     copied_apps = []
 
-    for app in resolve_pipeline_apps(sdk_dir, cfg):
-        if not app.get("enabled"):
+    src_apps = output_dir / "apps"
+    for binary in sorted(src_apps.glob("*")) if src_apps.is_dir() else []:
+        if not binary.is_file():
             continue
-        binary = sdk_dir / app["build_dir"] / app["binary_name"]
-        if binary.exists():
-            dest = apps_dir / app["binary_name"]
-            shutil.copy2(binary, dest)
-            size = binary.stat().st_size / 1_048_576
-            print(f"[BUNDLE]   ✅ {app['binary_name']} ({size:.1f} MB)")
-            copied_apps.append(app["binary_name"])
-        else:
-            print(f"[BUNDLE]   ⚠️  {app['binary_name']} not found — skipping")
+        dest = apps_dir / binary.name
+        shutil.copy2(binary, dest)
+        size = binary.stat().st_size / 1_048_576
+        print(f"[BUNDLE]   ✅ {binary.name} ({size:.1f} MB)")
+        copied_apps.append(binary.name)
+    if not copied_apps:
+        print(f"[BUNDLE]   ⚠️  No app binaries found in {src_apps}")
 
-    # ── 2. chip-tool ──────────────────────────────────────────────────────
-    ct = cfg.get("chip_tool", {})
-    if ct.get("enabled"):
-        ct_binary = sdk_dir / ct["build_dir"] / ct["binary_name"]
-        if ct_binary.exists():
-            dest = bundle_dir / ct["binary_name"]
-            shutil.copy2(ct_binary, dest)
-            size = ct_binary.stat().st_size / 1_048_576
-            print(f"[BUNDLE]   ✅ {ct['binary_name']} ({size:.1f} MB)")
-        else:
-            print(f"[BUNDLE]   ⚠️  chip-tool not found — skipping")
+    # ── 2. chip-tool (from <output>/chip-tool) ────────────────────────────
+    ct_binary = output_dir / "chip-tool"
+    if ct_binary.exists():
+        dest = bundle_dir / "chip-tool"
+        shutil.copy2(ct_binary, dest)
+        size = ct_binary.stat().st_size / 1_048_576
+        print(f"[BUNDLE]   ✅ chip-tool ({size:.1f} MB)")
+    else:
+        print(f"[BUNDLE]   ⚠️  chip-tool not found — skipping")
 
-    # ── 3. Python wheels ──────────────────────────────────────────────────
+    # ── 3. Python wheels (from <output>/wheels/) ──────────────────────────
     wheels_dir = bundle_dir / "wheels"
     wheels_dir.mkdir(exist_ok=True)
 
-    # Known wheel locations in the SDK build output
-    wheel_search_dirs = [
-        sdk_dir / "out" / "python_lib" / "obj" / "src" / "controller" / "python" / "matter-controller-wheels",
-        sdk_dir / "out" / "python_lib" / "obj" / "src" / "python_testing" / "matter_testing_infrastructure" / "matter-testing._build_wheel",
-        sdk_dir / "out" / "python_lib" / "obj" / "scripts" / "matter_yamltests_distribution._build_wheel",
-    ]
+    wheel_search_dirs = [output_dir / "wheels"]
 
     # Target wheel names we want to bundle
     target_wheels = [
@@ -168,9 +167,14 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
         print("[BUNDLE]   ⚠️  No python wheels found — check SDK build output")
 
     # ── 4. build-info.txt ─────────────────────────────────────────────────
-    ubuntu_ver = subprocess.run(
-        ['lsb_release', '-rs'], capture_output=True, text=True
-    ).stdout.strip()
+    # This runs on the macOS host, so lsb_release won't exist; the meaningful
+    # OS is the Ubuntu container that produced the binaries. Best-effort only.
+    try:
+        ubuntu_ver = subprocess.run(
+            ['lsb_release', '-rs'], capture_output=True, text=True
+        ).stdout.strip() or "24.04 (container)"
+    except Exception:
+        ubuntu_ver = "24.04 (container)"
 
     build_info = bundle_dir / "build-info.txt"
     build_info.write_text(
@@ -179,7 +183,7 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
         f"Branch    : {branch}\n"
         f"Commit    : {commit}\n"
         f"Date      : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"Platform  : linux/arm64 (Raspberry Pi)\n"
+        f"Platform  : linux/arm64 (built in Docker on Mac mini, runs on RPi)\n"
         f"Ubuntu    : {ubuntu_ver}\n"
         f"Python    : {sys.version.split()[0]}\n"
         f"\n"
@@ -189,6 +193,13 @@ def build_bundle(cfg: dict) -> tuple[Path, str]:
         + "".join(f"  - {w.name}\n" for w in copied_wheels)
     )
     print(f"[BUNDLE]   ✅ build-info.txt written")
+
+    # Also carry the machine-readable build-info.json (full SDK commit) so the
+    # RPi test prep can `git checkout` the exact commit the binaries were built at.
+    src_info_json = output_dir / "build-info.json"
+    if src_info_json.exists():
+        shutil.copy2(src_info_json, bundle_dir / "build-info.json")
+        print(f"[BUNDLE]   ✅ build-info.json included")
 
     # ── 5. README.txt — user guide ────────────────────────────────────────
     readme = bundle_dir / "README.txt"
@@ -522,6 +533,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config",
                         default=str(PROJECT_ROOT / "config" / "build_config.yaml"))
+    parser.add_argument("--output", default=None,
+                        help="Docker build output dir (default: $MATTER_OUTPUT_DIR "
+                             "or ~/matter-output)")
     parser.add_argument("--skip-upload", action="store_true",
                         help="Bundle only, skip Google Drive upload")
     args = parser.parse_args()
@@ -529,8 +543,11 @@ def main():
     cfg = load_config(Path(args.config))
     gd  = cfg.get("google_drive", {})
 
-    # Check if upload_on_partial is set — if build had failures, check flag
-    build_status_file = PROJECT_ROOT / "logs" / "build_logs" / "build_status.json"
+    output_dir = Path(args.output).expanduser() if args.output else get_output_dir()
+
+    # Check if upload_on_partial is set — if build had failures, check flag.
+    # build_status.json is written into the Docker output dir by the container.
+    build_status_file = output_dir / "build_status.json"
     if build_status_file.exists():
         with open(build_status_file) as f:
             status = json.load(f)
@@ -542,7 +559,7 @@ def main():
             sys.exit(0)
 
     # Build the bundle
-    tar_path, bundle_name = build_bundle(cfg)
+    tar_path, bundle_name = build_bundle(cfg, output_dir)
 
     if args.skip_upload:
         print(f"\n[UPLOAD] --skip-upload set — bundle saved at: {tar_path}")

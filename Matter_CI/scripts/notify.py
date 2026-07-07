@@ -40,7 +40,21 @@ def load_config(path: Path) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
 
+def get_output_dir() -> Path:
+    """Docker build output dir on the Mac mini host (build-info.json, build_status.json)."""
+    return Path(os.environ.get("MATTER_OUTPUT_DIR", "~/matter-output")).expanduser()
+
 def get_git_info(cfg: dict) -> tuple[str, str]:
+    # Preferred: the container-written build-info.json in the Docker output dir
+    # (the Mac mini host has no SDK checkout to run git in).
+    info_file = get_output_dir() / "build-info.json"
+    if info_file.exists():
+        try:
+            info = json.loads(info_file.read_text())
+            return info.get("commit_short", "unknown"), info.get("branch", "unknown")
+        except Exception:
+            pass
+    # Fallback: git in the SDK dir (legacy RPi build path).
     sdk_dir = Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
     def run(cmd):
         try:
@@ -52,10 +66,15 @@ def get_git_info(cfg: dict) -> tuple[str, str]:
            run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
 
 def load_build_status() -> dict:
-    status_file = PROJECT_ROOT / "logs" / "build_logs" / "build_status.json"
-    if status_file.exists():
-        with open(status_file) as f:
-            return json.load(f)
+    # Preferred: Docker output dir; fallback: legacy in-repo build_logs path.
+    for status_file in (get_output_dir() / "build_status.json",
+                        PROJECT_ROOT / "logs" / "build_logs" / "build_status.json"):
+        if status_file.exists():
+            try:
+                with open(status_file) as f:
+                    return json.load(f)
+            except Exception:
+                continue
     return {}
 
 
