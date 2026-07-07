@@ -53,31 +53,31 @@ discovery:
     - { name: closure,                     enabled: true,  modifiers: [ipv6only] }        # closure-app
     - { name: network-manager,             enabled: true,  modifiers: [ipv6only] }        # matter-network-manager-app (TC-ACL-2.x)
     # --- available, disabled by default (flip enabled: true to build) ---
-    - { name: air-quality-sensor,          enabled: false, modifiers: [ipv6only] }        # air-quality-sensor-app
-    - { name: all-clusters-minimal,        enabled: false, modifiers: [ipv6only] }        # chip-all-clusters-minimal-app
-    - { name: all-devices,                 enabled: false, modifiers: [ipv6only] }        # all-devices-app
-    - { name: camera,                      enabled: false, modifiers: [clang, ipv6only] } # chip-camera-app  (TH arm64: camera-clang-ipv6only)
-    - { name: camera-controller,           enabled: false, modifiers: [ipv6only] }        # chip-camera-controller
-    - { name: contact-sensor,              enabled: false, modifiers: [ipv6only] }        # contact-sensor-app
-    - { name: dishwasher,                  enabled: false, modifiers: [ipv6only] }        # dishwasher-app
-    - { name: energy-gateway,              enabled: false, modifiers: [ipv6only] }        # chip-energy-gateway-app
-    - { name: fabric-admin,                enabled: false, modifiers: [rpc, ipv6only] }   # fabric-admin
-    - { name: fabric-bridge,               enabled: false, modifiers: [rpc, ipv6only] }   # fabric-bridge-app
-    - { name: fabric-sync,                 enabled: false, modifiers: [ipv6only] }        # fabric-sync
-    - { name: jf-admin-app,                enabled: false, modifiers: [ipv6only] }        # jfa-app
-    - { name: jf-control-app,              enabled: false, modifiers: [ipv6only] }        # jfc-app
-    - { name: light-data-model-no-unique-id, enabled: false, modifiers: [ipv6only] }      # chip-lighting-app
-    - { name: lit-icd,                     enabled: false, modifiers: [ipv6only] }        # lit-icd-app
-    - { name: microwave-oven,              enabled: false, modifiers: [ipv6only] }        # chip-microwave-oven-app
-    - { name: ota-provider,                enabled: false, modifiers: [ipv6only] }        # chip-ota-provider-app
-    - { name: ota-requestor,               enabled: false, modifiers: [ipv6only] }        # chip-ota-requestor-app
-    - { name: refrigerator,                enabled: false, modifiers: [ipv6only] }        # refrigerator-app
-    - { name: rvc,                         enabled: false, modifiers: [ipv6only] }        # chip-rvc-app
-    - { name: terms-and-conditions,        enabled: false, modifiers: [ipv6only] }        # chip-terms-and-conditions-app
-    - { name: tv-app,                      enabled: false, modifiers: [ipv6only] }        # chip-tv-app
-    - { name: tv-casting-app,              enabled: false, modifiers: [ipv6only] }        # chip-tv-casting-app
-    - { name: water-heater,                enabled: false, modifiers: [ipv6only] }        # matter-water-heater-app
-    - { name: water-leak-detector,         enabled: false, modifiers: [ipv6only] }        # water-leak-detector-app
+    - { name: air-quality-sensor,          enabled: true, modifiers: [ipv6only] }        # air-quality-sensor-app
+    - { name: all-clusters-minimal,        enabled: true, modifiers: [ipv6only] }        # chip-all-clusters-minimal-app
+    - { name: all-devices,                 enabled: true, modifiers: [ipv6only] }        # all-devices-app
+    - { name: camera,                      enabled: true, modifiers: [clang, ipv6only] } # chip-camera-app  (TH arm64: camera-clang-ipv6only)
+    - { name: camera-controller,           enabled: true, modifiers: [ipv6only] }        # chip-camera-controller
+    - { name: contact-sensor,              enabled: true, modifiers: [ipv6only] }        # contact-sensor-app
+    - { name: dishwasher,                  enabled: true, modifiers: [ipv6only] }        # dishwasher-app
+    - { name: energy-gateway,              enabled: true, modifiers: [ipv6only] }        # chip-energy-gateway-app
+    - { name: fabric-admin,                enabled: true, modifiers: [rpc, ipv6only] }   # fabric-admin
+    - { name: fabric-bridge,               enabled: true, modifiers: [rpc, ipv6only] }   # fabric-bridge-app
+    - { name: fabric-sync,                 enabled: true, modifiers: [ipv6only] }        # fabric-sync
+    - { name: jf-admin-app,                enabled: true, modifiers: [ipv6only] }        # jfa-app
+    - { name: jf-control-app,              enabled: true, modifiers: [ipv6only] }        # jfc-app
+    - { name: light-data-model-no-unique-id, enabled: true, modifiers: [ipv6only] }      # chip-lighting-app
+    - { name: lit-icd,                     enabled: true, modifiers: [ipv6only] }        # lit-icd-app
+    - { name: microwave-oven,              enabled: true, modifiers: [ipv6only] }        # chip-microwave-oven-app
+    - { name: ota-provider,                enabled: true, modifiers: [ipv6only] }        # chip-ota-provider-app
+    - { name: ota-requestor,               enabled: true, modifiers: [ipv6only] }        # chip-ota-requestor-app
+    - { name: refrigerator,                enabled: true, modifiers: [ipv6only] }        # refrigerator-app
+    - { name: rvc,                         enabled: true, modifiers: [ipv6only] }        # chip-rvc-app
+    - { name: terms-and-conditions,        enabled: true, modifiers: [ipv6only] }        # chip-terms-and-conditions-app
+    - { name: tv-app,                      enabled: true, modifiers: [ipv6only] }        # chip-tv-app
+    - { name: tv-casting-app,              enabled: true, modifiers: [ipv6only] }        # chip-tv-casting-app
+    - { name: water-heater,                enabled: true, modifiers: [ipv6only] }        # matter-water-heater-app
+    - { name: water-leak-detector,         enabled: true, modifiers: [ipv6only] }        # water-leak-detector-app
 
 
 # ============================================================
