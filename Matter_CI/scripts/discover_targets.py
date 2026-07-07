@@ -433,6 +433,11 @@ MODIFIER_GN_ARGS = {
     "nlfaultinject":  "chip_with_nlfaultinjection=true",
     "rpc":            'import("//with_pw_rpc.gni")',
     "clang":          "is_clang=true",
+    # NOT a Test-Harness modifier — a local escape hatch for apps that fail
+    # ONLY on an upstream -Werror warning (e.g. refrigerator's ignored
+    # [[nodiscard]] CHIP_ERROR). Drops -Werror for that app so a benign warning
+    # isn't fatal. Do NOT use on core cert apps — it hides real regressions.
+    "no-werror":      "treat_warnings_as_errors=false",
 }
 
 # TH default for virtually every linux reference app (ipv6-only host).
@@ -480,28 +485,61 @@ def modifiers_to_gn_args(modifiers) -> str:
     return " ".join(args)
 
 
+def _valid_binary_name(n) -> bool:
+    """A usable binary name — non-empty, no path sep, no unresolved gn template."""
+    return bool(n) and "/" not in n and "$" not in n and "{" not in n
+
+
 def _resolve_source_binary(name, enum_name, HostApp, sdk_dir):
     """
-    Resolve (source_dir, binary_name, is_reference_app) for one app, preferring
-    the authoritative HostApp mapping and falling back to BUILD.gn parsing.
+    Resolve (source_dir, binary_name, is_reference_app) for one app.
+
+    - source_dir: from the authoritative HostApp.ExamplePath() (avoids the
+      fragile fuzzy folder match, e.g. "light" -> lighting-app not light-switch);
+      falls back to a fuzzy example-folder search if HostApp is unavailable.
+    - binary_name: from the ACTUAL BUILD.gn executable() (what gn_build_example
+      really produces), because HostApp.OutputNames() can drift from it on some
+      SDK versions (e.g. dishwasher: OutputNames 'dishwasher-app' vs BUILD.gn
+      'chip-dishwasher-app'). Falls back to OutputNames only when BUILD.gn can't
+      be parsed to a clean name (e.g. simulated-app uses a '${var}' template).
+      This keeps collect/upload/run_tests aligned with the real built file.
+
     Returns (None, None, False) if unresolvable.
     """
-    source_dir = binary_name = None
+    source_dir = None
+    output_name = None   # HostApp.OutputNames() — used as a fallback only
+
     if HostApp is not None and enum_name:
         try:
             app_enum = HostApp[enum_name]
             source_dir = f"examples/{app_enum.ExamplePath()}"
-            binary_name = _first_binary(app_enum.OutputNames())
-        except Exception:  # noqa: BLE001 — unknown enum → fall back
-            source_dir = binary_name = None
+        except Exception:  # noqa: BLE001 — unknown enum → fall back below
+            source_dir = None
+        try:
+            output_name = _first_binary(app_enum.OutputNames())
+        except Exception:  # noqa: BLE001
+            output_name = None
 
-    if not source_dir or not binary_name:
+    # Fallback: locate the example folder by fuzzy search.
+    if not source_dir:
         linux_dir = resolve_app_path(sdk_dir, name)
         if linux_dir is not None:
             source_dir = str(linux_dir.relative_to(sdk_dir))
-            binary_name = binary_name or resolve_binary_name(linux_dir)
 
-    if not source_dir or not binary_name:
+    if not source_dir:
+        return None, None, False
+
+    src_abs = sdk_dir / source_dir
+    if not src_abs.exists():
+        return None, None, False
+
+    # Prefer the real executable() name from BUILD.gn; fall back to OutputNames.
+    gn_name = resolve_binary_name(src_abs)
+    if _valid_binary_name(gn_name):
+        binary_name = gn_name
+    elif _valid_binary_name(output_name):
+        binary_name = output_name
+    else:
         return None, None, False
 
     is_ref = source_dir.endswith("/linux") or source_dir.endswith("/posix")

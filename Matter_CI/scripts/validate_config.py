@@ -68,7 +68,7 @@ def validate(config_path: str) -> bool:
     # block — the SDK isn't present on this (ubuntu-latest) runner, so the
     # shorthand names and modifiers are validated against the SDK during build.
     KNOWN_MODIFIERS = {"ipv6only", "platform-mdns", "nfc-commission",
-                       "nlfaultinject", "rpc", "clang"}
+                       "nlfaultinject", "rpc", "clang", "no-werror"}
     disc = cfg["discovery"]
     if not isinstance(disc, dict):
         error("'discovery' must be a mapping (see build_config.yaml)")

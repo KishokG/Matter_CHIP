@@ -72,6 +72,16 @@ libudev-dev
 libpcsclite-dev
 pcscd
 
+# ── FFmpeg (required to build the camera-app) ────────────────────────────────
+# examples/camera-app/linux BUILD.gn has pkg_config("ffmpeg") requiring
+# libavformat/libavcodec/libavutil. The Matter build images install these
+# (base chip-build + chip-cert-bins). The -dev packages provide the pkg-config
+# .pc files at gn-gen time and pull in the runtime libs. Only needed if the
+# 'camera' app is enabled in discovery.apps.
+libavformat-dev
+libavcodec-dev
+libavutil-dev
+
 # ── GD library ───────────────────────────────────────────────────────────────
 libgd-dev
 

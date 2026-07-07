@@ -119,9 +119,13 @@ diagnose_error() {
 }
 
 # ── Generic build runner (live ninja progress + diagnose) ────────────────────
-# Usage: do_build <name> <fatal:0|1> -- <command> [args...]
+# Usage: do_build <name> <fatal:0|1> <expected_binary|""> -- <command> [args...]
+# If expected_binary is non-empty, the app is only PASS when ninja succeeds AND
+# that file exists — so a green ninja that produced no/misnamed binary is an
+# honest FAIL (not a lie in build_status.json). Pass "" to skip the check
+# (e.g. the python controller, which produces a venv + wheels, not one binary).
 do_build() {
-    local name="$1" fatal="$2"; shift 2
+    local name="$1" fatal="$2" expected_binary="$3"; shift 3
     [[ "$1" == "--" ]] && shift
 
     local tmp_log="${LOG_DIR}/${name}_build_full.log"
@@ -155,17 +159,30 @@ do_build() {
     local elapsed=$(( $(date +%s) - start_ts )) elapsed_str
     if (( elapsed >= 60 )); then elapsed_str="$((elapsed/60))m $((elapsed%60))s"; else elapsed_str="${elapsed}s"; fi
 
-    if (( rc == 0 )); then
+    # Honest PASS: ninja succeeded AND the expected binary actually exists.
+    local no_binary=0
+    if (( rc == 0 )) && [[ -n "${expected_binary}" && ! -f "${expected_binary}" ]]; then
+        no_binary=1
+    fi
+
+    if (( rc == 0 && no_binary == 0 )); then
         BUILD_STATUS["${name}"]="PASS"; PASSED_APPS+=("${name}")
         ok "└─ ${name} built successfully (${elapsed_str})"
     else
-        tail -50 "${tmp_log}" > "${err_log}" 2>/dev/null || true
-        echo -e "\n${RED}── Build error output ──────────────────────────────${NC}"
-        grep -E "error:|FAILED:|fatal error:" "${tmp_log}" 2>/dev/null | tail -20 || tail -20 "${tmp_log}" 2>/dev/null
-        echo -e "${RED}────────────────────────────────────────────────────${NC}\n"
-        local conclusion; conclusion=$(diagnose_error "${name}" "${err_log}")
+        local conclusion
+        if (( no_binary == 1 )); then
+            conclusion="❌ BINARY NOT FOUND — ninja succeeded but ${expected_binary} was not produced (binary-name mismatch or unexpected output path)."
+            printf '%s\n' "${conclusion}" > "${err_log}"
+            echo -e "${RED}[FAIL]${NC} └─ ${name}: ninja OK but binary missing at ${expected_binary}"
+        else
+            tail -50 "${tmp_log}" > "${err_log}" 2>/dev/null || true
+            echo -e "\n${RED}── Build error output ──────────────────────────────${NC}"
+            grep -E "error:|FAILED:|fatal error:" "${tmp_log}" 2>/dev/null | tail -20 || tail -20 "${tmp_log}" 2>/dev/null
+            echo -e "${RED}────────────────────────────────────────────────────${NC}\n"
+            conclusion=$(diagnose_error "${name}" "${err_log}")
+            echo -e "${RED}[FAIL]${NC} └─ ${name} build failed after ${elapsed_str}"
+        fi
         BUILD_STATUS["${name}"]="FAIL"; BUILD_ERROR["${name}"]="${conclusion}"; FAILED_APPS+=("${name}")
-        echo -e "${RED}[FAIL]${NC} └─ ${name} build failed after ${elapsed_str}"
         echo -e "       ${conclusion}"
         echo -e "       Full log : ${tmp_log}"
         if (( fatal == 1 )); then
@@ -331,7 +348,7 @@ build_apps() {
             continue
         fi
         # shellcheck disable=SC2086 — gnargs must word-split into separate gn args
-        do_build "${name}" 0 -- scripts/examples/gn_build_example.sh "${src}" "${bdir}" ${gnargs}
+        do_build "${name}" 0 "${SDK_DIR}/${bdir}/${bin}" -- scripts/examples/gn_build_example.sh "${src}" "${bdir}" ${gnargs}
         echo ""
     done < <(apps_tsv)
     (( count == 0 )) && warn "No reference apps enabled — nothing built."
@@ -350,7 +367,7 @@ build_chip_tool() {
     [[ -d "${src}" ]] || fail "❌ chip-tool source_dir '${src}' does not exist in SDK"
     log "command : cd ${SDK_DIR} && scripts/examples/gn_build_example.sh ${src} ${bdir} ${gnargs}"
     # shellcheck disable=SC2086
-    do_build "chip-tool" 1 -- scripts/examples/gn_build_example.sh "${src}" "${bdir}" ${gnargs}
+    do_build "chip-tool" 1 "${SDK_DIR}/${bdir}/${bin}" -- scripts/examples/gn_build_example.sh "${src}" "${bdir}" ${gnargs}
 }
 
 # =============================================================================
@@ -368,7 +385,8 @@ build_python_controller() {
     [[ -d out/python_lib ]] && rm -rf out/python_lib
     log "command : cd ${SDK_DIR} && source scripts/activate.sh && scripts/build_python.sh -m platform -d true -i ${venv} ${extra}"
     # shellcheck disable=SC2086
-    do_build "python-controller" 1 -- scripts/build_python.sh -m platform -d true -i "${venv}" ${extra}
+    # No single-binary check for the python controller — venv + wheels, not one exe.
+    do_build "python-controller" 1 "" -- scripts/build_python.sh -m platform -d true -i "${venv}" ${extra}
 }
 
 # =============================================================================
