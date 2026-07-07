@@ -112,8 +112,8 @@ jobs:
   # GitHub default is 6h for all runners including self-hosted
   # ──────────────────────────────────────────────────────────
   build:
-    name: Build on Raspberry Pi
-    runs-on: self-hosted
+    name: Build on Mac mini (Docker)
+    runs-on: [self-hosted, mac-mini]
     needs: validate
     # Run on schedule (nightly) OR when pipeline is not test-only
     if: |
@@ -197,55 +197,50 @@ jobs:
               yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
           PY
 
-      - name: Check PyYAML
+      - name: Build in Docker (Mac mini)
+        env:
+          # Image tag follows the SDK branch it was bootstrapped for (see build_image.sh).
+          IMAGE: matter-sdk-builder:master
         run: |
-          python3 -c 'import yaml' 2>/dev/null \
-            && echo 'PyYAML present' \
-            || (sudo apt-get install -y python3-yaml && echo 'PyYAML installed')
+          set -euo pipefail
+          # Stable, host-persistent output dir shared with the upload job (both
+          # run on the mac-mini runner). NOT runner.temp — that isn't shared
+          # across jobs. Concurrency group guarantees one build at a time.
+          OUTPUT_DIR="${HOME}/matter-output"
+          rm -rf "${OUTPUT_DIR}"          # fresh each run — binaries re-emitted
+          mkdir -p "${OUTPUT_DIR}"
 
-      - name: Run build.sh
-        run: |
-          # Use skip-clone for scheduled runs (SDK already present on RPi)
-          BUILD_MODE="${{ github.event.inputs.build_mode || 'skip-clone' }}"
-          CONFIG="${GITHUB_WORKSPACE}/Matter_CI/config/build_config.yaml"
-          SCRIPT="${GITHUB_WORKSPACE}/Matter_CI/scripts/build.sh"
+          if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+            echo "::error::Docker image ${IMAGE} not found on this runner."
+            echo "Build it once with: ./Matter_CI/docker/build_image.sh master"
+            exit 1
+          fi
 
-          chmod +x "${SCRIPT}"
+          echo "Running build in ${IMAGE} (Linux/arm64 container)..."
+          # SDK lives inside the image; Matter_CI (config + scripts) is mounted
+          # read-only from this checkout so config edits need no image rebuild.
+          docker run --rm \
+            -v "${OUTPUT_DIR}:/output" \
+            -v "${GITHUB_WORKSPACE}/Matter_CI:/matter-ci:ro" \
+            "${IMAGE}" \
+            bash /matter-ci/docker/build_inside_container.sh
 
-          export MATTER_SDK_DIR=$(python3 -c "
-          import yaml
-          cfg = yaml.safe_load(open('${CONFIG}'))
-          print(cfg['rpi']['sdk_dir'])
-          ")
-          export RUNTIME_SDK_BRANCH="${{ github.event.inputs.sdk_branch }}"
-          export RUNTIME_SDK_SHA="${{ github.event.inputs.sdk_sha }}"
-
-          echo "SDK_DIR        : ${MATTER_SDK_DIR}"
-          echo "BUILD_MODE     : ${BUILD_MODE}"
-          echo "RUNTIME_BRANCH : ${RUNTIME_SDK_BRANCH:-<from config>}"
-          echo "RUNTIME_SHA    : ${RUNTIME_SDK_SHA:-<from config>}"
-
-          bash "${SCRIPT}" \
-            --config "${CONFIG}" \
-            --mode "${BUILD_MODE}"
-
-      - name: Collect build info
+      - name: Stage build logs for artifact
         if: always()
         run: |
+          OUTPUT_DIR="${HOME}/matter-output"
           mkdir -p artifacts
-          python3 Matter_CI/scripts/collect_build_info.py \
-            Matter_CI/config/build_config.yaml \
-            > artifacts/build_summary.txt 2>&1 || true
-          cat artifacts/build_summary.txt
+          cp -r "${OUTPUT_DIR}/build_logs" artifacts/ 2>/dev/null || true
+          cp "${OUTPUT_DIR}/build_status.json" artifacts/ 2>/dev/null || true
+          cp "${OUTPUT_DIR}/build-info.json"   artifacts/ 2>/dev/null || true
+          ls -R artifacts/ || true
 
       - name: Upload build summary and error logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-summary-${{ github.run_number }}
-          path: |
-            artifacts/
-            Matter_CI/logs/build_logs/
+          path: artifacts/
           retention-days: 14
 
       - name: Write job summary
@@ -259,10 +254,15 @@ jobs:
           echo "| Build Mode | ${{ github.event.inputs.build_mode || 'skip-clone' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
-          if [[ -f artifacts/build_summary.txt ]]; then
+          echo "| Builder | Mac mini (Docker, Linux/arm64) |" >> $GITHUB_STEP_SUMMARY
+          if [[ -f artifacts/build-info.json ]]; then
+            echo "| SDK commit | $(python3 -c "import json;print(json.load(open('artifacts/build-info.json')).get('commit_short','?'))" 2>/dev/null) |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [[ -f artifacts/build_status.json ]]; then
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat artifacts/build_summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '### Build status' >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat artifacts/build_status.json >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
@@ -272,7 +272,7 @@ jobs:
   # ──────────────────────────────────────────────────────────
   upload-artifacts:
     name: Upload to Google Drive
-    runs-on: self-hosted
+    runs-on: [self-hosted, mac-mini]
     needs: build
     outputs:
       drive_link: ${{ steps.upload.outputs.drive_link }}
@@ -296,17 +296,16 @@ jobs:
           chmod 600 "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
 
           export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
-          export MATTER_SDK_DIR=$(python3 -c "
-          import yaml
-          cfg = yaml.safe_load(open('Matter_CI/config/build_config.yaml'))
-          print(cfg['rpi']['sdk_dir'])
-          ")
+          # Binaries + wheels + build-info were emitted by the Docker build into
+          # ~/matter-output on this same mac-mini runner. No SDK on the host.
+          export MATTER_OUTPUT_DIR="${HOME}/matter-output"
 
           pip3 install google-auth google-auth-httplib2 google-api-python-client \
             --break-system-packages --quiet
 
           python3 Matter_CI/scripts/upload_artifacts.py \
-            --config Matter_CI/config/build_config.yaml
+            --config Matter_CI/config/build_config.yaml \
+            --output "${MATTER_OUTPUT_DIR}"
 
           if [[ -f Matter_CI/logs/gdrive_link.txt ]]; then
             DRIVE_LINK=$(cat Matter_CI/logs/gdrive_link.txt)
@@ -323,7 +322,7 @@ jobs:
   # ──────────────────────────────────────────────────────────
   notify:
     name: Send Email Notification
-    runs-on: self-hosted
+    runs-on: [self-hosted, mac-mini]
     needs: [build, upload-artifacts]
     if: |
       always() &&
@@ -379,7 +378,7 @@ jobs:
   # ──────────────────────────────────────────────────────────
   fetch-tests:
     name: Fetch Test Commands
-    runs-on: self-hosted
+    runs-on: [self-hosted, rpi]
     needs: [validate, build]
     if: |
       always() &&
@@ -435,7 +434,7 @@ jobs:
   # ──────────────────────────────────────────────────────────
   run-tests:
     name: Run Tests
-    runs-on: self-hosted
+    runs-on: [self-hosted, rpi]
     needs: fetch-tests
     if: |
       always() &&
@@ -451,6 +450,25 @@ jobs:
         with:
           name: test-commands-${{ github.run_number }}
           path: Matter_CI/logs/
+
+      - name: Prepare RPi (download bundle, checkout SDK, install)
+        env:
+          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
+        run: |
+          # Pull the binaries+wheels the Mac mini built and staged on Drive,
+          # checkout the SDK to that exact commit, and place binaries/wheels
+          # where run_tests.py expects — so run_tests.py runs UNCHANGED.
+          echo "${CREDENTIALS_JSON}" > "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          chmod 600 "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
+          pip3 install google-auth google-api-python-client \
+            --break-system-packages --quiet
+
+          python3 Matter_CI/scripts/prepare_rpi_tests.py \
+            --config Matter_CI/config/build_config.yaml
+
+          rm -f "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
 
       - name: Run test suite
         run: |
