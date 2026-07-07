@@ -151,11 +151,36 @@ GitHub → Actions → "Matter — Build on RPi" → **Run workflow** → pick b
 - When that's green, run again with **pipeline = `build-test`** to exercise the
   RPi download → checkout → prepare → tests path.
 
-> Note: the `build_mode` input (full/skip-clone/skip-all) no longer affects the
-> Docker build — the container always does `git pull` + build. It's kept only
-> for compatibility.
+> **`build_mode` in the container** (passed to `build_inside_container.sh --mode`):
+> - `skip-all` — build the image's baked SDK commit as-is (no pull, no bootstrap). Fastest.
+> - `skip-clone` *(default, incl. nightly)* — `git pull` latest + clean + **bootstrap** + build.
+> - `full` — re-clone the SDK + clean + **bootstrap** + build (ignores the baked checkout).
+>
+> Note: `skip-clone`/`full` re-run **bootstrap inside the container** so the env
+> matches freshly-pulled code — that adds time each run and re-does work baked
+> into the image. If you want the fast baked path, use `skip-all` (but it won't
+> pick up new SDK commits). See "Build-mode tradeoff" below.
 
 ---
+
+## Build-mode tradeoff (important)
+
+The image bakes a clone + bootstrap so nightly builds *can* skip them. The three
+modes let you choose per run:
+
+| Mode | Clone | Pull | Clean | Bootstrap | Build | When |
+|---|---|---|---|---|---|---|
+| `skip-all` | — | — | — | — | ✅ | Fast rebuild of the exact baked commit (no new SDK code) |
+| `skip-clone` | — | ✅ | ✅ | ✅ | ✅ | **Default / nightly** — latest SDK, env rebuilt to match |
+| `full` | ✅ | — | ✅ | ✅ | ✅ | Escape hatch — everything fresh, ignores baked checkout |
+
+Because `skip-clone`/`full` re-bootstrap in the container, they add bootstrap
+time every run (fast on the M4, but real) and re-do what the image already
+baked. That's the price of guaranteeing the env matches pulled code. If your SDK
+branch rarely bumps pigweed/CIPD pins, you can instead **rebuild the image
+periodically** (`build_image.sh`) and run nightlies as `skip-all` for maximum
+speed — at the cost of not auto-picking-up new SDK commits between image
+rebuilds. Pick per your cadence; `skip-clone` is the safe default.
 
 ## Troubleshooting
 

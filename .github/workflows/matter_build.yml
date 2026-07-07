@@ -201,6 +201,10 @@ jobs:
         env:
           # Image tag follows the SDK branch it was bootstrapped for (see build_image.sh).
           IMAGE: matter-sdk-builder:master
+          # full | skip-clone | skip-all — controls clone/pull/bootstrap inside
+          # the container (see build_inside_container.sh). Scheduled runs default
+          # to skip-clone (pull + clean + bootstrap + build).
+          BUILD_MODE: ${{ github.event.inputs.build_mode || 'skip-clone' }}
         run: |
           set -euo pipefail
           # Stable, host-persistent output dir shared with the upload job (both
@@ -216,14 +220,14 @@ jobs:
             exit 1
           fi
 
-          echo "Running build in ${IMAGE} (Linux/arm64 container)..."
+          echo "Running build in ${IMAGE} (Linux/arm64 container), mode=${BUILD_MODE}..."
           # SDK lives inside the image; Matter_CI (config + scripts) is mounted
           # read-only from this checkout so config edits need no image rebuild.
           docker run --rm \
             -v "${OUTPUT_DIR}:/output" \
             -v "${GITHUB_WORKSPACE}/Matter_CI:/matter-ci:ro" \
             "${IMAGE}" \
-            bash /matter-ci/docker/build_inside_container.sh
+            bash /matter-ci/docker/build_inside_container.sh --mode "${BUILD_MODE}"
 
       - name: Stage build logs for artifact
         if: always()
