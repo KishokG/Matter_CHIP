@@ -138,8 +138,8 @@ google_drive:
   # Keep last N builds in history/ folder (older ones deleted automatically)
   keep_history: 5
   # Upload only on fully successful builds (all enabled targets built)
-  # Set to false to upload even partial builds
-  upload_on_partial: false
+  # Set to true to upload even partial builds
+  upload_on_partial: true
   
 # ============================================================
 # Google Sheets — Test Command Source
