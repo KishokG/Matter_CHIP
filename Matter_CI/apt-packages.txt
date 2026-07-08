@@ -72,15 +72,27 @@ libudev-dev
 libpcsclite-dev
 pcscd
 
-# ── FFmpeg (required to build the camera-app) ────────────────────────────────
-# examples/camera-app/linux BUILD.gn has pkg_config("ffmpeg") requiring
-# libavformat/libavcodec/libavutil. The Matter build images install these
-# (base chip-build + chip-cert-bins). The -dev packages provide the pkg-config
-# .pc files at gn-gen time and pull in the runtime libs. Only needed if the
-# 'camera' app is enabled in discovery.apps.
+# ── camera-app BUILD deps (FFmpeg + GStreamer + curl) ────────────────────────
+# Per examples/camera-app/linux/README.md + its BUILD.gn pkg_config groups:
+#   ffmpeg    → libavformat, libavcodec, libavutil
+#   gstreamer → gstreamer-1.0, gstreamer-app-1.0, gobject-2.0
+#   curl      → libcurl (camera upload feature links libcurl)
+# The -dev packages provide the pkg-config .pc + headers + link libs at build
+# time. (gobject-2.0 comes from libglib2.0-dev above.) Only needed if 'camera'
+# is enabled. These are BUILD-time deps for the Mac mini Docker image.
 libavformat-dev
 libavcodec-dev
 libavutil-dev
+libgstreamer1.0-dev
+libgstreamer-plugins-base1.0-dev
+libcurl4-openssl-dev
+#
+# camera RUNTIME deps (NOT needed to build — install on the RPi ONLY when you
+# actually test camera; they provide the gstreamer pipeline plugins, no .pc):
+#   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+#   gstreamer1.0-plugins-ugly gstreamer1.0-libav
+#   + runtime libs: libgstreamer1.0-0 libgstreamer-plugins-base1.0-0
+#     libavcodec60 libavformat60 libavutil58
 
 # ── GD library ───────────────────────────────────────────────────────────────
 libgd-dev
