@@ -1,580 +1,321 @@
-# Matter CI — Automated Build Pipeline
+# Matter CI — Automated Build & Test Pipeline
 
-Automated pipeline to build Matter reference apps, chip-tool, and Python
-controller on a Raspberry Pi using GitHub Actions self-hosted runner.
+Nightly pipeline that **builds** the Matter SDK reference apps + chip-tool +
+Python controller in a **Docker container on a Mac mini (Apple Silicon)**,
+bundles the Linux/ARM64 binaries to Google Drive, and **runs the certification
+test cases on a Raspberry Pi**. Triggered on a schedule (or manually) from
+GitHub Actions — no SSH, no manual builds.
 
-Trigger builds from your browser — no SSH, no Tailscale, no secrets needed.
+> **Architecture in one line:** Mac mini = *builder* (Docker), Raspberry Pi =
+> *tester*. Binaries are built once on the fast M4 and shipped to the RPi.
 
 ---
 
 ## Table of Contents
 
-1. [Project Structure](#project-structure)
-2. [How It Works](#how-it-works)
-3. [Prerequisites](#prerequisites)
-4. [Setup Guide — First Time](#setup-guide--first-time)
-5. [Adding a New RPi as Self-Hosted Runner](#adding-a-new-rpi-as-self-hosted-runner)
-6. [Triggering a Build](#triggering-a-build)
+1. [Architecture](#architecture)
+2. [Repository Layout](#repository-layout)
+3. [How a Run Works](#how-a-run-works)
+4. [Runners](#runners)
+5. [First-Time Setup](#first-time-setup)
+6. [Triggering a Run](#triggering-a-run)
 7. [Build Modes](#build-modes)
 8. [Runtime Inputs](#runtime-inputs)
 9. [Configuration Reference](#configuration-reference)
-10. [System Dependencies](#system-dependencies)
-11. [Adding a New Reference App](#adding-a-new-reference-app)
-12. [Build Artifacts](#build-artifacts)
+10. [Choosing Which Apps to Build](#choosing-which-apps-to-build)
+11. [System Dependencies & the Docker Image](#system-dependencies--the-docker-image)
+12. [Build Artifacts & the Bundle](#build-artifacts--the-bundle)
 13. [Troubleshooting](#troubleshooting)
 14. [File Reference](#file-reference)
 
 ---
 
-## Project Structure
+## Architecture
+
+```
+GitHub Actions (scheduled nightly, or manual "Run workflow")
+      │
+      ├─ validate        (ubuntu-latest, GitHub-hosted)  — validate build_config.yaml
+      │
+      ├─ build           ([self-hosted, mac-mini])        — Docker: build all enabled apps
+      │      └─ docker run matter-sdk-builder:master → build_inside_container.sh
+      │             → Linux/ARM64 binaries + wheels → ~/matter-output
+      │
+      ├─ upload-artifacts([self-hosted, mac-mini])        — bundle ~/matter-output → Google Drive
+      ├─ notify          ([self-hosted, mac-mini])        — HTML email (build status + link)
+      │
+      ├─ fetch-tests     ([self-hosted, rpi])             — pull TC commands from Google Sheet
+      └─ run-tests       ([self-hosted, rpi])             — download bundle, checkout SDK,
+                                                            install, run the TCs
+```
+
+- **Why Docker on the Mac mini:** the SDK + `bootstrap.sh` are baked into a
+  pre-built image once, so nightly builds skip the slow bootstrap. The M4 builds
+  the full app set in ~45–90 min vs ~8.5 h on the RPi. Binaries are Linux/ARM64
+  (built in an `ubuntu:24.04` arm64 container) so they run natively on the RPi.
+- **Why the RPi still tests:** the RPi is the DUT host with the Thread/Matter
+  test rig. It downloads the exact binaries the Mac mini built and runs the TCs.
+
+---
+
+## Repository Layout
 
 ```
 Matter_CHIP/
 ├── Matter_CI/
 │   ├── config/
-│   │   └── build_config.yaml      ← All build settings (SDK branch/SHA, app selection, RPi path)
+│   │   ├── build_config.yaml     ← single source of truth (apps, modifiers, SDK, Drive, tests)
+│   │   └── tc_list.json          ← test cases by cluster
+│   ├── docker/
+│   │   ├── Dockerfile            ← ubuntu:24.04 arm64 + SDK + baked bootstrap
+│   │   ├── build_image.sh        ← one-time image build (run on the Mac mini)
+│   │   ├── build_inside_container.sh ← the nightly build (runs INSIDE the container)
+│   │   └── README.md             ← Mac mini bring-up guide (START HERE for setup)
 │   ├── scripts/
-│   │   ├── build.sh               ← Main build script — runs ON the RPi
-│   │   ├── discover_targets.py    ← Resolves reference apps dynamically from the SDK
-│   │   ├── validate_config.py     ← Config validator — runs on GitHub cloud runner
-│   │   └── collect_build_info.py  ← Post-build summary — runs ON the RPi
-│   ├── apt-packages.txt           ← System packages auto-installed before every build
-│   └── README.md                  ← This file
+│   │   ├── discover_targets.py   ← resolves apps (source_dir/binary/gn-args) from the SDK
+│   │   ├── validate_config.py    ← config validator (runs on GitHub cloud)
+│   │   ├── upload_artifacts.py   ← bundles ~/matter-output → Google Drive (Mac mini)
+│   │   ├── notify.py             ← email notification (Mac mini)
+│   │   ├── prepare_rpi_tests.py  ← RPi: download bundle → checkout SDK → install
+│   │   ├── fetch_test_commands.py← RPi: pull TC commands from Google Sheet
+│   │   ├── run_tests.py          ← RPi: execute the TCs
+│   │   ├── build.sh              ← legacy native RPi build (superseded by Docker; kept for reference)
+│   │   └── collect_build_info.py ← legacy RPi build summary
+│   ├── apt-packages.txt          ← system deps baked into the Docker image
+│   └── README.md                 ← this file
 │
-└── .github/
-    └── workflows/
-        └── matter_build.yml       ← GitHub Actions workflow (manual trigger only)
+└── .github/workflows/
+    └── matter_build.yml          ← the pipeline (schedule + manual dispatch)
 ```
 
 ---
 
-## How It Works
+## How a Run Works
 
-```
-Your Laptop (browser)
-      │
-      │  Actions → Run workflow (manual only — push never triggers)
-      ▼
-GitHub Actions
-      │
-      ├── Job 1: Validate Config     (GitHub cloud runner — ~10 seconds)
-      │         └── Validates build_config.yaml for errors
-      │
-      └── Job 2: Build               (self-hosted runner — runs DIRECTLY on RPi)
-                ├── Checkout repo    (GitHub pulls Matter_CHIP onto RPi)
-                ├── Run build.sh
-                │     ├── Step 0: install missing apt packages (apt-packages.txt)
-                │     ├── Step 0: install missing pip packages (pycairo)
-                │     ├── Step 1: git clone / git pull SDK        [full / skip-clone]
-                │     ├── Step 2: clean old builds + .environment [full / skip-clone]
-                │     ├── Step 3: source scripts/bootstrap.sh     [full / skip-clone]
-                │     ├── Step 3.5: discover_targets.py (resolve reference apps from SDK)
-                │     ├── Step 4: source scripts/activate.sh
-                │     ├── Step 5: gn_build_example.sh (reference apps)
-                │     ├── Step 6: gn_build_example.sh (chip-tool)
-                │     └── Step 7: build_python.sh (python controller)
-                ├── Collect build summary
-                └── Upload artifact  (downloadable from GitHub Actions)
-```
+**Build (Mac mini, in Docker):** `build_inside_container.sh` runs inside
+`matter-sdk-builder:master`:
+1. **SDK prep** per `--mode` (see [Build Modes](#build-modes)) — clone/pull/nothing.
+2. `source scripts/activate.sh` (the baked pigweed env).
+3. **Discover** enabled apps via `discover_targets.py` (reads `discovery.apps`).
+4. **Build** each app + chip-tool + python controller (`gn_build_example.sh` /
+   `build_python.sh`) with live ninja progress and per-app pass/fail.
+5. **Collect** binaries + wheels + `build-info.json` + `build_status.json` into
+   `/output` (→ `~/matter-output` on the host).
+
+**Upload (Mac mini):** `upload_artifacts.py` reads `~/matter-output`, tars a
+bundle, and uploads to Google Drive (`latest/` + pruned `history/`).
+
+**Test (RPi):** `prepare_rpi_tests.py` downloads the latest bundle, `git
+checkout`s the RPi's SDK to the **exact build commit**, places the binaries into
+`sdk/out/<name>/` and installs the wheels into the `python_env` venv — so
+`run_tests.py` runs **unchanged**. Then `fetch_test_commands.py` + `run_tests.py`
+execute the TCs.
 
 ---
 
-## Prerequisites
+## Runners
 
-| What | Requirement |
-|---|---|
-| Raspberry Pi OS | Ubuntu 22.04 or 24.04, 64-bit (ARM64) |
-| RAM | 8 GB recommended (4 GB minimum + swap) |
-| Storage | 50 GB free minimum |
-| Internet | RPi must have outbound internet access |
-| GitHub repo | Public or private |
+Two self-hosted runners, matched by label:
 
----
+| Runner | Labels | Runs |
+|---|---|---|
+| Mac mini M4 | `self-hosted, mac-mini` | build, upload-artifacts, notify |
+| Raspberry Pi | `self-hosted, rpi` | fetch-tests, run-tests |
 
-## Setup Guide — First Time
-
-### Step 1 — Add swap space on RPi
-
-Matter builds are RAM-heavy. Add swap before anything else:
-
-```bash
-sudo fallocate -l 8G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-free -h   # verify 8G swap shown
-```
-
-### Step 2 — Install initial system dependencies
-
-The build script auto-installs packages from `apt-packages.txt` on every run,
-but a few are needed to bootstrap the runner itself:
-
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y git curl python3 python3-yaml
-```
-
-### Step 3 — Register RPi as self-hosted runner
-
-#### 3.1 Get registration token from GitHub
-
-```
-Your repo → Settings → Actions → Runners → New self-hosted runner
-Select: Linux / ARM64
-```
-
-GitHub shows commands with a unique token — **token expires in 1 hour**.
-
-#### 3.2 Run setup commands on RPi
-
-```bash
-mkdir -p ~/actions-runner
-cd ~/actions-runner
-
-# Use the exact URL GitHub shows you (version changes)
-curl -o actions-runner-linux-arm64.tar.gz -L \
-  https://github.com/actions/runner/releases/download/v2.x.x/actions-runner-linux-arm64-2.x.x.tar.gz
-
-tar xzf actions-runner-linux-arm64.tar.gz
-
-# Use the exact token GitHub shows you
-./config.sh \
-  --url https://github.com/KishokG/Matter_CHIP \
-  --token YOUR_TOKEN_FROM_GITHUB
-
-# Prompts:
-#   Runner name:  kishok-rpi      ← meaningful name
-#   Runner group: Default         ← Enter
-#   Labels:       self-hosted     ← Enter
-#   Work folder:  _work           ← Enter
-```
-
-#### 3.3 Install as system service (auto-starts on boot)
-
-```bash
-cd ~/actions-runner
-sudo ./svc.sh install
-sudo ./svc.sh start
-sudo ./svc.sh status   # should show: active (running)
-```
-
-#### 3.4 Verify on GitHub
-
-```
-Settings → Actions → Runners
-─────────────────────────────────────────
-  ● kishok-rpi    Idle    self-hosted, Linux, ARM64
-```
-
-**Idle** = ready to pick up jobs ✅
-
-### Step 4 — Configure build_config.yaml
-
-Edit `Matter_CI/config/build_config.yaml` and set the SDK path on your RPi:
-
-```yaml
-rpi:
-  sdk_dir: "/home/ubuntu/connectedhomeip"   # ← must match your RPi's path
-```
-
-Also set the SDK branch:
-```yaml
-sdk:
-  branch: "v1.6-branch"   # or "master", "v1.4-branch" etc.
-  sha: ""                  # leave empty for branch HEAD
-```
-
-### Step 5 — Push to GitHub
-
-```bash
-cd ~/Matter_CHIP
-git add .
-git commit -m "Initial Matter CI setup"
-git push origin main
-```
-
-> **Note:** Pushing does NOT trigger the workflow — it only runs manually.
-
-### Step 6 — Trigger your first build
-
-```
-GitHub → Actions → Matter — Build on RPi → Run workflow
-Build mode: full   ← use full for first-ever run
-SDK branch: v1.6-branch
-Run workflow
-```
-
-First run takes ~90–150 min (clone + bootstrap + build).
+`validate` runs on GitHub-hosted `ubuntu-latest` (no runner needed). A job lands
+on a runner only if the runner has **all** labels in the job's `runs-on`.
 
 ---
 
-## Adding a New RPi as Self-Hosted Runner
+## First-Time Setup
 
-### Step 1 — Add swap + install deps on new RPi
+**Mac mini (builder):** follow **[docker/README.md](docker/README.md)** — it's
+the step-by-step bring-up (Docker Desktop → clone → `build_image.sh` → register
+the `mac-mini` runner → first run). Do that first.
 
-```bash
-# Swap
-sudo fallocate -l 8G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+**Raspberry Pi (tester):** the RPi needs:
+- A self-hosted runner registered with the **`rpi`** label.
+- A `connectedhomeip` git checkout at `rpi.sdk_dir` (the prepare step checks it
+  out to the build commit but won't clone it from scratch).
+- `python3` + `pip` (the prepare step installs the Google API libs it needs).
 
-# Initial deps
-sudo apt update && sudo apt install -y git curl python3 python3-yaml
-```
-
-### Step 2 — Get a NEW registration token
-
-```
-Settings → Actions → Runners → New self-hosted runner
-```
-
-Each RPi needs its own unique token — **tokens expire in 1 hour**.
-
-### Step 3 — Setup runner on new RPi
-
-```bash
-mkdir -p ~/actions-runner
-cd ~/actions-runner
-
-curl -o actions-runner-linux-arm64.tar.gz -L \
-  https://github.com/actions/runner/releases/download/v2.x.x/actions-runner-linux-arm64-2.x.x.tar.gz
-
-tar xzf actions-runner-linux-arm64.tar.gz
-
-./config.sh \
-  --url https://github.com/KishokG/Matter_CHIP \
-  --token NEW_TOKEN_FROM_GITHUB
-
-# Prompts:
-#   Runner name:  kishok-rpi-2        ← DIFFERENT name from first RPi
-#   Labels:       self-hosted,rpi-2   ← add a unique label
-
-sudo ./svc.sh install
-sudo ./svc.sh start
-```
-
-### Step 4 — Target a specific RPi in the workflow (optional)
-
-```yaml
-# Run on any available RPi (default)
-runs-on: self-hosted
-
-# Run on a specific RPi
-runs-on: [self-hosted, rpi-2]
-```
-
-### Step 5 — Verify both runners on GitHub
-
-```
-Settings → Actions → Runners
-─────────────────────────────────────────────────────
-  ● kishok-rpi      Idle    self-hosted, Linux, ARM64
-  ● kishok-rpi-2    Idle    self-hosted, Linux, ARM64, rpi-2
-```
+**GitHub secrets** (Settings → Secrets and variables → Actions):
+`CREDENTIALS_JSON` (Google service account — Drive + Sheets), `GMAIL_SENDER`,
+`GMAIL_APP_PASSWORD`, `NOTIFY_EMAILS`. Share the Drive folder
+(`google_drive.folder_id`) with the service-account email.
 
 ---
 
-## Triggering a Build
+## Triggering a Run
 
-1. Go to your repo → **Actions** tab
-2. Click **Matter — Build on RPi** in the left sidebar
-3. Click **Run workflow** (top right)
-4. Fill in the inputs (see [Runtime Inputs](#runtime-inputs) below)
-5. Click green **Run workflow**
-6. Watch live logs by clicking the running job
+- **Scheduled:** nightly via the `cron` in `matter_build.yml` (Mon–Fri IST).
+  Scheduled runs fire only from the **default branch** (`main`).
+- **Manual:** GitHub → Actions → *Matter — Build on RPi* → **Run workflow**,
+  choose a `pipeline`:
+  - `build-only` — build + upload + email (no tests)
+  - `test-only` — fetch + run tests using the latest uploaded bundle (no build)
+  - `build-test` — build, then test
 
 ---
 
 ## Build Modes
 
-| Mode | Steps performed | When to use |
-|---|---|---|
-| `full` | install deps → clone SDK → clean → bootstrap → build | First time, or clean slate |
-| `skip-clone` | install deps → git pull/checkout → clean → bootstrap → build | New TOT, new SHA, branch change |
-| `skip-all` | install deps → build only | Rebuilding exact same commit (fastest) |
+`build_mode` (manual input; scheduled runs default to `skip-clone`) is passed to
+`build_inside_container.sh --mode` and controls SDK prep **inside the container**
+(the image already has a baked clone + bootstrap):
 
-### Step-by-step flow
+| Mode | Clone | Pull | Clean | Bootstrap | When |
+|---|---|---|---|---|---|
+| `skip-all` | — | — | — | — | Build the image's baked SDK commit as-is (fastest; no new SDK code) |
+| `skip-clone` | — | ✅ | ✅ | ✅ | **Default/nightly** — latest SDK, env rebuilt to match |
+| `full` | ✅ | — | ✅ | ✅ | Everything fresh; ignores the baked checkout |
 
-**All modes always run first:**
-```
-install_system_deps()
-  → check apt-packages.txt → install missing apt packages
-  → check pycairo → install if missing
-```
-
-**`full` then runs:**
-```
-rm -rf connectedhomeip/         ← delete existing SDK if present
-git clone --branch <branch>     ← fresh clone
-checkout_submodules.py --platform linux --shallow
-rm -rf .environment + build dirs
-source scripts/bootstrap.sh
-source scripts/activate.sh      ← set +u to handle optional PW_* vars
-gn_build_example.sh → ninja
-build_python.sh
-```
-
-**`skip-clone` then runs:**
-```
-git fetch + git checkout -B <branch> origin/<branch>
-checkout_submodules.py --platform linux --shallow
-rm -rf .environment + build dirs
-source scripts/bootstrap.sh
-source scripts/activate.sh
-gn_build_example.sh → ninja
-build_python.sh
-```
-
-**`skip-all` then runs:**
-```
-source scripts/activate.sh
-gn_build_example.sh → ninja
-build_python.sh
-```
-
-> ⚠️ `skip-all` only works if bootstrap was previously run for the current commit.
+> The container is `docker run --rm` (ephemeral), so `out/` does **not** persist
+> between runs — every run compiles from scratch regardless of mode. `skip-all`
+> only saves the pull+bootstrap time, not compilation. (A persistent ccache
+> mount is the way to speed repeat compiles — not yet enabled.)
 
 ---
 
 ## Runtime Inputs
 
-When clicking **Run workflow**, you can override config values at runtime:
-
 | Input | Description | Default |
 |---|---|---|
-| **Build mode** | `full` / `skip-clone` / `skip-all` | `skip-clone` |
-| **SDK branch** | Override branch (e.g. `v1.6-branch`, `master`) | Uses `build_config.yaml` value |
-| **SDK SHA** | Pin to a specific commit hash | Uses `build_config.yaml` value |
-| **Target apps** | Comma-separated SDK shorthands (e.g. `all-clusters,light`) — enables exactly these in `discovery.apps`, disables the rest | Uses `enabled` flags in `discovery.apps` |
-
-**Priority:** Runtime input → `build_config.yaml` value → branch HEAD
+| `pipeline` | `build-only` / `test-only` / `build-test` | `build-only` |
+| `build_mode` | `full` / `skip-clone` / `skip-all` (see above) | `skip-clone` |
+| `sdk_branch` | Override SDK branch. Empty = config | `""` |
+| `sdk_sha` | Pin SDK commit. Empty = branch HEAD | `""` |
+| `target_apps` | Comma-separated SDK shorthands to build (enables exactly these in `discovery.apps`, disables the rest). Empty = config | `""` |
+| `cluster_filter` / `tc_filter` | Narrow which TCs run | `""` |
 
 ---
 
 ## Configuration Reference
 
-### `build_config.yaml`
+`config/build_config.yaml` is the single source of truth. Key sections:
 
 ```yaml
 sdk:
   repo: "https://github.com/project-chip/connectedhomeip.git"
-  branch: "v1.6-branch"     # SDK branch (overridable at runtime)
-  sha: ""                    # Pin to exact commit SHA (optional, overridable at runtime)
-  bootstrap: true            # Run bootstrap.sh after clone/update
-  platform: "linux"          # Submodule platform filter
-                             # Options: linux, esp32, nrfconnect, darwin, android
-                             # Multiple: "linux esp32"
-  submodule_jobs: 4          # Parallel submodule checkout jobs
+  branch: "master"          # image is built for this branch; container pulls it
+  sha: ""                    # pin a commit (optional)
 
-# Reference apps are DISCOVERED DYNAMICALLY from the SDK — there is no
-# hardcoded source_dir/binary_name list. At build time discover_targets.py
-# resolves each app's real source_dir + binary from the SDK's HostApp
-# mapping. discovery.apps enumerates EVERY buildable app (~34); you flip
-# `enabled` per app. `modifiers` mirror the Matter Test Harness targets
-# (chip-cert-bins) and become gn args, so binaries build like the TH:
-#   ipv6only → chip_inet_config_enable_ipv4=false | platform-mdns → chip_mdns="platform"
-#   nfc-commission → chip_enable_nfc_based_commissioning=true | rpc → import("//with_pw_rpc.gni")
-#   nlfaultinject → chip_with_nlfaultinjection=true | clang → is_clang=true
-discovery:
+discovery:                   # WHICH apps to build (see next section)
   apps:
-    - { name: all-clusters,    enabled: true,  modifiers: [ipv6only] }        # chip-all-clusters-app
-    - { name: light,           enabled: true,  modifiers: [ipv6only] }        # chip-lighting-app
-    - { name: network-manager, enabled: true,  modifiers: [ipv6only] }        # matter-network-manager-app
-    - { name: fabric-admin,    enabled: false, modifiers: [rpc, ipv6only] }   # fabric-admin
-    # ... ~34 apps total; regenerate with --emit-config-apps (see below)
+    - { name: all-clusters, enabled: true, modifiers: [ipv6only] }   # → chip-all-clusters-app
+    # ... ~34 apps; flip `enabled`; `modifiers` become gn args
 
-chip_tool:               # built separately; matches TH chip-tool target
+chip_tool:                   # built separately (tests need it) — matches TH target
   enabled: true
   source_dir: "examples/chip-tool"
   build_dir: "out/chip-tool"
   binary_name: "chip-tool"
-  extra_gn_args: 'chip_mdns="platform" chip_inet_config_enable_ipv4=false chip_enable_nfc_based_commissioning=true'
+  extra_gn_args: 'chip_mdns="platform" chip_inet_config_enable_ipv4=false chip_enable_nfc_based_commissioning=true chip_device_config_enable_thread_meshcop=true'
 
-python_controller:
+python_controller:           # matches TH build_python.sh flags
   enabled: true
   install_venv_name: "python_env"
-  extra_args: ""             # e.g. "--enable_thread_meshcop true"
+  extra_args: "--enable_nfc true --enable_thread_meshcop true"
+
+google_drive:
+  folder_id: "<Drive folder id, shared with the service account>"
+  keep_history: 5
+  upload_on_partial: true    # upload the apps that built even if some failed
 
 rpi:
-  sdk_dir: "/home/ubuntu/connectedhomeip"
+  sdk_dir: "/home/ubuntu/connectedhomeip"   # RPi SDK checkout (test scripts + binary drop target)
 ```
 
 ---
 
-## System Dependencies
+## Choosing Which Apps to Build
 
-All system packages are listed in `apt-packages.txt` and installed automatically
-before every build. Only missing packages are installed — already-installed
-packages are skipped (fast check via `dpkg -s`).
+Apps are **discovered from the SDK** — there's no hardcoded source/binary list.
+`discovery.apps` enumerates every buildable reference app; you flip `enabled`,
+and each app's `modifiers` become gn args that **mirror the Matter Test Harness**
+(`chip-cert-bins`), so binaries build the way the TH builds them:
 
-**To add a new dependency:**
+| modifier | gn arg |
+|---|---|
+| `ipv6only` | `chip_inet_config_enable_ipv4=false` (every app) |
+| `platform-mdns` | `chip_mdns="platform"` (chip-tool) |
+| `nfc-commission` | `chip_enable_nfc_based_commissioning=true` (chip-tool) |
+| `rpc` | `import("//with_pw_rpc.gni")` (fabric-admin/bridge) |
+| `clang` | `is_clang=true` (camera) |
+| `no-werror` | `treat_warnings_as_errors=false` — **local escape hatch** for apps that fail only on an upstream `-Werror` warning (e.g. refrigerator). Not a TH modifier; don't use on core cert apps. |
+
+**To enable an app:** flip its `enabled: true`. **To regenerate the full menu**
+(after an SDK bump adds apps):
 ```bash
-echo "libnew-dev" >> Matter_CI/apt-packages.txt
-git add Matter_CI/apt-packages.txt
-git commit -m "Add libnew-dev dependency"
-git push origin main
+python3 Matter_CI/scripts/discover_targets.py --sdk-dir <SDK> --emit-config-apps
 ```
 
-The next build run will automatically install it.
+`source_dir` and `binary_name` are resolved from the SDK's `HostApp.ExamplePath()`
+(source folder) and the app's `BUILD.gn` executable (actual output name), so
+collect/upload/test all agree with the real built file. A "green ninja" that
+produced no binary is reported as an honest **FAIL** (not a silent PASS).
 
-**pip packages** (currently just `pycairo`) are also checked and installed
-automatically via `pip3 install --break-system-packages`.
+Recommendation: keep `discovery.apps` trimmed to your actual cert set. Enabling
+all ~34 surfaces niche-app quirks (extra deps, upstream compile bugs) that don't
+matter for certification.
 
 ---
 
-## Enabling / Adding a Reference App
+## System Dependencies & the Docker Image
 
-`discovery.apps` in `build_config.yaml` already lists **every** buildable
-reference app (~34). To build one, just flip its `enabled` to `true` — no
-`source_dir` / `binary_name` to look up (resolved automatically from the SDK):
+`apt-packages.txt` is the system-dependency list **baked into the Docker image**
+(installed at image build time). It also documents camera's build deps
+(ffmpeg + gstreamer + curl `-dev`) and NFC's `libpcsclite-dev` + `pcscd`.
 
-```yaml
-discovery:
-  apps:
-    - { name: refrigerator, enabled: true, modifiers: [ipv6only] }   # ← was false
-```
-
-**`modifiers`** control the gn build args and mirror the Matter Test Harness
-(`chip-cert-bins`) targets, so your binaries build the same way the TH does:
-
-| modifier | gn arg | used by (TH) |
-|---|---|---|
-| `ipv6only` | `chip_inet_config_enable_ipv4=false` | every reference app |
-| `platform-mdns` | `chip_mdns="platform"` | chip-tool, shell, chip-cert |
-| `nfc-commission` | `chip_enable_nfc_based_commissioning=true` | chip-tool |
-| `rpc` | `import("//with_pw_rpc.gni")` | fabric-admin, fabric-bridge |
-| `nlfaultinject` | `chip_with_nlfaultinjection=true` | all-clusters fault-injection variant |
-| `clang` | `is_clang=true` | camera (arm64) |
-
-**To regenerate the full app menu** (e.g. after an SDK bump adds apps), paste
-the output under `discovery:`:
-
+**Changing `apt-packages.txt` requires rebuilding the image** (it's baked, not
+mounted). On the Mac mini:
 ```bash
-python3 Matter_CI/scripts/discover_targets.py \
-    --sdk-dir /home/ubuntu/connectedhomeip --emit-config-apps
+bash ./Matter_CI/docker/build_image.sh master
 ```
+By contrast, `build_config.yaml` and the `scripts/` are **mounted read-only**
+into the container at run time (`-v .../Matter_CI:/matter-ci:ro`), so config /
+script changes take effect on the next run with **no rebuild**.
 
-> Enabling many apps is heavy on RPi build time + disk — enable only what you
-> test. `chip-tool` and the python controller build from their own sections.
-
-Trigger with `skip-all` if the SDK hasn't changed.
+> Rebuild the image only when: `apt-packages.txt` changes, or you want a fresh
+> SDK bootstrap. Day-to-day SDK updates happen via `git pull` inside the container.
 
 ---
 
-## Build Artifacts
+## Build Artifacts & the Bundle
 
-After every run (pass or fail), a `build-summary-<N>` artifact is uploaded.
-
-**Download:**
+Each successful build produces a bundle on Google Drive:
 ```
-GitHub → Actions → (click run) → Artifacts → build-summary-N
+matter-sdk-<branch>-<commit>-arm64.tar.gz
+├── apps/           ← reference-app binaries (Linux/ARM64)
+├── chip-tool
+├── wheels/         ← python controller wheels
+├── build-info.json ← branch, full commit, date (RPi uses this to checkout the SDK)
+├── build-info.txt
+├── README.txt      ← manual-use guide
+└── install.sh      ← manual-use setup (creates a chip_env venv + installs wheels)
 ```
-
-**Example output:**
-```
-══════════════════════════════════════════════════════════════
-  Matter CI — Build Summary
-  2026-06-24 14:32:01
-══════════════════════════════════════════════════════════════
-  SDK Dir    : /home/ubuntu/connectedhomeip
-  Branch     : v1.6-branch
-  Commit     : d89f71558bf0c429ec60f3f76ea371775731701d
-
-── Reference Apps ────────────────────────────────────────────
-  ✅  all-clusters         48.2 MB
-  ✅  light                41.7 MB
-
-── chip-tool ─────────────────────────────────────────────────
-  ✅  chip-tool           22.1 MB
-
-── Python Controller ─────────────────────────────────────────
-  ✅  venv → /home/ubuntu/connectedhomeip/python_env
-
-  ✅  All enabled targets built successfully!
-```
+Uploaded to `google_drive.folder_id/latest/` (overwritten) and `history/`
+(last `keep_history` kept). The GitHub Actions run also uploads `build_logs/` +
+`build_status.json` as a run artifact. The RPi test job downloads the `latest/`
+bundle automatically (`prepare_rpi_tests.py`).
 
 ---
 
 ## Troubleshooting
 
-### Runner shows Offline
-
-```bash
-cd ~/actions-runner
-sudo ./svc.sh stop
-sudo ./svc.sh start
-sudo ./svc.sh status
-```
-
-### Runner not picking up jobs
-
-```bash
-journalctl -u actions.runner.* -f
-cat ~/actions-runner/_diag/Runner_*.log | tail -50
-```
-
-### Build failed — missing system package
-
-The build script auto-installs from `apt-packages.txt`. If a package is
-missing from the list, add it to `apt-packages.txt` and push.
-
-### Build runs out of memory (OOM)
-
-```bash
-free -h   # check current memory + swap
-
-# Increase swap to 8GB
-sudo swapoff /swapfile
-sudo fallocate -l 8G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-```
-
-### Runner lost communication (OOM during build)
-
-```
-The self-hosted runner lost communication with the server.
-```
-
-This means the RPi ran out of memory mid-build and the OS killed the runner process.
-Fix: increase swap (see above), then restart runner and re-run.
-
-### activate.sh fails with unbound variable
-
-`build.sh` uses `set +u` around `source scripts/activate.sh` to handle this.
-Ensure you have the latest `build.sh` from this repo.
-
-### Branch not switching correctly
-
-The build log shows both current and configured branch:
-```
-[BUILD] Current branch : master
-[BUILD] Config branch  : v1.6-branch
-[BUILD] Switching to branch from config: v1.6-branch
-```
-
-If the switch fails, use `full` mode to do a clean clone on the correct branch.
-
-### Re-register runner (token expired or runner broken)
-
-```bash
-cd ~/actions-runner
-sudo ./svc.sh stop
-sudo ./svc.sh uninstall
-./config.sh remove --token OLD_TOKEN  # or skip if token expired
-
-# Get new token: Settings → Actions → Runners → New self-hosted runner
-./config.sh \
-  --url https://github.com/KishokG/Matter_CHIP \
-  --token NEW_TOKEN
-sudo ./svc.sh install
-sudo ./svc.sh start
-```
+| Symptom | Fix |
+|---|---|
+| `docker: command not found` on the build job | Docker Desktop not running / not on the runner's PATH. Enable "start on login", restart the runner service. |
+| `Docker image matter-sdk-builder:master not found` | Build it once: `bash ./Matter_CI/docker/build_image.sh master`. |
+| App fails: `MISSING PKG-CONFIG LIB` (e.g. libavformat, gstreamer-1.0) | Add the `-dev` package to `apt-packages.txt` **and rebuild the image**. |
+| App fails: `-Werror` on an ignored `[[nodiscard]]` (upstream code) | Add the `no-werror` modifier to that app, or disable it. |
+| 0 apps discovered | Check `discovery.apps` has `enabled: true` entries — see the `[INFO] discovery summary` line in the build log. |
+| Upload skipped / no bundle | If `upload_on_partial: false`, any app failing blocks the upload. Set `true`, or trim the app set. |
+| Upload/notify: `No module named yaml` / Google libs | Host-side deps — the jobs `pip install` them; ensure the Mac mini has `python3`/`pip`. |
+| Upload: `No app binaries found` | The build job's `~/matter-output` and the upload job must share the runner's `$HOME` (same mac-mini runner — they do). |
+| RPi tests can't find binaries | The `Prepare RPi` step must run first; the RPi needs a `connectedhomeip` clone at `rpi.sdk_dir`. |
+| Binary is `Mach-O` not `ELF aarch64` | Missing `--platform linux/arm64` — rebuild the image. |
+| `activate.sh` unbound variable | The build sources it with `set +u`; if it still fails, the image bootstrap is stale — rebuild. |
 
 ---
 
@@ -582,9 +323,19 @@ sudo ./svc.sh start
 
 | File | Runs on | Purpose |
 |---|---|---|
-| `config/build_config.yaml` | — | All settings — SDK branch/SHA, app selection (`discovery:`), RPi path |
-| `apt-packages.txt` | RPi | System packages auto-installed before every build |
-| `scripts/build.sh` | RPi | Main build orchestrator — all 3 modes |
-| `scripts/validate_config.py` | GitHub cloud runner | Validates YAML before any build starts |
-| `scripts/collect_build_info.py` | RPi | Post-build binary sizes and paths |
-| `.github/workflows/matter_build.yml` | GitHub Actions | Workflow — manual trigger only, no push trigger |
+| `config/build_config.yaml` | — | Single source of truth (apps, modifiers, SDK, Drive, tests) |
+| `docker/Dockerfile` | Mac mini (image build) | ubuntu:24.04 arm64 + SDK + baked bootstrap |
+| `docker/build_image.sh` | Mac mini | One-time image build helper |
+| `docker/build_inside_container.sh` | container | The nightly build (SDK prep → discover → build → collect) |
+| `scripts/discover_targets.py` | container / RPi | Resolve apps (source/binary/gn-args) from the SDK |
+| `scripts/upload_artifacts.py` | Mac mini | Bundle `~/matter-output` → Google Drive |
+| `scripts/notify.py` | Mac mini | HTML email notification |
+| `scripts/prepare_rpi_tests.py` | RPi | Download bundle → checkout SDK → place binaries + install wheels |
+| `scripts/fetch_test_commands.py` | RPi | Pull TC commands from Google Sheet |
+| `scripts/run_tests.py` | RPi | Execute the TCs |
+| `scripts/validate_config.py` | GitHub cloud | Validate `build_config.yaml` |
+| `apt-packages.txt` | Mac mini (image) | System deps baked into the image |
+| `.github/workflows/matter_build.yml` | — | The pipeline definition |
+
+Legacy (native RPi build, superseded by Docker but kept for reference):
+`scripts/build.sh`, `scripts/collect_build_info.py`, `scripts/cleanup.sh`.

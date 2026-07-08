@@ -4,8 +4,8 @@ One-time setup + pre-testing for the Docker build migration (Approach B).
 Do these **in order** on the Mac mini M4. Steps 1–6 are local (no CI); only
 step 9 involves GitHub Actions.
 
-> The Docker files live on the **`build_target_integration`** branch (not yet on
-> `main`). Use that branch everywhere below until it's merged.
+> The Docker migration is on **`main`** (the default branch). Scheduled nightly
+> runs fire from `main`; manual runs can target any branch.
 
 ---
 
@@ -48,8 +48,7 @@ inside the container.)
 
 ```bash
 git clone https://github.com/KishokG/Matter_CHIP.git ~/Matter_CHIP
-cd ~/Matter_CHIP
-git checkout build_target_integration
+cd ~/Matter_CHIP   # main branch has the Docker migration
 ```
 This manual clone is used only to **build the image** (step 4). During CI the
 runner checks out its own copy automatically.
@@ -140,11 +139,10 @@ step checks it out to the build commit but won't clone from scratch.
 
 ## 9. First CI run (manual, on the branch)
 
-Scheduled (cron) runs only fire from the **default branch** once merged. Until
-then, test via **workflow_dispatch** (works on any branch):
+Scheduled (cron) runs fire from the **default branch** (`main`). You can also
+trigger manually via **workflow_dispatch** (any branch):
 
-GitHub → Actions → "Matter — Build on RPi" → **Run workflow** → pick branch
-`build_target_integration`:
+GitHub → Actions → "Matter — Build on RPi" → **Run workflow** (branch `main`):
 - **pipeline = `build-only`** first (just build + upload + email; no tests).
 - Watch the **Build on Mac mini (Docker)** job → it runs the same `docker run`
   you tested in step 6, then upload + notify on the Mac mini.
