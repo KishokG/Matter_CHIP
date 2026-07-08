@@ -17,9 +17,9 @@ sdk:
 # There is no hardcoded source_dir/binary_name list. At build time,
 # scripts/discover_targets.py resolves each app's real source_dir + binary
 # from the SDK's own HostApp mapping. You only choose WHICH apps to build
-# and with WHICH modifiers — every consumer (build.sh, upload_artifacts.py,
-# run_tests.py, fetch_test_commands.py, collect_build_info.py) reads this
-# same block via resolve_pipeline_apps(), so it is the single source of truth.
+# and with WHICH modifiers — every consumer (build_inside_container.sh,
+# upload_artifacts.py, run_tests.py, fetch_test_commands.py) reads this same
+# block via resolve_pipeline_apps(), so it is the single source of truth.
 #
 # Apps are built natively on the RPi with:
 #   scripts/examples/gn_build_example.sh <source_dir> out/<name> <gn_args>
@@ -56,13 +56,13 @@ discovery:
     - { name: closure,                     enabled: true,  modifiers: [ipv6only] }        # closure-app
     - { name: network-manager,             enabled: true,  modifiers: [ipv6only] }        # matter-network-manager-app (TC-ACL-2.x)
     # --- available, disabled by default (flip enabled: true to build) ---
-    - { name: air-quality-sensor,          enabled: true, modifiers: [ipv6only] }        # air-quality-sensor-app
-    - { name: all-clusters-minimal,        enabled: true, modifiers: [ipv6only] }        # chip-all-clusters-minimal-app
+    - { name: air-quality-sensor,          enabled: false, modifiers: [ipv6only] }        # air-quality-sensor-app
+    - { name: all-clusters-minimal,        enabled: false, modifiers: [ipv6only] }        # chip-all-clusters-minimal-app
     - { name: all-devices,                 enabled: true, modifiers: [ipv6only] }        # all-devices-app
     - { name: camera,                      enabled: true, modifiers: [clang, ipv6only] } # chip-camera-app  (TH arm64: camera-clang-ipv6only)
     - { name: camera-controller,           enabled: true, modifiers: [ipv6only] }        # chip-camera-controller
-    - { name: contact-sensor,              enabled: true, modifiers: [ipv6only] }        # contact-sensor-app
-    - { name: dishwasher,                  enabled: true, modifiers: [ipv6only] }        # dishwasher-app
+    - { name: contact-sensor,              enabled: false, modifiers: [ipv6only] }        # contact-sensor-app
+    - { name: dishwasher,                  enabled: false, modifiers: [ipv6only] }        # dishwasher-app
     - { name: energy-gateway,              enabled: true, modifiers: [ipv6only] }        # chip-energy-gateway-app
     - { name: fabric-admin,                enabled: true, modifiers: [rpc, ipv6only] }   # fabric-admin
     - { name: fabric-bridge,               enabled: true, modifiers: [rpc, ipv6only] }   # fabric-bridge-app
@@ -74,13 +74,13 @@ discovery:
     - { name: microwave-oven,              enabled: true, modifiers: [ipv6only] }        # chip-microwave-oven-app
     - { name: ota-provider,                enabled: true, modifiers: [ipv6only] }        # chip-ota-provider-app
     - { name: ota-requestor,               enabled: true, modifiers: [ipv6only] }        # chip-ota-requestor-app
-    - { name: refrigerator,                enabled: true,  modifiers: [no-werror, ipv6only] } # chip-refrigerator-app (no-werror: upstream -Werror bug)
+    - { name: refrigerator,                enabled: false,  modifiers: [no-werror, ipv6only] } # chip-refrigerator-app (no-werror: upstream -Werror bug)
     - { name: rvc,                         enabled: true, modifiers: [ipv6only] }        # chip-rvc-app
     - { name: terms-and-conditions,        enabled: true, modifiers: [ipv6only] }        # chip-terms-and-conditions-app
     - { name: tv-app,                      enabled: true, modifiers: [ipv6only] }        # chip-tv-app
     - { name: tv-casting-app,              enabled: true, modifiers: [ipv6only] }        # chip-tv-casting-app
     - { name: water-heater,                enabled: true, modifiers: [ipv6only] }        # matter-water-heater-app
-    - { name: water-leak-detector,         enabled: true, modifiers: [ipv6only] }        # water-leak-detector-app
+    - { name: water-leak-detector,         enabled: false, modifiers: [ipv6only] }        # water-leak-detector-app
 
 
 # ============================================================

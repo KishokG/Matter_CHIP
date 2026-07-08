@@ -13,9 +13,9 @@
 #   1. git fetch + hard-reset the SDK to origin/<branch>  (latest SDK code)
 #   2. sync submodules
 #   3. source scripts/activate.sh
-#   4. resolve enabled apps via discover_targets.py (same as build.sh)
+#   4. resolve enabled apps via discover_targets.py
 #   5. build each app + chip-tool + python controller (live ninja progress,
-#      per-app pass/fail + diagnose_error — ported from build.sh)
+#      per-app pass/fail + diagnose_error)
 #   6. copy binaries + wheels + build-info.json + build_status.json to /output
 #
 # Reads (read-only): /matter-ci/config/build_config.yaml, /matter-ci/scripts/*
@@ -40,7 +40,7 @@ DISCOVERED_APPS_JSON="${LOG_DIR}/discovered_apps.json"
 mkdir -p "${LOG_DIR}" "${OUTPUT}/apps" "${OUTPUT}/wheels"
 
 # ── Build mode ───────────────────────────────────────────────────────────────
-# Mirrors the RPi build.sh modes, adapted to the container:
+# Build modes (like the legacy native RPi build), adapted to the container:
 #   full        → re-clone SDK + clean + bootstrap + build   (ignore baked SDK)
 #   skip-clone  → git-pull SDK   + clean + bootstrap + build  (DEFAULT)
 #   skip-all    → build only, using the SDK + env baked into the image as-is
@@ -89,7 +89,10 @@ declare -A BUILD_STATUS
 declare -A BUILD_ERROR
 PASSED_APPS=(); FAILED_APPS=()
 
-# ── Error conclusion helper (ported verbatim from build.sh) ──────────────────
+# ── Error conclusion helper ──────────────────────────────────────────────────
+# Analyses a failed build's log and returns a human-readable conclusion. Covers
+# every case the legacy native RPi build diagnosed, plus container-specific ones
+# (missing pkg-config lib, missing binary).
 diagnose_error() {
     local app_name="$1" error_log="$2" conclusion=""
     if [[ ! -f "${error_log}" ]]; then
@@ -98,6 +101,8 @@ diagnose_error() {
     local content; content=$(cat "${error_log}" 2>/dev/null || echo "")
     if echo "${content}" | grep -q "No such file or directory.*source_dir\|does not exist\|source directory"; then
         conclusion="❌ WRONG SOURCE PATH — source_dir for '${app_name}' does not exist in the SDK."
+    elif echo "${content}" | grep -q "No such file or directory.*build_dir\|cannot create.*build"; then
+        conclusion="❌ WRONG BUILD PATH — the build_dir for '${app_name}' is invalid."
     elif echo "${content}" | grep -q "fatal error:.*No such file or directory"; then
         local mh; mh=$(echo "${content}" | grep "fatal error:" | grep "No such file" | head -1 | sed "s/.*fatal error: //")
         conclusion="❌ MISSING HEADER FILE — ${mh}\n   Fix: add the system package to apt-packages.txt and rebuild the image"
@@ -107,11 +112,15 @@ diagnose_error() {
     elif echo "${content}" | grep -q "error:.*command not found\|gn: not found\|ninja: not found"; then
         conclusion="❌ TOOL NOT FOUND — gn/ninja not in PATH.\n   Fix: the image bootstrap may be stale — rebuild the image"
     elif echo "${content}" | grep -q "out of memory\|OOM\|std::bad_alloc"; then
-        conclusion="❌ OUT OF MEMORY — build ran out of RAM."
+        conclusion="❌ OUT OF MEMORY — build ran out of RAM.\n   Fix: raise Docker Desktop memory (Settings → Resources)"
     elif echo "${content}" | grep -q "error:.*undeclared\|error:.*undefined reference"; then
         conclusion="❌ COMPILATION ERROR — likely an SDK version mismatch.\n   Fix: check sdk.branch or rebuild the image against the new SDK"
     elif echo "${content}" | grep -q "subcommand failed\|ninja: build stopped"; then
         conclusion="❌ NINJA BUILD FAILED — one or more compile units failed. See the error log."
+    elif echo "${content}" | grep -q "timeout\|timed out"; then
+        conclusion="❌ BUILD TIMEOUT — build exceeded its time limit."
+    elif echo "${content}" | grep -qi "permission denied"; then
+        conclusion="❌ PERMISSION DENIED — file/dir permission issue in the container or on the /output mount."
     else
         conclusion="❌ BUILD FAILED — unknown error. Check the full log."
     fi
@@ -255,7 +264,7 @@ sdk_update() {
 }
 
 # clean — remove build outputs + the pigweed env (forces a clean bootstrap),
-# mirroring build.sh's clean_old_builds. Used by full + skip-clone.
+# (removes build outputs + the pigweed env). Used by full + skip-clone.
 clean_builds() {
     banner "Step 1b — Clean old builds + environment"
     cd "${SDK_DIR}"
@@ -288,7 +297,7 @@ activate_env() {
 }
 
 # =============================================================================
-# STEP 3 — Resolve enabled apps (dynamic discovery, same as build.sh)
+# STEP 3 — Resolve enabled apps (dynamic discovery)
 # =============================================================================
 discover_apps() {
     banner "Step 3 — Discover Reference Apps"
@@ -489,7 +498,7 @@ main() {
 
     [[ -f "${CONFIG_FILE}" ]] || fail "❌ build_config.yaml not found at ${CONFIG_FILE} (is /matter-ci mounted?)"
 
-    # Mode dispatch (mirrors build.sh):
+    # Mode dispatch:
     #   full       → clone + clean + bootstrap
     #   skip-clone → pull  + clean + bootstrap
     #   skip-all   → nothing (use the SDK + env baked into the image as-is)

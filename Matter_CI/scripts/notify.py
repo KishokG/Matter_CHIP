@@ -88,6 +88,7 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
     date_str    = datetime.now().strftime("%Y-%m-%d %H:%M IST")
     safe_branch = branch.replace("/", "-")
     bundle_name = f"matter-sdk-{safe_branch}-{commit}-arm64.tar.gz"
+    bundle_dir  = f"matter-sdk-{safe_branch}-{commit}-arm64"   # extracted folder name
     file_id     = drive_link.split("/d/")[1].split("/")[0] if "/d/" in drive_link else ""
 
 
@@ -169,17 +170,20 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
             'font-weight:500;vertical-align:middle">Raspberry Pi terminal</td>'
             '</tr></table>'
 
-            # Code body — each line as separate <div> for reliable rendering
+            # Code body — each line a separate <div>; white-space:pre-wrap +
+            # overflow-wrap keeps every line (incl. the long gdown file id)
+            # rendering uniformly instead of collapsing/boxing awkwardly.
             '<div style="background:#0D1117;padding:14px 16px;'
             'font-family:Courier New,Courier,monospace;font-size:12px;'
-            'line-height:2;color:#E6EDF3;word-break:break-word">'
+            'line-height:1.9;color:#E6EDF3;white-space:pre-wrap;'
+            'overflow-wrap:anywhere">'
             '<div><span style="color:#7EE787"># install gdown</span></div>'
             '<div>pip3 install gdown --break-system-packages</div>'
             '<div><span style="color:#7EE787"># download bundle</span></div>'
             f'<div>gdown {file_id}</div>'
             '<div><span style="color:#7EE787"># extract and install</span></div>'
-            '<div>tar -xzf matter-sdk*.tar.gz</div>'
-            '<div>cd matter-sdk-*/</div>'
+            f'<div>tar -xzf {bundle_name}</div>'
+            f'<div>cd {bundle_dir}/</div>'
             '<div>chmod +x install.sh &amp;&amp; ./install.sh</div>'
             '</div>'
             '</div>'
@@ -416,6 +420,9 @@ def build_plain_text(status: str, commit: str, branch: str,
     """Plain text fallback for email clients that don't support HTML."""
     file_id = drive_link.split("/d/")[1].split("/")[0] if "/d/" in drive_link else ""
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M IST")
+    safe_branch = branch.replace("/", "-")
+    bundle_name = f"matter-sdk-{safe_branch}-{commit}-arm64.tar.gz"
+    bundle_dir  = f"matter-sdk-{safe_branch}-{commit}-arm64"
 
     lines = [
         "=" * 60,
@@ -439,8 +446,8 @@ def build_plain_text(status: str, commit: str, branch: str,
             "Download & Install:",
             "  pip3 install gdown --break-system-packages",
             f"  gdown {file_id}",
-            "  tar -xzf matter-sdk*.tar.gz",
-            "  cd matter-sdk-*/",
+            f"  tar -xzf {bundle_name}",
+            f"  cd {bundle_dir}/",
             "  chmod +x install.sh && ./install.sh",
             "",
             f"  Google Drive link: {drive_link}",

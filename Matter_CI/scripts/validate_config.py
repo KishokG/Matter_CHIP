@@ -70,11 +70,12 @@ def validate(config_path: str) -> bool:
     KNOWN_MODIFIERS = {"ipv6only", "platform-mdns", "nfc-commission",
                        "nlfaultinject", "rpc", "clang", "no-werror"}
     disc = cfg["discovery"]
-    if not isinstance(disc, dict):
-        error("'discovery' must be a mapping (see build_config.yaml)")
+    if not isinstance(disc, dict) or not isinstance(disc.get("apps"), list):
+        error("'discovery' must be a mapping with an 'apps' list "
+              "(see build_config.yaml)")
         passed = False
-    elif isinstance(disc.get("apps"), list):
-        # Primary model: explicit per-app list with enabled + modifiers.
+    else:
+        # discovery.apps — explicit per-app list with enabled + modifiers.
         enabled_apps = []
         for i, app in enumerate(disc["apps"]):
             if not isinstance(app, dict) or not app.get("name"):
@@ -96,21 +97,6 @@ def validate(config_path: str) -> bool:
         else:
             warn("No apps enabled in discovery.apps — only chip-tool / python "
                  "controller will build")
-    else:
-        # Legacy fallback model: include / exclude allowlists.
-        inc = disc.get("include", [])
-        exc = disc.get("exclude", [])
-        if inc is not None and not isinstance(inc, list):
-            error("discovery.include must be a list (or omitted)")
-            passed = False
-        if exc is not None and not isinstance(exc, list):
-            error("discovery.exclude must be a list (or omitted)")
-            passed = False
-        if inc:
-            ok(f"Discovery (legacy include): {len(inc)} app(s): {inc}")
-        else:
-            warn("discovery has neither 'apps' nor a non-empty 'include' — ALL "
-                 "discoverable reference apps will be built (heavy on the RPi)")
 
     # ── chip-tool ─────────────────────────────────────────────────────────────
     if cfg["chip_tool"].get("enabled"):

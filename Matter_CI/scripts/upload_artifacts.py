@@ -448,11 +448,14 @@ def upload_file(service, file_path: Path, folder_id: str) -> str:
 
     request = service.files().create(body=meta, media_body=media, fields="id")
     response = None
+    last_decile = -1   # print at 0/10/20/…% (newlines, not \r, so CI renders it)
     while response is None:
         status, response = request.next_chunk()
         if status:
             pct = int(status.progress() * 100)
-            print(f"[DRIVE]   Uploading... {pct}%", end="\r")
+            if pct // 10 > last_decile:
+                last_decile = pct // 10
+                print(f"[DRIVE]   Uploading... {pct}%")
 
     print(f"[DRIVE] ✅ Uploaded: {file_path.name} (id={response['id']})")
     return response["id"]

@@ -85,13 +85,16 @@ takes ~10–15 min instead of the full ~45–90 min. Edit
 `enabled: false` except `all-clusters`. (Revert after.)
 
 ```bash
-mkdir -p ~/matter-output
+mkdir -p ~/matter-output ~/matter-ccache
 docker run --rm \
   -v ~/matter-output:/output \
   -v ~/Matter_CHIP/Matter_CI:/matter-ci:ro \
+  -v ~/matter-ccache:/root/.ccache \
   matter-sdk-builder:master \
   bash /matter-ci/docker/build_inside_container.sh
 ```
+(The `~/matter-ccache` mount persists the compiler cache across runs — the
+first build is cold, later builds are mostly cache hits.)
 Then verify the output handoff:
 ```bash
 ls -R ~/matter-output/apps ~/matter-output/wheels

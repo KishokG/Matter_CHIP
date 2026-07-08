@@ -79,8 +79,7 @@ Matter_CHIP/
 │   │   ├── prepare_rpi_tests.py  ← RPi: download bundle → checkout SDK → install
 │   │   ├── fetch_test_commands.py← RPi: pull TC commands from Google Sheet
 │   │   ├── run_tests.py          ← RPi: execute the TCs
-│   │   ├── build.sh              ← legacy native RPi build (superseded by Docker; kept for reference)
-│   │   └── collect_build_info.py ← legacy RPi build summary
+│   │   └── cleanup.sh            ← RPi: prune old test-result runs / disk check
 │   ├── apt-packages.txt          ← system deps baked into the Docker image
 │   └── README.md                 ← this file
 │
@@ -333,9 +332,7 @@ bundle automatically (`prepare_rpi_tests.py`).
 | `scripts/prepare_rpi_tests.py` | RPi | Download bundle → checkout SDK → place binaries + install wheels |
 | `scripts/fetch_test_commands.py` | RPi | Pull TC commands from Google Sheet |
 | `scripts/run_tests.py` | RPi | Execute the TCs |
+| `scripts/cleanup.sh` | RPi | Prune old test-result runs + disk-space check |
 | `scripts/validate_config.py` | GitHub cloud | Validate `build_config.yaml` |
 | `apt-packages.txt` | Mac mini (image) | System deps baked into the image |
 | `.github/workflows/matter_build.yml` | — | The pipeline definition |
-
-Legacy (native RPi build, superseded by Docker but kept for reference):
-`scripts/build.sh`, `scripts/collect_build_info.py`, `scripts/cleanup.sh`.

@@ -68,6 +68,13 @@ on:
 concurrency:
   group: matter-ci-build
   cancel-in-progress: false
+
+# Stream Python output live to the Actions log. Without this, print() is
+# block-buffered in CI (non-TTY) so long steps (bundle/upload, tests) show
+# nothing until they finish. Applies to every step in every job.
+env:
+  PYTHONUNBUFFERED: "1"
+
 jobs:
   # ──────────────────────────────────────────────────────────
   # Job 1: Validate config — always runs (GitHub cloud runner)
@@ -214,6 +221,13 @@ jobs:
           rm -rf "${OUTPUT_DIR}"          # fresh each run — binaries re-emitted
           mkdir -p "${OUTPUT_DIR}"
 
+          # Persistent ccache — the container is --rm (out/ never persists), so
+          # without this every build recompiles cold. Mounting a host ccache dir
+          # into the container's ccache dir (/root/.ccache) makes repeat builds
+          # mostly cache hits. Survives across runs; first run populates it.
+          CCACHE_DIR_HOST="${HOME}/matter-ccache"
+          mkdir -p "${CCACHE_DIR_HOST}"
+
           if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
             echo "::error::Docker image ${IMAGE} not found on this runner."
             echo "Build it once with: ./Matter_CI/docker/build_image.sh master"
@@ -226,6 +240,7 @@ jobs:
           docker run --rm \
             -v "${OUTPUT_DIR}:/output" \
             -v "${GITHUB_WORKSPACE}/Matter_CI:/matter-ci:ro" \
+            -v "${CCACHE_DIR_HOST}:/root/.ccache" \
             "${IMAGE}" \
             bash /matter-ci/docker/build_inside_container.sh --mode "${BUILD_MODE}"
 

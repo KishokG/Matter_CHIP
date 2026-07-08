@@ -259,7 +259,7 @@ def is_app_failed(binary_name: str, failed_apps: set[str], apps: list[dict]) -> 
     """Returns app name if binary belongs to a failed app, else empty string.
 
     `apps` is the dynamically resolved reference-app list (from
-    resolve_pipeline_apps) — same names build.sh used for its status logs.
+    resolve_pipeline_apps) — same names the build used for its status logs.
     """
     for app in apps:
         if app.get("binary_name") == binary_name:
