@@ -15,7 +15,8 @@ Steps:
   3. git fetch + checkout the RPi SDK to the EXACT commit the binaries were
      built from (from the bundle's build-info.json) — so the python_testing
      test scripts match the built SDK.
-  4. Copy the bundle's app binaries + chip-tool into sdk_dir/out/<name>/... so
+  4. Symlink the bundle's app binaries + chip-tool into sdk_dir/out/<name>/...
+     (not copied — saves ~5-6 min of flash writes + avoids duplicating GBs) so
      run_tests.py finds them where it expects.
   5. Install the bundle's python wheels (+ mobly/click/colorama/pyserial) into
      the sdk_dir/<python_env> venv that run_tests.py uses.
@@ -109,6 +110,17 @@ def download_and_extract(cfg: dict, workdir: Path) -> Path:
     log(f"Latest bundle: {meta['name']} ({int(meta.get('size',0))/1_048_576:.1f} MB)")
 
     workdir.mkdir(parents=True, exist_ok=True)
+
+    # Purge previous runs' bundles so the workdir can't grow unbounded (each run
+    # downloads a uniquely-named tar; without this they pile up and exhaust disk).
+    old_tars = sorted(workdir.glob("matter-sdk-*.tar.gz"))
+    for old in old_tars:
+        try:
+            old.unlink()
+            log(f"Removed old bundle tar: {old.name}")
+        except OSError as e:
+            log(f"⚠️  Could not remove {old.name}: {e}")
+
     tar_path = workdir / meta["name"]
     download_file(service, meta["id"], tar_path)
     log(f"Downloaded → {tar_path}")
@@ -119,6 +131,13 @@ def download_and_extract(cfg: dict, workdir: Path) -> Path:
     extract_root.mkdir(parents=True)
     with tarfile.open(tar_path, "r:gz") as t:
         t.extractall(extract_root)
+
+    # The tar is dead weight once extracted — drop it (binaries are symlinked
+    # from the extracted dir, which persists through the test run).
+    try:
+        tar_path.unlink()
+    except OSError:
+        pass
 
     # The tar contains a single top-level dir (matter-sdk-...); return it.
     subdirs = [d for d in extract_root.iterdir() if d.is_dir()]
@@ -183,6 +202,23 @@ def checkout_sdk(sdk_dir: Path, commit: str):
 
 
 # ── Place binaries where run_tests.py expects ────────────────────────────────
+def _symlink_binary(src: Path, dst: Path):
+    """
+    Point sdk_dir/out/<name>/<binary> at the extracted bundle file via a symlink
+    instead of copying ~hundreds of MB per app onto slow RPi flash (28 copies
+    took ~5-6 min; symlinks are instant and avoid duplicating the bytes). The
+    extracted bundle dir persists through the test run, so the link stays valid.
+    run_tests.py opens the same path and the OS follows the link transparently.
+    """
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    # Remove any pre-existing file/symlink at the destination (e.g. left over
+    # from an older copy-based run) so os.symlink can't fail with FileExists.
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    src.chmod(0o755)
+    os.symlink(src.resolve(), dst)
+
+
 def place_binaries(cfg: dict, sdk_dir: Path, bundle_dir: Path):
     apps_src = bundle_dir / "apps"
     placed = 0
@@ -194,9 +230,7 @@ def place_binaries(cfg: dict, sdk_dir: Path, bundle_dir: Path):
             log(f"⚠️  {app['binary_name']} not in bundle — skipping")
             continue
         dst = sdk_dir / app["build_dir"] / app["binary_name"]
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        dst.chmod(0o755)
+        _symlink_binary(src, dst)
         placed += 1
         log(f"binary → {dst}")
 
@@ -206,12 +240,11 @@ def place_binaries(cfg: dict, sdk_dir: Path, bundle_dir: Path):
         src = bundle_dir / "chip-tool"
         if src.exists():
             dst = sdk_dir / ct["build_dir"] / ct["binary_name"]
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst); dst.chmod(0o755)
+            _symlink_binary(src, dst)
             log(f"binary → {dst}")
         else:
             log("⚠️  chip-tool not in bundle")
-    log(f"Placed {placed} app binary(ies) into the SDK out/ tree.")
+    log(f"Linked {placed} app binary(ies) into the SDK out/ tree.")
 
 
 # ── Install wheels into the venv run_tests.py uses ───────────────────────────
