@@ -565,10 +565,13 @@ def main():
     failed_apps = [k for k, v in build_status.items() if v == "FAIL"]
     passed_apps = [k for k, v in build_status.items() if v != "FAIL"]
 
-    # Build subject line
+    # Build subject line. Include the run number so every email has a UNIQUE
+    # subject — otherwise same-commit rebuilds share a subject, Gmail threads
+    # them into one conversation, and collapses the "repeated" parts behind a
+    # "•••" (show-trimmed-content) toggle. Unique subject → no threading → no •••.
     icons = {"success": "✅", "partial": "⚠️", "failed": "🔴"}
     labels = {"success": "SUCCESS", "partial": "PARTIAL SUCCESS", "failed": "FAILED"}
-    subject = (f"{icons[args.status]} Matter SDK Nightly Build — "
+    subject = (f"{icons[args.status]} Matter SDK Nightly Build #{args.run_id} — "
                f"{labels[args.status]} | {branch} | {commit}")
 
     html_body  = build_html(
