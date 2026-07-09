@@ -143,6 +143,16 @@ def download_and_extract(cfg: dict, workdir: Path) -> Path:
     subdirs = [d for d in extract_root.iterdir() if d.is_dir()]
     bundle_dir = subdirs[0] if len(subdirs) == 1 else extract_root
     log(f"Extracted → {bundle_dir}")
+
+    # Surface the build metadata at a stable path so the test report + the
+    # workflow's test summary can show WHICH commit the DUTs were built at.
+    src_info = bundle_dir / "build-info.json"
+    if src_info.exists():
+        dst_info = PROJECT_ROOT / "logs" / "build-info.json"
+        dst_info.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_info, dst_info)
+        log(f"Build info → {dst_info}")
+
     return bundle_dir
 
 

@@ -644,9 +644,31 @@ def extract_cluster(tc_id: str, cluster: str = "") -> str:
     return match.group(1).upper() if match else "OTHER"
 
 
+def read_build_info() -> dict:
+    """
+    Build metadata (commit/branch/date) of the DUT binaries under test, written
+    by prepare_rpi_tests.py to logs/build-info.json from the downloaded bundle.
+    Returns {} if unavailable (e.g. a local build that skipped the bundle prep).
+    """
+    info_file = PROJECT_ROOT / "logs" / "build-info.json"
+    if info_file.exists():
+        try:
+            return json.loads(info_file.read_text())
+        except Exception:
+            pass
+    return {}
+
+
 def generate_report(results: list[dict], cfg: dict) -> Path:
     report_path = PROJECT_ROOT / cfg["test_execution"]["report_path"]
     report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    bi          = read_build_info()
+    bi_commit   = bi.get("commit_short") or bi.get("commit") or "unknown"
+    bi_branch   = bi.get("branch", "unknown")
+    bi_date     = bi.get("date", "")
+    build_meta  = (f" · SDK commit <b>{bi_commit}</b> (branch <b>{bi_branch}</b>"
+                   + (f", built {bi_date}" if bi_date else "") + ")")
 
     total     = len(results)
     passed    = sum(1 for r in results if r["status"] == PASS)
@@ -931,7 +953,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
   <div class="header">
     <div>
       <h1>🔬 Matter CI — Test Report</h1>
-      <div class="meta">Generated: {run_time}</div>
+      <div class="meta">Generated: {run_time}{build_meta}</div>
     </div>
   </div>
 

@@ -543,6 +543,14 @@ jobs:
         run: |
           echo "## Matter Test Results — Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          # Show WHICH commit the DUT binaries were built at (from the bundle).
+          if [[ -f Matter_CI/logs/build-info.json ]]; then
+            COMMIT=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('commit_short') or d.get('commit','unknown'))")
+            BRANCH=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('branch','unknown'))")
+            BDATE=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('date',''))")
+            echo "**SDK commit under test:** \`${COMMIT}\` (branch \`${BRANCH}\`${BDATE:+, built ${BDATE}})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
           if [[ -f Matter_CI/logs/test_results.json ]]; then
             python3 - << 'PY'
           import json, os
