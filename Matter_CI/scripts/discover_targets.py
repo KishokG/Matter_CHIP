@@ -454,7 +454,12 @@ def resolve_pipeline_apps(sdk_dir, config: dict) -> list[dict]:
     HostApp = import_hostapp(sdk_dir)
 
     # Selection: enabled app name -> extra_gn_args (from its modifiers).
+    # overrides: app name -> deployed/bundle binary name, when the SDK would
+    # otherwise produce a binary whose name collides with another app's (e.g.
+    # both 'light' and 'light-data-model-no-unique-id' build 'chip-lighting-app'
+    # — an override lets the variant be bundled under a distinct name).
     wanted: dict[str, str] = {}
+    overrides: dict[str, str] = {}
     for entry in apps_cfg:
         if not isinstance(entry, dict):
             continue
@@ -465,6 +470,9 @@ def resolve_pipeline_apps(sdk_dir, config: dict) -> list[dict]:
         if not isinstance(mods, list) or not mods:
             mods = list(DEFAULT_MODIFIERS)
         wanted[name] = modifiers_to_gn_args(mods)
+        ov = entry.get("binary_name")
+        if isinstance(ov, str) and ov.strip():
+            overrides[name] = ov.strip()
 
     resolved = []
     for part in app_parts:
@@ -486,12 +494,18 @@ def resolve_pipeline_apps(sdk_dir, config: dict) -> list[dict]:
                   f"({source_dir})", file=sys.stderr)
             continue
 
+        # binary_name = the name we DEPLOY under (bundle/apps/, RPi out/) — an
+        # override when set, else the real built name. built_binary = the file
+        # gn actually produces in build_dir (used to locate it for copy). They
+        # differ only when an override disambiguates a colliding binary name.
+        deployed_name = overrides.get(name) or binary_name
         resolved.append({
             "name": name,
             "enabled": True,
             "source_dir": source_dir,
             "build_dir": f"out/{name}",
-            "binary_name": binary_name,
+            "binary_name": deployed_name,
+            "built_binary": binary_name,
             "extra_gn_args": wanted[name],
         })
 

@@ -388,12 +388,22 @@ jobs:
 
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
+          # Read the exact build commit/branch from build-info.json so the email
+          # can never disagree with the build / job summary.
+          COMMIT=""; BRANCH=""
+          if [[ -f "${MATTER_OUTPUT_DIR}/build-info.json" ]]; then
+            COMMIT=$(python3 -c "import json;print(json.load(open('${MATTER_OUTPUT_DIR}/build-info.json')).get('commit_short',''))" 2>/dev/null || echo "")
+            BRANCH=$(python3 -c "import json;print(json.load(open('${MATTER_OUTPUT_DIR}/build-info.json')).get('branch',''))" 2>/dev/null || echo "")
+          fi
+
           python3 Matter_CI/scripts/notify.py \
             --config     Matter_CI/config/build_config.yaml \
             --status     "${BUILD_STATUS}" \
             --drive-link "${DRIVE_LINK}" \
             --run-id     "${{ github.run_number }}" \
-            --run-url    "${RUN_URL}"
+            --run-url    "${RUN_URL}" \
+            --commit     "${COMMIT}" \
+            --branch     "${BRANCH}"
 
 
   # ──────────────────────────────────────────────────────────

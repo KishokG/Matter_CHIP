@@ -69,7 +69,9 @@ discovery:
     - { name: fabric-sync,                 enabled: true, modifiers: [ipv6only] }        # fabric-sync
     - { name: jf-admin-app,                enabled: true, modifiers: [ipv6only] }        # jfa-app
     - { name: jf-control-app,              enabled: true, modifiers: [ipv6only] }        # jfc-app
-    - { name: light-data-model-no-unique-id, enabled: true, modifiers: [ipv6only] }      # chip-lighting-app
+    # SDK builds this as 'chip-lighting-app' (same as `light`) → binary_name
+    # override deploys it under a distinct name so the two don't collide in the bundle.
+    - { name: light-data-model-no-unique-id, enabled: true, modifiers: [ipv6only], binary_name: chip-lighting-data-model-no-unique-id-app }  # chip-lighting-data-model-no-unique-id-app
     - { name: lit-icd,                     enabled: true, modifiers: [ipv6only] }        # lit-icd-app
     - { name: microwave-oven,              enabled: true, modifiers: [ipv6only] }        # chip-microwave-oven-app
     - { name: ota-provider,                enabled: true, modifiers: [ipv6only] }        # chip-ota-provider-app

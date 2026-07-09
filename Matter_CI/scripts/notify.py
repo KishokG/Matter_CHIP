@@ -556,10 +556,20 @@ def main():
     parser.add_argument("--drive-link", default="")
     parser.add_argument("--run-id",    default="")
     parser.add_argument("--run-url",   default="")
+    # Optional explicit commit/branch — the caller (workflow) passes these from
+    # the same build-info.json the job summary uses, guaranteeing the email
+    # commit matches the build. Falls back to reading build-info.json itself.
+    parser.add_argument("--commit",    default="")
+    parser.add_argument("--branch",    default="")
     args = parser.parse_args()
 
     cfg = load_config(Path(args.config))
     commit, branch = get_git_info(cfg)
+    # Explicit args win over the auto-derived values.
+    if args.commit:
+        commit = args.commit
+    if args.branch:
+        branch = args.branch
     build_status   = load_build_status()
 
     failed_apps = [k for k, v in build_status.items() if v == "FAIL"]

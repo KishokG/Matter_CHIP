@@ -253,7 +253,7 @@ sdk_update() {
         warn "Config branch (${branch}) != image branch (${image_branch}) — consider rebuilding the image."
     fi
     cd "${SDK_DIR}"
-    log "Current commit: $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
+    log "Image baked commit (before pull): $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
     git fetch --tags origin "${branch}" || fail "❌ git fetch failed for '${branch}'"
     if [[ -n "${sha}" ]]; then
         log "Pinning to SHA: ${sha}"
@@ -262,7 +262,7 @@ sdk_update() {
         git checkout -f "${branch}" 2>/dev/null || git checkout -B "${branch}" "origin/${branch}"
         git reset --hard "origin/${branch}" || fail "❌ reset to origin/${branch} failed"
     fi
-    ok "SDK now at: $(git rev-parse --short HEAD)"
+    ok "SDK updated → BUILDING AT COMMIT: $(git rev-parse --short HEAD) (branch ${branch})"
     _checkout_submodules
 }
 
@@ -332,7 +332,10 @@ apps_tsv() {
 import json, sys
 for a in json.load(open(sys.argv[1])):
     if a.get("enabled", True):
-        print("\t".join([a["name"], a["source_dir"], a["build_dir"], a["binary_name"], a.get("extra_gn_args", "")]))
+        # cols: name  source_dir  build_dir  binary_name(deployed)  built_binary(real file)  extra_gn_args
+        bin_deployed = a["binary_name"]
+        bin_built = a.get("built_binary", bin_deployed)
+        print("\t".join([a["name"], a["source_dir"], a["build_dir"], bin_deployed, bin_built, a.get("extra_gn_args", "")]))
 PY
 }
 
@@ -343,7 +346,7 @@ build_apps() {
     banner "Step 4 — Reference Apps"
     cd "${SDK_DIR}"
     local count=0
-    while IFS=$'\t' read -r name src bdir bin gnargs; do
+    while IFS=$'\t' read -r name src bdir bin bbin gnargs; do
         [[ -z "${name}" ]] && continue
         count=$((count+1))
         log "┌─ Building : ${name}"
@@ -360,7 +363,7 @@ build_apps() {
             continue
         fi
         # shellcheck disable=SC2086 — gnargs must word-split into separate gn args
-        do_build "${name}" 0 "${SDK_DIR}/${bdir}/${bin}" -- scripts/examples/gn_build_example.sh "${src}" "${bdir}" ${gnargs}
+        do_build "${name}" 0 "${SDK_DIR}/${bdir}/${bbin}" -- scripts/examples/gn_build_example.sh "${src}" "${bdir}" ${gnargs}
         echo ""
     done < <(apps_tsv)
     (( count == 0 )) && warn "No reference apps enabled — nothing built."
@@ -410,9 +413,12 @@ collect_output() {
 
     # 7a. Reference app binaries
     local copied=0
-    while IFS=$'\t' read -r name src bdir bin gnargs; do
+    while IFS=$'\t' read -r name src bdir bin bbin gnargs; do
         [[ -z "${name}" ]] && continue
-        local path="${SDK_DIR}/${bdir}/${bin}"
+        # Locate the real built file by its produced name (bbin); deploy it
+        # under bin (the override name when set) so colliding binaries stay
+        # distinct in the bundle (e.g. light vs light-data-model-no-unique-id).
+        local path="${SDK_DIR}/${bdir}/${bbin}"
         if [[ -f "${path}" ]]; then
             cp -f "${path}" "${OUTPUT}/apps/${bin}"
             local sz; sz=$(du -h "${path}" | cut -f1)
