@@ -251,6 +251,8 @@ jobs:
           mkdir -p artifacts
           cp -r "${OUTPUT_DIR}/build_logs" artifacts/ 2>/dev/null || true
           cp "${OUTPUT_DIR}/build_status.json" artifacts/ 2>/dev/null || true
+          cp "${OUTPUT_DIR}/build_report.json" artifacts/ 2>/dev/null || true
+          cp "${OUTPUT_DIR}/build_summary.md"  artifacts/ 2>/dev/null || true
           cp "${OUTPUT_DIR}/build-info.json"   artifacts/ 2>/dev/null || true
           ls -R artifacts/ || true
 
@@ -277,8 +279,12 @@ jobs:
           if [[ -f artifacts/build-info.json ]]; then
             echo "| SDK commit | $(python3 -c "import json;print(json.load(open('artifacts/build-info.json')).get('commit_short','?'))" 2>/dev/null) |" >> $GITHUB_STEP_SUMMARY
           fi
-          if [[ -f artifacts/build_status.json ]]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          # The container renders the per-app table (status / time / size) into
+          # build_summary.md; just append it. Fall back to raw status if absent.
+          if [[ -f artifacts/build_summary.md ]]; then
+            cat artifacts/build_summary.md >> $GITHUB_STEP_SUMMARY
+          elif [[ -f artifacts/build_status.json ]]; then
             echo '### Build status' >> $GITHUB_STEP_SUMMARY
             echo '```json' >> $GITHUB_STEP_SUMMARY
             cat artifacts/build_status.json >> $GITHUB_STEP_SUMMARY

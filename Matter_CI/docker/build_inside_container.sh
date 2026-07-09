@@ -87,6 +87,8 @@ cfg_bool() { [[ "$(cfg_get "$@")" =~ ^[Tt]rue$ ]]; }
 # ── Build result tracking ────────────────────────────────────────────────────
 declare -A BUILD_STATUS
 declare -A BUILD_ERROR
+declare -A BUILD_SECONDS   # name -> integer build seconds
+declare -A BUILD_SIZE      # name -> human binary size (e.g. 179M)
 PASSED_APPS=(); FAILED_APPS=()
 
 # ── Error conclusion helper ──────────────────────────────────────────────────
@@ -167,6 +169,7 @@ do_build() {
     [[ -n "${last_step}" ]] && echo -e "  ${CYAN}[${step_num}/${step_total}]${NC} ${last_step#*\] }"
     local elapsed=$(( $(date +%s) - start_ts )) elapsed_str
     if (( elapsed >= 60 )); then elapsed_str="$((elapsed/60))m $((elapsed%60))s"; else elapsed_str="${elapsed}s"; fi
+    BUILD_SECONDS["${name}"]="${elapsed}"
 
     # Honest PASS: ninja succeeded AND the expected binary actually exists.
     local no_binary=0
@@ -413,6 +416,7 @@ collect_output() {
         if [[ -f "${path}" ]]; then
             cp -f "${path}" "${OUTPUT}/apps/${bin}"
             local sz; sz=$(du -h "${path}" | cut -f1)
+            BUILD_SIZE["${name}"]="${sz}"
             ok "app  ${bin} (${sz})"; copied=$((copied+1))
         else
             warn "app  ${bin} not found at ${path} — skipping (build likely failed)"
@@ -423,7 +427,8 @@ collect_output() {
     # 7b. chip-tool
     if cfg_bool chip_tool enabled; then
         local ct="${SDK_DIR}/$(cfg_get chip_tool build_dir)/$(cfg_get chip_tool binary_name)"
-        if [[ -f "${ct}" ]]; then cp -f "${ct}" "${OUTPUT}/chip-tool"; ok "chip-tool copied"; \
+        if [[ -f "${ct}" ]]; then cp -f "${ct}" "${OUTPUT}/chip-tool"; \
+             BUILD_SIZE["chip-tool"]=$(du -h "${ct}" | cut -f1); ok "chip-tool copied (${BUILD_SIZE[chip-tool]})"; \
         else warn "chip-tool not found at ${ct}"; fi
     fi
 
@@ -470,6 +475,51 @@ PY
         echo "}"
     } > "${OUTPUT}/build_status.json"
     cp -f "${DISCOVERED_APPS_JSON}" "${OUTPUT}/discovered_apps.json" 2>/dev/null || true
+
+    # 7f. build_report.json (machine) + build_summary.md (human table) — rich
+    #     per-target details (status, build time, size). build_status.json stays
+    #     the simple {name: status} map notify.py / upload_artifacts.py consume.
+    #     build_summary.md is cat'd verbatim into the GitHub job summary.
+    # Write the per-target data to a TSV, then let python read it from that file
+    # (NOT stdin — `python3 -` reads its program from stdin via the heredoc).
+    local report_tsv="${LOG_DIR}/build_report.tsv"
+    {
+        for k in "${!BUILD_STATUS[@]}"; do
+            printf '%s\t%s\t%s\t%s\n' \
+                "${k}" "${BUILD_STATUS[$k]}" "${BUILD_SECONDS[$k]:-}" "${BUILD_SIZE[$k]:-}"
+        done
+    } > "${report_tsv}"
+    python3 - "${report_tsv}" "${OUTPUT}/build_report.json" "${OUTPUT}/build_summary.md" <<'PY'
+import sys, json
+tsv, report_out, md_out = sys.argv[1], sys.argv[2], sys.argv[3]
+rows = []
+for line in open(tsv):
+    line = line.rstrip("\n")
+    if not line:
+        continue
+    name, status, secs, size = (line.split("\t") + ["", "", ""])[:4]
+    secs_i = int(secs) if secs.isdigit() else None
+    dur = (f"{secs_i//60}m {secs_i%60}s" if secs_i and secs_i >= 60
+           else (f"{secs_i}s" if secs_i is not None else ""))
+    rows.append({"name": name, "status": status,
+                 "seconds": secs_i, "duration": dur, "size": size or "-"})
+# failed first, then slowest first
+rows.sort(key=lambda r: (r["status"] != "FAIL", -(r["seconds"] or 0)))
+json.dump(rows, open(report_out, "w"), indent=2)
+
+npass = sum(1 for r in rows if r["status"] == "PASS")
+nfail = sum(1 for r in rows if r["status"] == "FAIL")
+total = sum(r["seconds"] or 0 for r in rows)
+with open(md_out, "w") as f:
+    f.write(f"### Build results — {npass} passed, {nfail} failed "
+            f"(total build time {total//60}m {total%60}s)\n\n")
+    f.write("| Target | Status | Build time | Binary size |\n")
+    f.write("|---|---|---|---|\n")
+    for r in rows:
+        icon = "✅" if r["status"] == "PASS" else "❌"
+        f.write(f"| `{r['name']}` | {icon} {r['status']} | "
+                f"{r['duration'] or '—'} | {r['size']} |\n")
+PY
 }
 
 # =============================================================================

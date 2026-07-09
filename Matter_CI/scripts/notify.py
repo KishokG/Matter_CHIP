@@ -177,14 +177,18 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
             'font-family:Courier New,Courier,monospace;font-size:12px;'
             'line-height:1.9;color:#E6EDF3;white-space:pre-wrap;'
             'overflow-wrap:anywhere">'
-            '<div><span style="color:#7EE787"># install gdown</span></div>'
+            '<div><span style="color:#7EE787"># 1. download the bundle + install the python wheels</span></div>'
             '<div>pip3 install gdown --break-system-packages</div>'
-            '<div><span style="color:#7EE787"># download bundle</span></div>'
             f'<div>gdown {file_id}</div>'
-            '<div><span style="color:#7EE787"># extract and install</span></div>'
             f'<div>tar -xzf {bundle_name}</div>'
             f'<div>cd {bundle_dir}/</div>'
             '<div>chmod +x install.sh &amp;&amp; ./install.sh</div>'
+            '<div>&nbsp;</div>'
+            '<div><span style="color:#7EE787"># 2. match your connectedhomeip to THIS build\'s commit</span></div>'
+            '<div><span style="color:#7EE787">#    (so the test scripts match the bundled binaries)</span></div>'
+            '<div>cd ~/connectedhomeip</div>'
+            f'<div>git fetch origin &amp;&amp; git checkout {commit}</div>'
+            '<div>python3 scripts/checkout_submodules.py --shallow --platform linux</div>'
             '</div>'
             '</div>'
 
@@ -386,6 +390,31 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
       </tr>
     </table>
 
+    <!-- Prominent build-commit callout — QA must sync their SDK to this -->
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
+           style="margin:16px 0 4px">
+      <tr>
+        <td style="background:#0D1117;border:1px solid #30363D;
+                   border-left:4px solid {banner_color};border-radius:8px;
+                   padding:14px 16px">
+          <div style="font-size:11px;color:#8B949E;letter-spacing:0.5px;
+                      text-transform:uppercase;margin-bottom:5px">
+            SDK commit under test
+          </div>
+          <div style="font-family:Courier New,Courier,monospace;font-size:20px;
+                      font-weight:700;color:#E6EDF3;word-break:break-all">
+            {commit}
+          </div>
+          <div style="font-size:12px;color:#8B949E;margin-top:7px;line-height:1.5">
+            Branch <b style="color:#E6EDF3">{branch}</b>. Check out your
+            <b style="color:#E6EDF3">connectedhomeip</b> to this commit
+            <b style="color:#E6EDF3">before</b> running the tests, so the test
+            scripts match these binaries (steps below).
+          </div>
+        </td>
+      </tr>
+    </table>
+
     {failed_section}
     {passed_section}
     {download_section}
@@ -431,8 +460,11 @@ def build_plain_text(status: str, commit: str, branch: str,
         "=" * 60,
         f"  Status : {status.upper()}",
         f"  Branch : {branch}",
-        f"  Commit : {commit}",
         f"  Run ID : #{run_id}",
+        "",
+        ">>> SDK COMMIT UNDER TEST: " + commit,
+        f"    Check out your connectedhomeip to {commit} (branch {branch})",
+        "    BEFORE running the tests, so the scripts match these binaries.",
         "",
     ]
 
@@ -444,11 +476,18 @@ def build_plain_text(status: str, commit: str, branch: str,
     if drive_link and status in ("success", "partial"):
         lines += [
             "Download & Install:",
+            "  # 1. download the bundle + install the python wheels",
             "  pip3 install gdown --break-system-packages",
             f"  gdown {file_id}",
             f"  tar -xzf {bundle_name}",
             f"  cd {bundle_dir}/",
             "  chmod +x install.sh && ./install.sh",
+            "",
+            "  # 2. match your connectedhomeip to THIS build's commit so the",
+            "  #    test scripts match the bundled binaries:",
+            "  cd ~/connectedhomeip",
+            f"  git fetch origin && git checkout {commit}",
+            "  python3 scripts/checkout_submodules.py --shallow --platform linux",
             "",
             f"  Google Drive link: {drive_link}",
             "",
