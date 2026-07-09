@@ -144,6 +144,12 @@ def read_commit(bundle_dir: Path) -> str:
     return ""
 
 
+def _current_head(sdk_dir: Path) -> str:
+    r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=sdk_dir,
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 def checkout_sdk(sdk_dir: Path, commit: str):
     if not (sdk_dir / ".git").exists():
         die(f"SDK not found at {sdk_dir} — the RPi needs a connectedhomeip checkout "
@@ -151,6 +157,14 @@ def checkout_sdk(sdk_dir: Path, commit: str):
     if not commit:
         log("⚠️  No commit in bundle — leaving SDK at its current checkout.")
         return
+
+    # Fast-path: already at the build commit (e.g. a workflow re-run) → nothing
+    # to fetch/checkout.
+    head = _current_head(sdk_dir)
+    if head and (head == commit or head.startswith(commit) or commit.startswith(head)):
+        log(f"SDK already at build commit {commit[:9]} — skipping fetch/checkout.")
+        return
+
     log(f"Checking out SDK to build commit {commit[:9]} ...")
     subprocess.run(["git", "fetch", "--tags", "origin"], cwd=sdk_dir, check=False)
     r = subprocess.run(["git", "checkout", "-f", commit], cwd=sdk_dir,
@@ -158,11 +172,14 @@ def checkout_sdk(sdk_dir: Path, commit: str):
     if r.returncode != 0:
         die(f"git checkout {commit} failed:\n{r.stderr}\n"
             f"Ensure the RPi SDK remote has this commit (git fetch).")
-    # Sync submodules to match (test scripts may depend on them).
-    subprocess.run(["python3", "scripts/checkout_submodules.py", "--platform", "linux",
-                    "--shallow", "--recursive", "--allow-changing-global-git-config"],
-                   cwd=sdk_dir, check=False)
-    log(f"SDK now at {subprocess.run(['git','rev-parse','--short','HEAD'], cwd=sdk_dir, capture_output=True, text=True).stdout.strip()}")
+    # NOTE: submodules are intentionally NOT checked out here. The RPi only RUNS
+    # the python tests — it never compiles the SDK. The test scripts
+    # (src/python_testing) + PICS files come from the main repo (synced by the
+    # checkout above), the chip/matter python modules come from the installed
+    # wheels, and the DUT binaries are prebuilt in the bundle. The third_party/*
+    # submodules (pigweed, openthread, boringssl, …) are C++ BUILD deps only, so
+    # fetching them cost ~20+ min/run for nothing.
+    log(f"SDK now at {_current_head(sdk_dir)[:10]}")
 
 
 # ── Place binaries where run_tests.py expects ────────────────────────────────
