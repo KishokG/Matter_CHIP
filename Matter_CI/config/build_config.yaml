@@ -58,7 +58,7 @@ discovery:
     # --- available, disabled by default (flip enabled: true to build) ---
     - { name: air-quality-sensor,          enabled: false, modifiers: [ipv6only] }        # air-quality-sensor-app
     - { name: all-clusters-minimal,        enabled: false, modifiers: [ipv6only] }        # chip-all-clusters-minimal-app
-    - { name: all-devices,                 enabled: true, modifiers: [ipv6only] }        # all-devices-app
+    - { name: all-devices,                 enabled: true,  modifiers: [clang, ipv6only] } # all-devices-app (clang: bundled miniaudio uses Clang-only __has_feature)
     - { name: camera,                      enabled: true, modifiers: [clang, ipv6only] } # chip-camera-app  (TH arm64: camera-clang-ipv6only)
     - { name: camera-controller,           enabled: true, modifiers: [ipv6only] }        # chip-camera-controller
     - { name: contact-sensor,              enabled: false, modifiers: [ipv6only] }        # contact-sensor-app
