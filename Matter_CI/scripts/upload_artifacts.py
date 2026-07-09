@@ -15,12 +15,18 @@ Bundle contents:
   │   └── matter_yamltests-*.whl
   └── build-info.txt         ← branch, commit, date, platform
 
-Upload structure on Google Drive:
+Upload structure on Google Drive (single folder — no latest/history split):
   Matter-CI-Builds/
-  ├── latest/                ← always overwritten with newest build
-  │   └── matter-sdk-*.tar.gz
-  └── history/               ← last N builds kept
-      └── matter-sdk-*.tar.gz
+  ├── LATEST.txt                              ← pointer: newest build's name/commit/link
+  ├── matter-sdk-<branch>-<commit>-arm64.tar.gz   ← one file per build, unique name
+  ├── matter-sdk-<branch>-<commit>-arm64.tar.gz
+  └── ...                                     ← newest N kept (google_drive.keep_history)
+
+Each build is uploaded ONCE and its own permanent file ID is what the email's
+`gdown` link uses — a subsequent run never touches that file, so links stay
+valid until the bundle is pruned (after keep_history newer builds). The newest
+build is flagged via its Drive description ("LATEST · …") and the LATEST.txt
+pointer; older builds are marked "older".
 
 Usage:
     python3 scripts/upload_artifacts.py --config config/build_config.yaml
@@ -410,33 +416,32 @@ def gdrive_service(sa_key_path: str):
         sa_key_path, scopes=SCOPES)
     return gapi_build("drive", "v3", credentials=creds)
 
-def get_or_create_folder(service, name: str, parent_id: str) -> str:
-    """Get folder ID by name under parent, create if not exists."""
-    query = (f"name='{name}' and mimeType='application/vnd.google-apps.folder' "
-             f"and '{parent_id}' in parents and trashed=false")
-    results = service.files().list(q=query, fields="files(id,name)").execute()
-    files = results.get("files", [])
-
-    if files:
-        return files[0]["id"]
-
-    # Create folder
-    meta = {
-        "name": name,
-        "mimeType": "application/vnd.google-apps.folder",
-        "parents": [parent_id],
-    }
-    folder = service.files().create(body=meta, fields="id").execute()
-    print(f"[DRIVE] Created folder: {name}")
-    return folder["id"]
-
 def list_files_in_folder(service, folder_id: str) -> list[dict]:
     results = service.files().list(
         q=f"'{folder_id}' in parents and trashed=false",
-        fields="files(id,name,createdTime)",
+        fields="files(id,name,createdTime,description)",
         orderBy="createdTime"
     ).execute()
     return results.get("files", [])
+
+def set_description(service, file_id: str, description: str):
+    """Set a file's Drive description (used to flag LATEST vs older builds)."""
+    service.files().update(fileId=file_id, body={"description": description}).execute()
+
+def upsert_text_file(service, folder_id: str, name: str, content: str):
+    """Create or overwrite a small text file (e.g. LATEST.txt) in the folder."""
+    tmp = PROJECT_ROOT / "logs" / name
+    tmp.write_text(content)
+    media = MediaFileUpload(str(tmp), mimetype="text/plain", resumable=False)
+    query = (f"name='{name}' and '{folder_id}' in parents and trashed=false")
+    existing = service.files().list(q=query, fields="files(id,name)").execute().get("files", [])
+    if existing:
+        service.files().update(fileId=existing[0]["id"], media_body=media).execute()
+        print(f"[DRIVE] ✅ Updated pointer: {name}")
+    else:
+        meta = {"name": name, "parents": [folder_id]}
+        service.files().create(body=meta, media_body=media, fields="id").execute()
+        print(f"[DRIVE] ✅ Created pointer: {name}")
 
 def upload_file(service, file_path: Path, folder_id: str) -> str:
     """Upload file to Google Drive folder. Returns file ID."""
@@ -475,12 +480,19 @@ def make_public_link(service, file_id: str) -> str:
 # =============================================================================
 # Upload to Google Drive
 # =============================================================================
-def upload_to_drive(cfg: dict, tar_path: Path):
+def upload_to_drive(cfg: dict, tar_path: Path, commit: str = "", branch: str = ""):
+    """
+    Single-folder upload: every build is one uniquely-named file in the same
+    Drive folder. We email THAT file's own permanent ID, so a link keeps working
+    until the bundle is pruned (never invalidated by the next run). The newest
+    build is flagged via its Drive description + a LATEST.txt pointer; older
+    builds are marked "older". Only the newest `keep_history` bundles are kept.
+    """
     gd = cfg.get("google_drive", {})
-    root_folder_id = gd.get("folder_id", "")
-    keep_history   = gd.get("keep_history", 5)
+    folder_id    = gd.get("folder_id", "")
+    keep_history = gd.get("keep_history", 10)
 
-    if not root_folder_id or root_folder_id == "YOUR_GDRIVE_FOLDER_ID_HERE":
+    if not folder_id or folder_id == "YOUR_GDRIVE_FOLDER_ID_HERE":
         print("[DRIVE] ⚠️  google_drive.folder_id not set in build_config.yaml")
         print("[DRIVE]    Skipping upload. Set the folder ID to enable uploads.")
         return
@@ -497,35 +509,63 @@ def upload_to_drive(cfg: dict, tar_path: Path):
     print(f"\n[DRIVE] Connecting to Google Drive...")
     service = gdrive_service(sa_key)
 
-    # Get or create folder structure: root/latest/ and root/history/
-    latest_id  = get_or_create_folder(service, "latest",  root_folder_id)
-    history_id = get_or_create_folder(service, "history", root_folder_id)
+    date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # ── Upload to latest/ (replace existing) ──────────────────────────────
-    existing_latest = list_files_in_folder(service, latest_id)
-    for f in existing_latest:
-        delete_file(service, f["id"], f["name"])
+    # Snapshot the folder before uploading (used for same-name replace,
+    # description downgrade, and pruning).
+    existing = list_files_in_folder(service, folder_id)
 
-    file_id = upload_file(service, tar_path, latest_id)
-    link    = make_public_link(service, file_id)
-    print(f"[DRIVE] 🔗 Latest build link: {link}")
-
-    # ── Upload to history/ ────────────────────────────────────────────────
-    upload_file(service, tar_path, history_id)
-
-    # Prune history — keep only last N builds
-    history_files = list_files_in_folder(service, history_id)
-    if len(history_files) > keep_history:
-        to_delete = history_files[:len(history_files) - keep_history]
-        for f in to_delete:
+    # ── Same-commit re-run: replace the identically-named bundle in place ──
+    for f in existing:
+        if f["name"] == tar_path.name:
             delete_file(service, f["id"], f["name"])
-        print(f"[DRIVE] Pruned {len(to_delete)} old build(s) from history/")
+    existing = [f for f in existing if f["name"] != tar_path.name]
+
+    # ── Upload this build ONCE; its own ID is the permanent, emailed link ──
+    file_id = upload_file(service, tar_path, folder_id)
+    link    = make_public_link(service, file_id)
+    print(f"[DRIVE] 🔗 Build link (permanent): {link}")
+
+    # ── Flag newest vs older via Drive description ────────────────────────
+    set_description(service, file_id,
+                    f"LATEST · {date_str} · {branch or '?'} @ {commit or '?'}")
+    for f in existing:
+        if not f["name"].endswith(".tar.gz"):
+            continue
+        if (f.get("description") or "").startswith("LATEST"):
+            try:
+                set_description(service, f["id"], "older")
+            except Exception as e:  # noqa: BLE001 — non-fatal cosmetic marking
+                print(f"[DRIVE]   ⚠️  Could not mark {f['name']} as older: {e}")
+
+    # ── Refresh the LATEST.txt pointer so browsers see what's current ─────
+    upsert_text_file(
+        service, folder_id, "LATEST.txt",
+        f"Latest Matter SDK build\n"
+        f"=======================\n"
+        f"Bundle : {tar_path.name}\n"
+        f"Branch : {branch or 'unknown'}\n"
+        f"Commit : {commit or 'unknown'}\n"
+        f"Built  : {date_str}\n"
+        f"Link   : {link}\n"
+        f"\n"
+        f"Download: pip3 install gdown --break-system-packages && gdown {file_id}\n"
+    )
+
+    # ── Prune: keep only the newest N bundle tarballs ─────────────────────
+    bundles = [f for f in list_files_in_folder(service, folder_id)
+               if f["name"].endswith(".tar.gz")]   # oldest-first (createdTime)
+    if len(bundles) > keep_history:
+        for f in bundles[:len(bundles) - keep_history]:
+            delete_file(service, f["id"], f["name"])
+        print(f"[DRIVE] Pruned {len(bundles) - keep_history} old build(s) "
+              f"(keeping newest {keep_history})")
 
     print(f"\n[DRIVE] ✅ Upload complete!")
-    print(f"[DRIVE]    Latest : {link}")
-    print(f"[DRIVE]    History: https://drive.google.com/drive/folders/{history_id}")
+    print(f"[DRIVE]    Build  : {link}")
+    print(f"[DRIVE]    Folder : https://drive.google.com/drive/folders/{folder_id}")
 
-    # Save link for workflow summary
+    # Save link for workflow summary + email (per-build permanent link)
     link_file = PROJECT_ROOT / "logs" / "gdrive_link.txt"
     link_file.write_text(link)
 
@@ -568,8 +608,9 @@ def main():
         print(f"\n[UPLOAD] --skip-upload set — bundle saved at: {tar_path}")
         return
 
-    # Upload to Google Drive
-    upload_to_drive(cfg, tar_path)
+    # Upload to Google Drive (single folder; email uses the per-build ID)
+    commit, branch = get_build_info(output_dir)
+    upload_to_drive(cfg, tar_path, commit=commit, branch=branch)
 
 if __name__ == "__main__":
     main()

@@ -102,7 +102,11 @@ Matter_CHIP/
    `/output` (→ `~/matter-output` on the host).
 
 **Upload (Mac mini):** `upload_artifacts.py` reads `~/matter-output`, tars a
-bundle, and uploads to Google Drive (`latest/` + pruned `history/`).
+bundle, and uploads it to a **single** Google Drive folder as one uniquely-named
+file (`matter-sdk-<branch>-<commit>-arm64.tar.gz`). The email links to that
+file's **own permanent ID**, so a link keeps working until its bundle is pruned
+(newest `keep_history` kept) — a later run never invalidates it. The newest
+build is flagged via its Drive description and a refreshed `LATEST.txt` pointer.
 
 **Test (RPi):** `prepare_rpi_tests.py` downloads the latest bundle, `git
 checkout`s the RPi's SDK to the **exact build commit**, places the binaries into
@@ -218,7 +222,7 @@ python_controller:           # matches TH build_python.sh flags
 
 google_drive:
   folder_id: "<Drive folder id, shared with the service account>"
-  keep_history: 5
+  keep_history: 10           # newest N bundles kept = how long an email link lives
   upload_on_partial: true    # upload the apps that built even if some failed
 
 rpi:
@@ -293,10 +297,11 @@ matter-sdk-<branch>-<commit>-arm64.tar.gz
 ├── README.txt      ← manual-use guide
 └── install.sh      ← manual-use setup (creates a chip_env venv + installs wheels)
 ```
-Uploaded to `google_drive.folder_id/latest/` (overwritten) and `history/`
-(last `keep_history` kept). The GitHub Actions run also uploads `build_logs/` +
-`build_status.json` as a run artifact. The RPi test job downloads the `latest/`
-bundle automatically (`prepare_rpi_tests.py`).
+Uploaded to `google_drive.folder_id` as one uniquely-named file per build (last
+`keep_history` kept; a `LATEST.txt` pointer + the newest file's Drive
+description flag the current build). The GitHub Actions run also uploads
+`build_logs/` + `build_status.json` as a run artifact. The RPi test job picks
+the newest bundle in the folder automatically (`prepare_rpi_tests.py`).
 
 ---
 

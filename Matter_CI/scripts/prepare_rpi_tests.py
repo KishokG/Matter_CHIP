@@ -8,9 +8,9 @@ fetch_test_commands.py stay UNCHANGED (they still read binaries from
 sdk_dir/out/<name> and use the sdk_dir/<python_env> venv).
 
 Steps:
-  1. Download the latest bundle (matter-sdk-*.tar.gz) from Google Drive
-     (root_folder_id/latest/) using the service account — same creds/folder
-     as upload_artifacts.py.
+  1. Download the newest bundle (matter-sdk-*.tar.gz) from the single Google
+     Drive folder (google_drive.folder_id) using the service account — same
+     creds/folder as upload_artifacts.py.
   2. Extract it.
   3. git fetch + checkout the RPi SDK to the EXACT commit the binaries were
      built from (from the bundle's build-info.json) — so the python_testing
@@ -67,23 +67,15 @@ def drive_service(sa_key: str):
     return gapi_build("drive", "v3", credentials=creds)
 
 
-def find_subfolder(service, name: str, parent_id: str) -> str:
-    q = (f"name='{name}' and mimeType='application/vnd.google-apps.folder' "
-         f"and '{parent_id}' in parents and trashed=false")
-    files = service.files().list(q=q, fields="files(id,name)").execute().get("files", [])
-    return files[0]["id"] if files else ""
-
-
 def latest_bundle(service, folder_id: str) -> dict:
-    """Newest matter-sdk-*.tar.gz in root/latest/ (fallback: the root folder)."""
-    latest_id = find_subfolder(service, "latest", folder_id) or folder_id
+    """Newest matter-sdk-*.tar.gz in the single Drive folder (by createdTime)."""
     files = service.files().list(
-        q=f"'{latest_id}' in parents and trashed=false and name contains '.tar.gz'",
+        q=f"'{folder_id}' in parents and trashed=false and name contains '.tar.gz'",
         fields="files(id,name,createdTime,size)",
         orderBy="createdTime desc",
     ).execute().get("files", [])
     if not files:
-        die(f"No .tar.gz bundle found in Drive folder {latest_id}")
+        die(f"No .tar.gz bundle found in Drive folder {folder_id}")
     return files[0]
 
 
