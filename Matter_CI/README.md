@@ -316,6 +316,40 @@ bundle automatically (`prepare_rpi_tests.py`).
 | Binary is `Mach-O` not `ELF aarch64` | Missing `--platform linux/arm64` — rebuild the image. |
 | `activate.sh` unbound variable | The build sources it with `set +u`; if it still fails, the image bootstrap is stale — rebuild. |
 
+### Runner operations (both `mac-mini` and `rpi`)
+
+These apply to either self-hosted runner. On the **RPi** the runner is a systemd
+service → use `sudo` + `journalctl`; on the **Mac mini** it's a launchd service
+→ no `sudo`, and use the `_diag/` logs (macOS has no `journalctl`).
+
+**Runner shows Offline / not picking up jobs**
+```bash
+cd ~/actions-runner
+sudo ./svc.sh status      # RPi   (drop 'sudo' on the Mac mini)
+sudo ./svc.sh stop && sudo ./svc.sh start
+# recent runner logs:
+tail -100 ~/actions-runner/_diag/Runner_*.log
+journalctl -u 'actions.runner.*' -f    # RPi only
+```
+If it's Idle but a job never starts, the **labels don't match** — the runner
+must have *all* labels in the job's `runs-on` (`mac-mini` for build/upload/notify,
+`rpi` for the test jobs).
+
+**Re-register a runner (token expired / runner broken)**
+```bash
+cd ~/actions-runner
+sudo ./svc.sh stop && sudo ./svc.sh uninstall     # drop 'sudo' on the Mac mini
+./config.sh remove --token OLD_TOKEN              # or skip if the token expired
+# New token: GitHub → Settings → Actions → Runners → New self-hosted runner
+./config.sh --url https://github.com/KishokG/Matter_CHIP \
+            --token NEW_TOKEN --labels mac-mini    # or: --labels rpi
+sudo ./svc.sh install && sudo ./svc.sh start       # drop 'sudo' on the Mac mini
+```
+
+> **Memory:** on the **Mac mini**, build OOM is a Docker Desktop limit (Settings →
+> Resources → raise Memory), *not* host swap. The **RPi** only runs tests now, so
+> the old "add 8 GB swap for the build" step no longer applies to it.
+
 ---
 
 ## File Reference
