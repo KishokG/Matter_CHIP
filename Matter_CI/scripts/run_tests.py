@@ -85,7 +85,7 @@ def load_config(path: Path) -> dict:
 # Result constants
 # =============================================================================
 PASS      = "PASS"
-PASS_WARN = "PASS*"    # pass with partial skips (PICS-gated steps)
+PASS_WARN = "PASS*"    # pass with some steps skipped (PICS/feature-gated or precondition)
 FAIL      = "FAIL"
 RERUN     = "RERUN"
 ERROR     = "ERROR"
@@ -103,6 +103,14 @@ CANCEL    = "CANCEL"
 #   5. Per-step "***** Fail *****" found → FAIL   (fallback)
 #   6. Nothing found                     → ERROR
 # =============================================================================
+def _clean_detail(text: str) -> str:
+    """Tidy a failure detail: drop the 'Details=' prefix and ', Extras=None' tail."""
+    text = text.strip()
+    text = re.sub(r"^Details=", "", text)
+    text = re.sub(r",?\s*Extras=None\s*$", "", text).strip()
+    return text[:300]
+
+
 def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
     """
     Returns (status, counts_dict, reason_string).
@@ -118,31 +126,59 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
     if exc_match:
         test_name = exc_match.group(1) or exc_match.group(2)
         is_setup  = "setup_class" in exc_match.group(0)
+        phase     = "setup_class" if is_setup else "test"
 
-        # Extract CHIP error code if present (most specific)
-        chip_err = re.search(
-            r"CHIP Error (0x[0-9A-Fa-f]+):\s*([^\n]+)", log_text)
+        # IMPORTANT: extract the reason from the ACTUAL failure — search only the
+        # log AFTER the exception marker. Grepping the whole log grabs benign
+        # startup errors (e.g. the WiFi-PAF / NFC / ThreadMeshcop discovery
+        # "CHIP Error 0x2F: Invalid argument" printed before commissioning),
+        # which are NOT why the test failed.
+        tail = log_text[exc_match.start():]
 
-        # Extract Python exception type as fallback
-        exc_type = re.search(
-            r"(ChipStackError|AssertionError|TimeoutError|AttributeError|"
-            r"ValueError|RuntimeError|InteractionModelError|Exception)[^\r\n]*",
-            log_text)
+        # A mobly TestFailure / AssertionError is a genuine test FAILURE (the DUT
+        # gave a wrong result), not a harness ERROR. Extract its Details message.
+        is_assertion = False
+        reason_detail = None
+        m = re.search(r"(?:mobly\.signals\.TestFailure|AssertionError):\s*(.+)", tail)
+        if m:
+            is_assertion = True
+            reason_detail = _clean_detail(m.group(1))
+        if not reason_detail:
+            # The "failed for the following reason:" banner (multi-line, each
+            # continuation prefixed with "* ").
+            m = re.search(
+                r"failed for the following reason:\s*\n\*\s*(.+?)\n\*\s*(?:\n|File)",
+                tail, re.DOTALL)
+            if m:
+                reason_detail = _clean_detail(re.sub(r"\n\*\s*", " ", m.group(1)))
+        if not reason_detail:
+            # A genuine crash — pick the real exception type/message from the
+            # traceback (NOT a stray CHIP error from before the test).
+            m = re.search(
+                r"\b(ChipStackError|TimeoutError|asyncio\.TimeoutError|"
+                r"AttributeError|ValueError|KeyError|IndexError|TypeError|"
+                r"RuntimeError|InteractionModelError)\b[^\r\n]*", tail)
+            if m:
+                reason_detail = m.group(0).strip()
+        if not reason_detail:
+            # Last resort: a CHIP error, but only one that appears AFTER the
+            # exception marker (i.e. in the failure/traceback region).
+            chip_errs = re.findall(r"CHIP Error (0x[0-9A-Fa-f]+):\s*([^\n]+)", tail)
+            if chip_errs:
+                code, msg = chip_errs[0]
+                reason_detail = f"CHIP Error {code}: {msg.strip()}"
 
-        phase = "setup_class" if is_setup else "test"
-        if chip_err:
-            reason = (
-                f"{phase} failed in {test_name}: "
-                f"CHIP Error {chip_err.group(1)}: {chip_err.group(2).strip()}"
-            )
-        elif exc_type:
-            reason = f"{phase} failed in {test_name}: {exc_type.group(0)}"
+        if reason_detail:
+            reason = f"{phase} failed in {test_name}: {reason_detail}"
         else:
-            reason = (
-                f"{phase} failed in {test_name} — "
-                f"crashed before running any test steps"
-            )
-        return ERROR, {}, reason
+            reason = (f"{phase} failed in {test_name} — "
+                      f"crashed before running any test steps")
+
+        # Assertion failures in a test body → FAIL (DUT behaved incorrectly).
+        # Everything else (setup crashes, real exceptions) → ERROR (harness/DUT
+        # couldn't complete the test).
+        status = FAIL if (is_assertion and not is_setup) else ERROR
+        return status, {}, reason
 
     # ── Signal 2 — Commissioning / pairing failure ────────────────────────────
     if re.search(
@@ -203,28 +239,34 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
         # Deduplicate — each skipped step appears twice in the log
         unique_skipped_steps = len(set(step_skips))
 
-        # Partial skip — some steps passed, some PICS-gated steps skipped → PASS*
+        # Partial skip — some steps passed, some steps skipped → PASS*
+        # NOTE: we do NOT claim the skips are caused by missing PICS. A step can
+        # skip for several reasons (a PICS/feature guard, an unmet precondition,
+        # or a genuine issue). We state the fact and point to where to look.
         if unique_skipped_steps > 0 and counts["passed"] > 0:
             return PASS_WARN, counts, (
                 f"Partial execution: {counts['passed']} step(s) passed, "
-                f"{unique_skipped_steps} step(s) skipped (PICS-gated). "
-                f"Set pics_folder in build_config.yaml for complete execution."
+                f"{unique_skipped_steps} step(s) skipped. Skips may be "
+                f"PICS/feature-gated (if so, set pics_folder) or due to an unmet "
+                f"precondition — check the Ctrl Log for each 'Skipping' reason."
             )
 
         # All steps skipped at STEP level (no passed steps at all)
         if unique_skipped_steps > 0 and counts["passed"] == 0:
             return RERUN, counts, (
-                f"All {unique_skipped_steps} step(s) skipped (PICS-gated) — "
-                "possible PICS mismatch or unsupported feature. "
-                "Set pics_folder in build_config.yaml."
+                f"All {unique_skipped_steps} step(s) skipped — this may be "
+                f"PICS/feature-gated (if the test needs it, set pics_folder), an "
+                f"unsupported feature, or another issue. Check the Ctrl Log for "
+                f"the 'Skipping' reasons."
             )
 
         # Partial skip from summary counts (test-level)
         if counts["skipped"] > 0 and counts["passed"] > 0:
             return PASS_WARN, counts, (
                 f"Partial execution: {counts['passed']} step(s) passed, "
-                f"{counts['skipped']}/{counts['executed']} step(s) skipped. "
-                f"Set pics_folder in build_config.yaml for complete execution."
+                f"{counts['skipped']}/{counts['executed']} step(s) skipped. Skips "
+                f"may be PICS/feature-gated (if so, set pics_folder) or due to an "
+                f"unmet precondition — check the Ctrl Log."
             )
 
         # Clean pass — all steps executed and passed
@@ -968,7 +1010,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     </div>
     <div class="card c-passwarn">
       <div class="num">{pass_warn}</div><div class="lbl">Pass*</div>
-      <div class="tip"><b>Partial execution</b> — some steps passed, others skipped (PICS-gated). Set pics_folder in build_config.yaml for full execution.</div>
+      <div class="tip"><b>Partial execution</b> — some steps passed, others skipped. Skips may be PICS/feature-gated (if so, set pics_folder) or due to an unmet precondition — check the Ctrl Log for each reason.</div>
     </div>
     <div class="card c-fail">
       <div class="num">{failed}</div><div class="lbl">Failed</div>
@@ -976,7 +1018,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     </div>
     <div class="card c-rerun">
       <div class="num">{rerun}</div><div class="lbl">Rerun</div>
-      <div class="tip">All steps skipped — possible PICS mismatch or unsupported feature. Re-run to investigate.</div>
+      <div class="tip">All steps skipped — may be PICS/feature-gated, an unsupported feature, or another issue. Check the Ctrl Log for the skip reasons.</div>
     </div>
     <div class="card c-err">
       <div class="num">{errors}</div><div class="lbl">Error</div>
