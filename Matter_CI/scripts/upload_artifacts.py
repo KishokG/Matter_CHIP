@@ -172,6 +172,21 @@ def build_bundle(cfg: dict, output_dir: Path) -> tuple[Path, str]:
     if not copied_wheels:
         print("[BUNDLE]   ⚠️  No python wheels found — check SDK build output")
 
+    # ── 3b. SDK python_testing requirements (per-TC deps) ─────────────────
+    # The container copied src/python_testing/requirements*.txt here; carry them
+    # into the bundle so install.sh installs exactly what this SDK commit needs.
+    test_req_dir = bundle_dir / "test-requirements"
+    copied_reqs = []
+    src_req_dir = output_dir / "test-requirements"
+    if src_req_dir.is_dir():
+        test_req_dir.mkdir(exist_ok=True)
+        for req in sorted(src_req_dir.glob("*.txt")):
+            shutil.copy2(req, test_req_dir / req.name)
+            copied_reqs.append(req.name)
+            print(f"[BUNDLE]   ✅ test-requirements/{req.name}")
+    if not copied_reqs:
+        print("[BUNDLE]   ⚠️  No SDK test-requirements found — TCs may miss imports")
+
     # ── 4. build-info.txt ─────────────────────────────────────────────────
     # This runs on the macOS host, so lsb_release won't exist; the meaningful
     # OS is the Ubuntu container that produced the binaries. Best-effort only.
@@ -230,6 +245,8 @@ def build_bundle(cfg: dict, output_dir: Path) -> tuple[Path, str]:
         + f"  chip-tool      ← Matter commissioner and controller\n"
         f"  wheels/        ← Python controller wheels\n"
         + "".join(f"    {w.name}\n" for w in copied_wheels)
+        + f"  test-requirements/ ← SDK's python_testing pip requirements (per-TC deps)\n"
+        + "".join(f"    {r}\n" for r in copied_reqs)
         + f"  install.sh     ← One-command setup script\n"
         f"  README.txt     ← This file\n"
         f"  build-info.txt ← Detailed build metadata\n"
@@ -341,12 +358,22 @@ def build_bundle(cfg: dict, output_dir: Path) -> tuple[Path, str]:
         f"# ── Step 3: Install python wheels + dependencies ───────────────\n"
         f"log \"Step 3/4 — Installing Matter python wheels and dependencies...\"\n"
         f"\n"
-        f"# Install required pip dependencies first\n"
-        f"pip install mobly --quiet\n"
-        f"pip install click --quiet\n"
-        f"pip install colorama --quiet\n"
-        f"pip install pyserial --quiet\n"
-        f"ok \"Dependencies installed (mobly, click, colorama, pyserial)\"\n"
+        f"# Install the SDK's OWN python_testing requirements — the authoritative,\n"
+        f"# per-test-case dep list for THIS build's commit (pycountry, validators,\n"
+        f"# zeroconf, ...). This is what keeps new TCs from failing on missing imports.\n"
+        f"if ls test-requirements/*.txt &>/dev/null; then\n"
+        f"  for req in test-requirements/*.txt; do\n"
+        f"    log \"Installing $req ...\"\n"
+        f"    pip install -r \"$req\" --quiet\n"
+        f"  done\n"
+        f"  ok \"SDK test requirements installed\"\n"
+        f"else\n"
+        f"  echo \"[WARN] No test-requirements/ in bundle — installing fallback deps only\"\n"
+        f"fi\n"
+        f"\n"
+        f"# A few runner/CLI deps not always in the SDK requirements.\n"
+        f"pip install click colorama pyserial --quiet\n"
+        f"ok \"Runner deps installed (click, colorama, pyserial)\"\n"
         f"\n"
         f"# Install Matter wheels\n"
         f"if ls wheels/*.whl &>/dev/null; then\n"

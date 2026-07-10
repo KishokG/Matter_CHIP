@@ -453,6 +453,20 @@ collect_output() {
     done
     log "Copied ${wcount} wheel(s) → ${OUTPUT}/wheels/"
 
+    # 7c-2. SDK python_testing requirements — the authoritative, evolving list of
+    #       per-test-case deps (pycountry, validators, zeroconf, …). Ship them so
+    #       the bundle's install.sh can install exactly what THIS SDK commit needs
+    #       (a hardcoded dep list can't keep up as upstream TCs add imports).
+    mkdir -p "${OUTPUT}/test-requirements"
+    local rcount=0
+    for req in src/python_testing/requirements.txt src/python_testing/requirements.nfc.txt; do
+        if [[ -f "${req}" ]]; then
+            cp -f "${req}" "${OUTPUT}/test-requirements/"; rcount=$((rcount+1))
+        fi
+    done
+    if (( rcount > 0 )); then ok "Copied ${rcount} test-requirements file(s) → ${OUTPUT}/test-requirements/"
+    else warn "No src/python_testing/requirements*.txt found in SDK"; fi
+
     # 7d. build-info.json (branch/commit/date) — host upload reads this since
     #     the SDK is not available on the Mac mini host.
     local commit branch date

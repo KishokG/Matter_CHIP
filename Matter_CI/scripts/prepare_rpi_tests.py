@@ -274,7 +274,28 @@ def install_wheels(cfg: dict, sdk_dir: Path, bundle_dir: Path):
     else:
         log("⚠️  No wheels found in bundle — python controller modules may be missing.")
 
-    log(f"Installing test deps: {', '.join(TEST_PIP_DEPS)} ...")
+    # Install the SDK's OWN python_testing requirements — the authoritative,
+    # evolving list of per-test-case deps (pycountry, validators, zeroconf, …).
+    # A hardcoded list can't keep up as upstream TCs add new imports; the SDK is
+    # checked out at the exact build commit, so this file is version-matched.
+    # requirements.nfc.txt too, since we build chip-tool/controller with NFC.
+    req_files = [
+        sdk_dir / "src" / "python_testing" / "requirements.txt",
+        sdk_dir / "src" / "python_testing" / "requirements.nfc.txt",
+    ]
+    installed_any = False
+    for req in req_files:
+        if req.exists():
+            log(f"Installing SDK test requirements: {req.relative_to(sdk_dir)} ...")
+            subprocess.run([str(py), "-m", "pip", "install", "-r", str(req), "--quiet"],
+                           check=False)
+            installed_any = True
+    if not installed_any:
+        log("⚠️  No src/python_testing/requirements*.txt in SDK — falling back to "
+            "the built-in dep list only (some TCs may miss imports).")
+
+    # Safety net: a few runner/CLI deps not always in the SDK requirements.
+    log(f"Installing extra runner deps: {', '.join(TEST_PIP_DEPS)} ...")
     subprocess.run([str(py), "-m", "pip", "install", *TEST_PIP_DEPS, "--quiet"], check=False)
     log("Python env ready.")
 
