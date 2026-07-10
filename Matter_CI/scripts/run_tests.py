@@ -296,6 +296,27 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
     )
 
 # =============================================================================
+# Discriminator override
+# =============================================================================
+def apply_discriminator(cmd: str, value) -> str:
+    """
+    Force `cmd` to use our configured discriminator instead of the SDK default
+    (3840). If the command already has a --discriminator flag, its value is
+    replaced; otherwise the flag is appended. Used for BOTH the DUT launch (so
+    the app advertises on our discriminator) and the python test command (so the
+    controller commissions to it) — this avoids collisions when several people
+    on the same network all use the default 3840.
+    """
+    if value in (None, ""):
+        return cmd
+    value = str(value).strip()
+    if re.search(r"--discriminator(?:\s+|=)\S+", cmd):
+        return re.sub(r"--discriminator(?:\s+|=)\S+",
+                      f"--discriminator {value}", cmd, count=1)
+    return f"{cmd.rstrip()} --discriminator {value}"
+
+
+# =============================================================================
 # DUT manager
 # =============================================================================
 class DUTManager:
@@ -366,6 +387,12 @@ class DUTManager:
         if not binary:
             print(f"  [DUT] ❌ {err}")
             return False, err
+
+        # Advertise the DUT on our configured discriminator (not the default 3840).
+        disc = self.cfg["test_execution"].get("discriminator", "")
+        dut_cmd = apply_discriminator(dut_cmd, disc)
+        if disc not in (None, ""):
+            print(f"  [DUT] Using discriminator {disc}")
 
         # Replace ./binary-name with actual full path
         bin_match = re.search(r'\./([^\s]+)', dut_cmd)
@@ -446,6 +473,17 @@ class TestRunner:
         # The SDK reads all XML files from the folder and picks the right one per cluster
         pics_folder = cfg["test_execution"].get("pics_folder", "")
         self.pics_folder = pics_folder  # expected to be an absolute path on RPi
+        # Discriminator to advertise the DUT on + commission to (overrides the
+        # SDK default 3840; avoids collisions with others on the same network).
+        self.discriminator = cfg["test_execution"].get("discriminator", "")
+        if self.discriminator not in (None, ""):
+            try:
+                if not (0 <= int(self.discriminator) <= 4095):
+                    raise ValueError
+            except (TypeError, ValueError):
+                print(f"[WARN] test_execution.discriminator '{self.discriminator}' "
+                      f"is not a valid 12-bit value (0-4095) — ignoring it.")
+                self.discriminator = ""
 
     def _clean_storage(self):
         """Remove admin_storage.json before AND after each test.
@@ -472,6 +510,10 @@ class TestRunner:
         and resolve --PICS placeholder with actual PICS file path from config.
         """
         cmd = raw_py_cmd
+
+        # Override the discriminator so the controller commissions to the same
+        # value the DUT is advertising on (see DUTManager.launch).
+        cmd = apply_discriminator(cmd, self.discriminator)
 
         # Fix 4: Resolve --PICS placeholder with PICS folder path
         # The SDK reads all XML files in the folder and picks the right one per cluster

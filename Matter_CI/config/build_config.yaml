@@ -179,6 +179,11 @@ test_execution:
   timeout_seconds: 600
   # Seconds to wait after DUT launches before running test script
   dut_startup_wait: 5
+  # Discriminator (12-bit, 0-4095) the DUT is advertised on AND the controller
+  # commissions to. Overrides the SDK default (3840) in BOTH the DUT command and
+  # the python command — pick a value unlikely to clash with others on the same
+  # network. Leave empty ("") to keep whatever the Google Sheet command specifies.
+  discriminator: 3822
   # Log and report output paths (relative to Matter_CI workspace)
   log_dir: "logs/test_runs"
   report_path: "logs/report.html"
