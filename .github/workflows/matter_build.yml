@@ -585,8 +585,10 @@ jobs:
               f.write(f"| Total | Pass | Pass* | Fail | Rerun | Error | Cancelled |\n")
               f.write(f"|---|---|---|---|---|---|---|\n")
               f.write(f"| {total} | {passed} | {pass_warn} | {failed} | {rerun} | {errors} | {cancelled} |\n\n")
-              f.write("> \\*Pass with skipped steps — skips may be PICS/feature-gated "
-                      "(set pics_folder) or an unmet precondition; see the HTML report / Ctrl Log.\n\n")
+              f.write("> \\*Partial pass — too many steps skipped to accept as a full "
+                      "pass. A run with a few skipped steps still counts as PASS when "
+                      "enough steps passed (pass_threshold_percent). Skips may be "
+                      "PICS/feature-gated or an unmet precondition; see the HTML report / Ctrl Log.\n\n")
               f.write("_Click a status below to expand its test cases. "
                       "The HTML report (in this run's artifacts) has live filters + search._\n\n")
 
@@ -600,7 +602,7 @@ jobs:
                   f.write(f"<summary><b>{label}</b> ({len(group)})</summary>\n\n")
                   f.write("| TC ID | Status | Note |\n|---|---|---|\n")
                   for r in group:
-                      note = esc(r.get("note", ""))[:120] if status != "PASS" else ""
+                      note = esc(r.get("note", ""))[:160]
                       f.write(f"| {esc(r['test_case_id'])} | {status} | {note} |\n")
                   f.write("\n</details>\n\n")
           PY

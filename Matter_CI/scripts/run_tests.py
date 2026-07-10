@@ -111,11 +111,37 @@ def _clean_detail(text: str) -> str:
     return text[:300]
 
 
-def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
+def count_steps(log_text: str) -> dict:
+    """
+    Count the REAL test steps from the log — not the mobly test-level 'Executed'
+    number (which counts CommissionDeviceTest + the TC as 2). Each step is
+    announced by '***** Test Step <id> :' and a skipped one by '**** Skipping:
+    <id>'. Both lines are emitted 2-3x per step, so we dedupe by <id> (which may
+    be alphanumeric like '1a', '20a'). Returns step_total / step_skipped /
+    step_passed (passed = ran-and-not-skipped; a failing step is subtracted at
+    display time based on final status).
+    """
+    step_ids = set(re.findall(r"\*{5}\s*Test Step\s+([\w.]+)\s*:", log_text))
+    skip_ids = set(re.findall(r"\*{4}\s*Skipping:\s*([\w.]+)", log_text))
+    all_ids  = step_ids | skip_ids            # skips should be a subset of steps
+    total    = len(all_ids)
+    skipped  = len(skip_ids)
+    return {
+        "step_total":   total,
+        "step_skipped": skipped,
+        "step_passed":  max(total - skipped, 0),
+    }
+
+
+def parse_result(log_text: str, exit_code: int = 0,
+                 pass_threshold: float = 0.75) -> tuple[str, dict, str]:
     """
     Returns (status, counts_dict, reason_string).
-    reason_string is empty for PASS, populated for all other statuses.
+    reason_string is empty for a clean PASS, populated for all other statuses.
+    pass_threshold: fraction of steps that must pass for a run with some skipped
+    steps to still count as a full PASS (default 0.75 = 75%).
     """
+    steps = count_steps(log_text)   # real step-level counts (deduped)
 
     # ── Signal 1 — Exception / script crash ─────────────────────────────────
     # Covers both: "Exception occurred in test_XXX"
@@ -178,7 +204,7 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
         # Everything else (setup crashes, real exceptions) → ERROR (harness/DUT
         # couldn't complete the test).
         status = FAIL if (is_assertion and not is_setup) else ERROR
-        return status, {}, reason
+        return status, dict(steps), reason
 
     # ── Signal 2 — Commissioning / pairing failure ────────────────────────────
     if re.search(
@@ -188,7 +214,7 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
             r"Failed to pair with device|"
             r"Unable to find the device",
             log_text, re.IGNORECASE):
-        return ERROR, {}, (
+        return ERROR, dict(steps), (
             "Commissioning failed — DUT could not be paired. "
             "Check discriminator, passcode, and that DUT is in commissioning mode."
         )
@@ -224,49 +250,53 @@ def parse_result(log_text: str, exit_code: int = 0) -> tuple[str, dict, str]:
             reason = ", ".join(parts)
             return FAIL, counts, reason
 
-        # All steps skipped → needs investigation
-        if counts["executed"] > 0 and counts["skipped"] == counts["executed"]:
-            return RERUN, counts, (
-                f"All {counts['skipped']}/{counts['executed']} steps skipped — "
-                "possible PICS mismatch, unsupported feature, or DUT config issue"
-            )
+        # Merge the real, deduped STEP-level counts (from the log) into the
+        # result — these drive both the Steps column and the pass tolerance.
+        counts.update(steps)
+        total_steps   = steps["step_total"]
+        skipped_steps = steps["step_skipped"]
+        passed_steps  = steps["step_passed"]
 
-        # ── Signal 3b — Step-level skips (PICS-gated steps) ─────────────────
-        # Mobly's "Skipped" counter = test-level skips (whole test skipped)
-        # PICS-gated step skips appear as "**** Skipping: N" lines in the log
-        # These do NOT appear in the summary counts — must be parsed separately
-        step_skips = re.findall(r"\*\*\*\*\s*Skipping:\s*(\d+)", log_text)
-        # Deduplicate — each skipped step appears twice in the log
-        unique_skipped_steps = len(set(step_skips))
+        # ── Step-level skips ────────────────────────────────────────────────
+        # We do NOT assume skips are caused by missing PICS — a step can skip for
+        # a PICS/feature guard, an unmet precondition, or another reason.
+        if total_steps > 0 and skipped_steps > 0:
+            pass_ratio = passed_steps / total_steps
+            pct = round(pass_ratio * 100)
+            thr = round(pass_threshold * 100)
 
-        # Partial skip — some steps passed, some steps skipped → PASS*
-        # NOTE: we do NOT claim the skips are caused by missing PICS. A step can
-        # skip for several reasons (a PICS/feature guard, an unmet precondition,
-        # or a genuine issue). We state the fact and point to where to look.
-        if unique_skipped_steps > 0 and counts["passed"] > 0:
+            if passed_steps == 0:
+                # Nothing actually ran → not a meaningful pass.
+                return RERUN, counts, (
+                    f"All {total_steps} step(s) skipped — may be PICS/feature-gated "
+                    f"(if the test needs it, set pics_folder), an unsupported "
+                    f"feature, or another issue. Check the Ctrl Log."
+                )
+            if pass_ratio >= pass_threshold:
+                # Enough steps passed → accept as a full PASS; the remaining
+                # skips are tolerated (often DUT-implementation / feature based).
+                return PASS, counts, (
+                    f"{passed_steps}/{total_steps} steps passed, {skipped_steps} "
+                    f"skipped ({pct}% ≥ {thr}% threshold — skips accepted)."
+                )
+            # Too many skips to be confident → flag as partial.
             return PASS_WARN, counts, (
-                f"Partial execution: {counts['passed']} step(s) passed, "
-                f"{unique_skipped_steps} step(s) skipped. Skips may be "
-                f"PICS/feature-gated (if so, set pics_folder) or due to an unmet "
-                f"precondition — check the Ctrl Log for each 'Skipping' reason."
+                f"Partial execution: {passed_steps}/{total_steps} steps passed, "
+                f"{skipped_steps} skipped ({pct}% < {thr}% threshold). Skips may be "
+                f"PICS/feature-gated (set pics_folder) or an unmet precondition — "
+                f"check the Ctrl Log for each 'Skipping' reason."
             )
 
-        # All steps skipped at STEP level (no passed steps at all)
-        if unique_skipped_steps > 0 and counts["passed"] == 0:
-            return RERUN, counts, (
-                f"All {unique_skipped_steps} step(s) skipped — this may be "
-                f"PICS/feature-gated (if the test needs it, set pics_folder), an "
-                f"unsupported feature, or another issue. Check the Ctrl Log for "
-                f"the 'Skipping' reasons."
-            )
-
-        # Partial skip from summary counts (test-level)
-        if counts["skipped"] > 0 and counts["passed"] > 0:
+        # Fallback: no step markers found, but mobly reports test-level skips.
+        if total_steps == 0 and counts["skipped"] > 0 and counts["passed"] > 0:
             return PASS_WARN, counts, (
-                f"Partial execution: {counts['passed']} step(s) passed, "
-                f"{counts['skipped']}/{counts['executed']} step(s) skipped. Skips "
-                f"may be PICS/feature-gated (if so, set pics_folder) or due to an "
-                f"unmet precondition — check the Ctrl Log."
+                f"Partial execution: {counts['passed']} test(s) passed, "
+                f"{counts['skipped']}/{counts['executed']} skipped — check the Ctrl Log."
+            )
+        if total_steps == 0 and counts["executed"] > 0 and counts["skipped"] == counts["executed"]:
+            return RERUN, counts, (
+                f"All {counts['skipped']}/{counts['executed']} test(s) skipped — "
+                "check the Ctrl Log for the reason."
             )
 
         # Clean pass — all steps executed and passed
@@ -484,6 +514,15 @@ class TestRunner:
                 print(f"[WARN] test_execution.discriminator '{self.discriminator}' "
                       f"is not a valid 12-bit value (0-4095) — ignoring it.")
                 self.discriminator = ""
+        # A run with some skipped steps still counts as a full PASS if at least
+        # this fraction of steps passed (default 75%). Skips are often DUT-
+        # implementation / feature dependent and acceptable.
+        try:
+            self.pass_threshold = float(
+                cfg["test_execution"].get("pass_threshold_percent", 75)) / 100.0
+        except (TypeError, ValueError):
+            self.pass_threshold = 0.75
+        self.pass_threshold = min(max(self.pass_threshold, 0.0), 1.0)
 
     def _clean_storage(self):
         """Remove admin_storage.json before AND after each test.
@@ -576,7 +615,9 @@ class TestRunner:
                          "PATH": f"{self.venv_python.parent}:{os.environ.get('PATH','')}"},
                 )
             log_text  = log_path.read_text(errors="replace")
-            status, counts, reason = parse_result(log_text, exit_code=proc.returncode)
+            status, counts, reason = parse_result(
+                log_text, exit_code=proc.returncode,
+                pass_threshold=self.pass_threshold)
 
         except subprocess.TimeoutExpired:
             status, counts, reason = ERROR, {}, f"Test timed out after {self.timeout}s"
@@ -788,7 +829,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
         note   = r.get("note", "")
 
         if status == PASS:
-            return ""
+            return note   # empty for a clean pass; set when skips were tolerated
         if status == PASS_WARN:
             return note   # show the partial skip warning
         if status == CANCEL:
@@ -824,8 +865,21 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
         log_file = Path(r.get("log_file", ""))
         dut_log  = log_file.parent / f"{tc_id}_dut.log" if log_file.name else None
 
+        # Steps column: prefer REAL step-level counts parsed from the log
+        # (deduped). If a TC's log has no "Test Step" markers, fall back to the
+        # mobly test-level counts (the earlier behaviour) so the cell isn't blank.
         counts_str = ""
-        if counts:
+        st_total = counts.get("step_total", 0)
+        if st_total > 0:
+            st_skip = counts.get("step_skipped", 0)
+            st_fail = counts.get("failed", 0) or (1 if status == FAIL else 0)
+            st_pass = max(st_total - st_skip - st_fail, 0)
+            counts_str = (f"✅{st_pass} "
+                          f"❌{st_fail} "
+                          f"⏭{st_skip} "
+                          f"Σ{st_total}")
+        elif "executed" in counts:
+            # mobly summary was parsed but no step markers → test-level counts
             counts_str = (f"✅{counts.get('passed',0)} "
                           f"❌{counts.get('failed',0)} "
                           f"⏭{counts.get('skipped',0)} "
@@ -963,7 +1017,8 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       box-shadow: 0 1px 4px rgba(0,0,0,0.08);
       overflow: hidden;
     }}
-    table {{ border-collapse: collapse; width: 100%; }}
+    table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
+    td {{ overflow-wrap: anywhere; word-break: break-word; }}
     th {{
       background: #2c3e50;
       color: #fff;
@@ -1103,6 +1158,14 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
 
   <div class="table-wrap">
     <table id="resultsTable">
+      <colgroup>
+        <col style="width:16%">   <!-- TC ID -->
+        <col style="width:10%">   <!-- Status -->
+        <col style="width:12%">   <!-- Steps -->
+        <col style="width:8%">    <!-- Time -->
+        <col style="width:14%">   <!-- Logs -->
+        <col style="width:40%">   <!-- Reason / Notes -->
+      </colgroup>
       <thead>
         <tr>
           <th>TC ID</th>
