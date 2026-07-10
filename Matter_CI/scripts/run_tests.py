@@ -434,8 +434,12 @@ class DUTManager:
         # the SDK out/ path so it covers every app type (chip-*, matter-*, *-app,
         # fabric-*, lit-icd, …). The count is surfaced in the run log + summary so
         # kill-races are visible without SSHing into the RPi.
-        ps = subprocess.run(f"pgrep -af '{self.sdk_dir}/out/' 2>/dev/null || true",
-                            shell=True, capture_output=True, text=True)
+        # NOTE: filter out the pgrep/sh pipeline itself — its own command line
+        # contains the '<sdk>/out/' pattern and would otherwise self-match and
+        # report a phantom "leftover".
+        ps = subprocess.run(
+            f"pgrep -af '{self.sdk_dir}/out/' 2>/dev/null | grep -Ev 'pgrep|grep -' || true",
+            shell=True, capture_output=True, text=True)
         strays = [ln for ln in ps.stdout.splitlines() if ln.strip()]
         self.last_straggler_count = len(strays)
         if strays:
