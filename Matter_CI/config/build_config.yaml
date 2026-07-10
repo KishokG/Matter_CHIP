@@ -177,8 +177,14 @@ test_execution:
   tc_list_file: "config/tc_list.json"   # JSON format — see tc_list.json for structure
   # Per-test timeout in seconds
   timeout_seconds: 600
-  # Seconds to wait after DUT launches before running test script
-  dut_startup_wait: 5
+  # Seconds to wait after DUT launches before running the test script. The
+  # all-clusters app needs time to boot, init a fresh KVS, open its commissioning
+  # window, and publish mDNS — too short causes "Not connected" / PASE races
+  # (esp. AccessChecker/TC-ACE-2.x). 8-10s is safer than 5 on an RPi.
+  dut_startup_wait: 8
+  # Seconds to wait AFTER a DUT is stopped, before the next test relaunches on
+  # the same discriminator — lets stale mDNS records / UDP ports clear.
+  dut_settle_wait: 2
   # Discriminator (12-bit, 0-4095) the DUT is advertised on AND the controller
   # commissions to. Overrides the SDK default (3840) in BOTH the DUT command and
   # the python command — pick a value unlikely to clash with others on the same

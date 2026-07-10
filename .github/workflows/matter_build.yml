@@ -564,22 +564,30 @@ jobs:
           cancelled = sum(1 for r in results if r['status'] == 'CANCEL')
           summary_file = os.environ['GITHUB_STEP_SUMMARY']
 
-          # GitHub job summaries strip <script>/onclick, so true filter BUTTONS
-          # aren't possible here — the HTML report artifact has those. The closest
-          # equivalent is per-status <details> groups (click a status to expand),
-          # which also keeps the (usually long) PASS list collapsed. Failures/
-          # errors are expanded by default so they're seen first.
-          GROUPS = [
-              ("FAIL",   "Fail",      True),
-              ("ERROR",  "Error",     True),
-              ("RERUN",  "Rerun",     True),
-              ("PASS*",  "Pass*",     False),
-              ("CANCEL", "Cancelled", False),
-              ("PASS",   "Pass",      False),
-          ]
+          # GitHub sizes EACH markdown table to its own content, so separate
+          # per-status tables render at different widths (that's the non-uniform
+          # look). To keep columns uniform we use ONE severity-ordered table — the
+          # Status column marks the category, failures sort first. (Job summaries
+          # strip JS, so live filter buttons live in the HTML report artifact.)
+          ORDER = {"FAIL": 0, "ERROR": 1, "RERUN": 2, "PASS*": 3, "CANCEL": 4, "PASS": 5}
+          ordered = sorted(results, key=lambda r: (ORDER.get(r["status"], 9),
+                                                   r.get("test_case_id", "")))
 
           def esc(s):
               return str(s).replace("|", "\\|").replace("\n", " ")
+
+          def steps_cell(r):
+              c = r.get("counts", {}) or {}
+              st = c.get("step_total", 0)
+              if st:
+                  sk = c.get("step_skipped", 0)
+                  fl = c.get("step_failed", 1 if r["status"] == "FAIL" else 0)
+                  ps = c.get("step_passed", max(st - sk - fl, 0))
+                  return f"✅{ps} ❌{fl} ⏭{sk} Σ{st}"
+              if "executed" in c:   # fallback: mobly test-level counts
+                  return (f"✅{c.get('passed',0)} ❌{c.get('failed',0)} "
+                          f"⏭{c.get('skipped',0)} ⚠️{c.get('error',0)}")
+              return ""
 
           with open(summary_file, 'a') as f:
               f.write(f"| Total | Pass | Pass* | Fail | Rerun | Error | Cancelled |\n")
@@ -589,21 +597,16 @@ jobs:
                       "pass. A run with a few skipped steps still counts as PASS when "
                       "enough steps passed (pass_threshold_percent). Skips may be "
                       "PICS/feature-gated or an unmet precondition; see the HTML report / Ctrl Log.\n\n")
-              f.write("_Click a status below to expand its test cases. "
-                      "The HTML report (in this run's artifacts) has live filters + search._\n\n")
-
-              for status, label, default_open in GROUPS:
-                  group = [r for r in results if r["status"] == status]
-                  if not group:
-                      continue
-                  # Big groups start collapsed regardless, to avoid a wall of rows.
-                  open_attr = " open" if (default_open and len(group) <= 15) else ""
-                  f.write(f"<details{open_attr}>\n")
-                  f.write(f"<summary><b>{label}</b> ({len(group)})</summary>\n\n")
-                  f.write("| TC ID | Status | Note |\n|---|---|---|\n")
-                  for r in group:
-                      note = esc(r.get("note", ""))[:160]
-                      f.write(f"| {esc(r['test_case_id'])} | {status} | {note} |\n")
-                  f.write("\n</details>\n\n")
+              f.write("_Sorted failures-first. The HTML report (in this run's artifacts) "
+                      "has live filters + search._\n\n")
+              open_attr = " open" if len(ordered) <= 40 else ""
+              f.write(f"<details{open_attr}>\n")
+              f.write(f"<summary><b>All {len(ordered)} test case(s)</b> — failures first</summary>\n\n")
+              f.write("| TC ID | Status | Steps | Note |\n|---|---|---|---|\n")
+              for r in ordered:
+                  note = esc(r.get("note", ""))[:160]
+                  f.write(f"| {esc(r['test_case_id'])} | {r['status']} | "
+                          f"{steps_cell(r)} | {note} |\n")
+              f.write("\n</details>\n\n")
           PY
           fi

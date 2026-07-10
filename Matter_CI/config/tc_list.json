@@ -44,7 +44,6 @@
     "cluster": "Access Control Enforcement",
     "enabled": true
   },
-
   {
     "tc_id": "TC-ACL-2.2",
     "cluster": "Access Control Cluster",
@@ -95,7 +94,6 @@
     "cluster": "Access Control Cluster",
     "enabled": true
   },
-
   {
     "tc_id": "TC-BOOLCFG-2.1",
     "cluster": "Boolean State Configuration",
@@ -136,7 +134,16 @@
     "cluster": "Boolean State Configuration",
     "enabled": true
   },
-
+  {
+    "tc_id": "TC-BOOLCFG-6.1",
+    "cluster": "Boolean State Configuration",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BOOL-2.2",
+    "cluster": "Boolean State Cluster",
+    "enabled": true
+  },
   {
     "tc_id": "TC-CC-2.1",
     "cluster": "Color Control Cluster",
@@ -152,7 +159,11 @@
     "cluster": "Color Control Cluster",
     "enabled": true
   },
-
+  {
+    "tc_id": "TC-CC-10.1",
+    "cluster": "Color Control Cluster",
+    "enabled": true
+  },
   {
     "tc_id": "TC-CGEN-2.1",
     "cluster": "General Commissioning Cluster",
@@ -168,9 +179,53 @@
     "cluster": "General Commissioning Cluster",
     "enabled": true
   },
-
+  {
+    "tc_id": "TC-CGEN-2.5",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CGEN-2.6",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CGEN-2.7",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CGEN-2.8",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CGEN-2.9",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CGEN-2.10",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CGEN-2.11",
+    "cluster": "General Commissioning Cluster",
+    "enabled": true
+  },
   {
     "tc_id": "TC-CNET-1.4",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.1",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.2",
     "cluster": "Network Commissioning Cluster",
     "enabled": true
   },
@@ -179,7 +234,46 @@
     "cluster": "Network Commissioning Cluster",
     "enabled": true
   },
-
+  {
+    "tc_id": "TC-CNET-4.4",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.9",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.10",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.12",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.15",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.16",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CNET-4.22",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DA-1.1",
+    "cluster": "Device Attestation",
+    "enabled": true
+  },
   {
     "tc_id": "TC-DA-1.2",
     "cluster": "Device Attestation",
@@ -190,25 +284,91 @@
     "cluster": "Device Attestation",
     "enabled": true
   },
-
+  {
+    "tc_id": "TC-DA-1.7",
+    "cluster": "Device Attestation",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DA-1.9",
+    "cluster": "Device Attestation",
+    "enabled": true
+  },
   {
     "tc_id": "TC-DISHM-1.2",
     "cluster": "Dishwasher Mode Cluster",
     "enabled": true
   },
-
+  {
+    "tc_id": "TC-DISHM-2.1",
+    "cluster": "Dishwasher Mode Cluster",
+    "enabled": true
+  },
   {
     "tc_id": "TC-DEMM-1.2",
     "cluster": "Device Energy Management Mode Cluster",
     "enabled": true
   },
-
   {
     "tc_id": "TC-DESC-2.2",
-    "cluster": "Descriptor Cluster",
+    "cluster": "Descriptor Cluster TestPlan",
     "enabled": true
   },
-
+  {
+    "tc_id": "TC-DESC-2.3",
+    "cluster": "Descriptor Cluster TestPlan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DGGEN-2.4",
+    "cluster": "General Diagnostics Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DGGEN-2.5",
+    "cluster": "General Diagnostics Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DGGEN-3.2",
+    "cluster": "General Diagnostics Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.2",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.3",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.5",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.9",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.12",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DRLK-2.13",
+    "cluster": "Door lock",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DT-1.1",
+    "cluster": "Device Types Test Plan",
+    "enabled": true
+  },
   {
     "tc_id": "TC-EEM-2.1",
     "cluster": "Electrical Energy Measurement Cluster",
@@ -234,7 +394,6 @@
     "cluster": "Electrical Energy Measurement Cluster",
     "enabled": true
   },
-
   {
     "tc_id": "TC-EEVSE-2.2",
     "cluster": "Energy EVSE",
@@ -280,108 +439,6 @@
     "cluster": "Energy EVSE",
     "enabled": true
   },
-
-  {
-    "tc_id": "TC-CLDIM-2.1",
-    "cluster": "Closure Dimension Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLDIM-3.1",
-    "cluster": "Closure Dimension Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLDIM-3.2",
-    "cluster": "Closure Dimension Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLDIM-3.3",
-    "cluster": "Closure Dimension Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLDIM-4.1",
-    "cluster": "Closure Dimension Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLDIM-4.2",
-    "cluster": "Closure Dimension Cluster",
-    "enabled": true
-  },
-
-  {
-    "tc_id": "TC-CLCTRL-2.1",
-    "cluster": "Closure Control Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLCTRL-3.1",
-    "cluster": "Closure Control Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLCTRL-4.1",
-    "cluster": "Closure Control Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLCTRL-4.2",
-    "cluster": "Closure Control Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLCTRL-4.3",
-    "cluster": "Closure Control Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLCTRL-4.4",
-    "cluster": "Closure Control Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLCTRL-5.1",
-    "cluster": "Closure Control Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-CLCTRL-6.1",
-    "cluster": "Closure Control Cluster",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-DRLK-2.2",
-    "cluster": "Door lock",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-DRLK-2.3",
-    "cluster": "Door lock",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-DRLK-2.5",
-    "cluster": "Door lock",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-DRLK-2.9",
-    "cluster": "Door lock",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-DRLK-2.12",
-    "cluster": "Door lock",
-    "enabled": true
-  },
-  {
-    "tc_id": "TC-DRLK-2.13",
-    "cluster": "Door lock",
-    "enabled": true
-  },
   {
     "tc_id": "TC-EPM-2.1",
     "cluster": "Electrical Power Measurement Cluster",
@@ -390,6 +447,11 @@
   {
     "tc_id": "TC-EPM-2.2",
     "cluster": "Electrical Power Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EPREF-2.1",
+    "cluster": "Energy Preference Cluster",
     "enabled": true
   },
   {
@@ -440,6 +502,1796 @@
   {
     "tc_id": "TC-FLABEL-2.1",
     "cluster": "Fixed Label Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-1.2",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-1.4",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-2.2",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-2.3",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-3.2",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-4.2",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-9.1",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-10.1",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-10.2",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-10.3",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-10.4",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-10.5",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-10.6",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-11.1",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-12.1",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-13.1",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-14.1",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-I-2.4",
+    "cluster": "Identify Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-LWM-1.2",
+    "cluster": "Laundry Washer Mode Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MWOCTRL-2.1",
+    "cluster": "Microwave Oven Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MWOCTRL-2.2",
+    "cluster": "Microwave Oven Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MWOM-1.2",
+    "cluster": "Microwave Oven Mode Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MOD-1.2",
+    "cluster": "Mode Select Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MOD-2.3",
+    "cluster": "Mode Select Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OO-2.7",
+    "cluster": "On/Off Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPCREDS-3.1",
+    "cluster": "Node Operational Credentials Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPCREDS-3.2",
+    "cluster": "Node Operational Credentials Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPCREDS-3.4",
+    "cluster": "Node Operational Credentials Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPCREDS-3.5",
+    "cluster": "Node Operational Credentials Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPCREDS-3.8",
+    "cluster": "Node Operational Credentials Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPSTATE-2.1",
+    "cluster": "Operational State Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPSTATE-2.2",
+    "cluster": "Operational State Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPSTATE-2.3",
+    "cluster": "Operational State Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPSTATE-2.4",
+    "cluster": "Operational State Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPSTATE-2.5",
+    "cluster": "Operational State Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OPSTATE-2.6",
+    "cluster": "Operational State Cluster Test Plan",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OTCCM-1.2",
+    "cluster": "Oven Mode Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OVENOPSTATE-2.1",
+    "cluster": "Oven Cavity Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OVENOPSTATE-2.2",
+    "cluster": "Oven Cavity Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OVENOPSTATE-2.4",
+    "cluster": "Oven Cavity Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OVENOPSTATE-2.5",
+    "cluster": "Oven Cavity Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OVENOPSTATE-2.6",
+    "cluster": "Oven Cavity Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PS-2.3",
+    "cluster": "Power Source Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PS-3.1",
+    "cluster": "Power Source Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PWRTL-2.1",
+    "cluster": "Power Topology Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RR-1.1",
+    "cluster": "Minimal Resource Requirements",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCCLEANM-1.2",
+    "cluster": "RVC Clean Mode Select Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCCLEANM-2.1",
+    "cluster": "RVC Clean Mode Select Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCCLEANM-2.2",
+    "cluster": "RVC Clean Mode Select Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCOPSTATE-2.1",
+    "cluster": "RVC Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCOPSTATE-2.3",
+    "cluster": "RVC Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCOPSTATE-2.5",
+    "cluster": "RVC Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCRUNM-1.2",
+    "cluster": "RVC Run Mode Select Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCRUNM-2.1",
+    "cluster": "RVC Run Mode Select Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCRUNM-2.2",
+    "cluster": "RVC Run Mode Select Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TCCM-1.2",
+    "cluster": "Refrigerator and Temperature Controlled Cabinet Mode Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-3.1",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-3.2",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-3.4",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-3.5",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-3.6",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-4.1",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-4.3",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-7.1",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SM-1.1",
+    "cluster": "System Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SM-1.2",
+    "cluster": "System Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SWTCH-2.2",
+    "cluster": "Switch Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SWTCH-2.3",
+    "cluster": "Switch Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SWTCH-2.4",
+    "cluster": "Switch Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SWTCH-2.5",
+    "cluster": "Switch Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SWTCH-2.6",
+    "cluster": "Switch Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.1",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.10",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.11",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.12",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.13",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.2",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.4",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.5",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.6",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.7",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.8",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-2.9",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TIMESYNC-3.1",
+    "cluster": "Time Synchronization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TMP-2.1",
+    "cluster": "Temperature Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-2.1",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-3.1",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-3.2",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-3.3",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-3.4",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-4.1",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-4.2",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-4.3",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-4.4",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-VALCC-4.5",
+    "cluster": "Valve Configuration and Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WHM-1.2",
+    "cluster": "Water Heater Mode Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WHM-2.1",
+    "cluster": "Water Heater Mode Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WASHERCTRL-2.1",
+    "cluster": "Laundry Washer Controls Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDB-1.1",
+    "cluster": "ICD Behavior Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDB-1.2",
+    "cluster": "ICD Behavior Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDB-2.1",
+    "cluster": "ICD Behavior Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDB-2.2",
+    "cluster": "ICD Behavior Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDB-2.3",
+    "cluster": "ICD Behavior Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDB-2.4",
+    "cluster": "ICD Behavior Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDB-3.1",
+    "cluster": "ICD Behavior Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDB-3.2",
+    "cluster": "ICD Behavior Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDM-2.1",
+    "cluster": "ICD Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDM-3.1",
+    "cluster": "ICD Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDM-3.2",
+    "cluster": "ICD Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDM-3.3",
+    "cluster": "ICD Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDM-3.4",
+    "cluster": "ICD Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ICDM-5.1",
+    "cluster": "ICD Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.1",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.2",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.3",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.4",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.5",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.6",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.7",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.8",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.9",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DEM-2.10",
+    "cluster": "Device Energy Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EWATERHTR-2.1",
+    "cluster": "Water Heater Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EWATERHTR-2.2",
+    "cluster": "Water Heater Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EWATERHTR-2.3",
+    "cluster": "Water Heater Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OCC-2.1",
+    "cluster": "Occupancy Sensing Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OCC-2.2",
+    "cluster": "Occupancy Sensing Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OCC-2.3",
+    "cluster": "Occupancy Sensing Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OCC-3.1",
+    "cluster": "Occupancy Sensing Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-OCC-3.2",
+    "cluster": "Occupancy Sensing Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-8.1",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-8.2",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-8.3",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-8.4",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-8.5",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-8.6",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-8.7",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TSTAT-2.2",
+    "cluster": "Thermostat Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TSTAT-4.2",
+    "cluster": "Thermostat Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TSTAT-4.3",
+    "cluster": "Thermostat Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-LVL-2.3",
+    "cluster": "Level Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-LVL-9.1",
+    "cluster": "Level Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SEAR-1.2",
+    "cluster": "Service Area Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SEAR-1.3",
+    "cluster": "Service Area Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SEAR-1.4",
+    "cluster": "Service Area Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SEAR-1.5",
+    "cluster": "Service Area Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BRBINFO-2.1",
+    "cluster": "Bridged Device Basic Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BRBINFO-3.1",
+    "cluster": "Bridged Device Basic Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BRBINFO-3.2",
+    "cluster": "Bridged Device Basic Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BRBINFO-4.1",
+    "cluster": "Bridged Device Basic Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BINFO-2.1",
+    "cluster": "Basic Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BINFO-2.2",
+    "cluster": "Basic Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BINFO-3.1",
+    "cluster": "Basic Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-BINFO-3.2",
+    "cluster": "Basic Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CCTRL-2.1",
+    "cluster": "Commissioner Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CCTRL-2.2",
+    "cluster": "Commissioner Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CCTRL-2.3",
+    "cluster": "Commissioner Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MCORE.FS-1.1",
+    "cluster": "Fabric Synchronization",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MCORE.FS-1.2",
+    "cluster": "Fabric Synchronization",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MCORE.FS-1.3",
+    "cluster": "Fabric Synchronization",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MCORE.FS-1.4",
+    "cluster": "Fabric Synchronization",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MCORE.FS-1.5",
+    "cluster": "Fabric Synchronization",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.3",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.4",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.5",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.9",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.10",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.11",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.15",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.19",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.22",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CADMIN-1.25",
+    "cluster": "Administrator Commissioning Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ECOINFO-2.1",
+    "cluster": "Ecosystem Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ECOINFO-2.2",
+    "cluster": "Ecosystem Information Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TCTL-2.3",
+    "cluster": "Temperature Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EGC-2.1",
+    "cluster": "Electrical Grid Conditions Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EGC-2.2",
+    "cluster": "Electrical Grid Conditions Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-EGC-2.3",
+    "cluster": "Electrical Grid Conditions Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SEPR-2.1",
+    "cluster": "Commodity Price Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SEPR-2.2",
+    "cluster": "Commodity Price Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SEPR-2.3",
+    "cluster": "Commodity Price Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.1",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.2",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.3",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.4",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.5",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.6",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.7",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.8",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSUM-2.9",
+    "cluster": "Camera AV Settings User Level Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-REFALM-2.2",
+    "cluster": "Refrigerator Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-LUNIT-3.1",
+    "cluster": "Unit Localization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-LTIME-3.1",
+    "cluster": "Time Format Localization Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-2.1",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-3.1",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-3.2",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-3.3",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-4.1",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLDIM-4.2",
+    "cluster": "Closure Dimension Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-2.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-3.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-4.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-4.2",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-4.3",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-4.4",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-5.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CLCTRL-6.1",
+    "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.1",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.2",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.3",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.4",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.5",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.6",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.7",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.8",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.9",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.10",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.11",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.12",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.13",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.14",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.15",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.16",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.17",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.18",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.19",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.20",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-AVSM-2.21",
+    "cluster": "Camera AV Stream Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.1",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.2",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.3",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.4",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.5",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.6",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.7",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.8",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.9",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.10",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.11",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.12",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.13",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.14",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.15",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.16",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.17",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.18",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.19",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.20",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.21",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.22",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.23",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.24",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.25",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.27",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.28",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.29",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.30",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.31",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCP-2.32",
+    "cluster": "WebRTC Transport Provider Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCR-2.1",
+    "cluster": "WebRTC Transport Requestor Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCR-2.2",
+    "cluster": "WebRTC Transport Requestor Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCR-2.3",
+    "cluster": "WebRTC Transport Requestor Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCR-2.4",
+    "cluster": "WebRTC Transport Requestor Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCR-2.5",
+    "cluster": "WebRTC Transport Requestor Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCR-2.6",
+    "cluster": "WebRTC Transport Requestor Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTCR-2.7",
+    "cluster": "WebRTC Transport Requestor Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTC-1.1",
+    "cluster": "WebRTC Transport",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTC-1.2",
+    "cluster": "WebRTC Transport",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTC-1.3",
+    "cluster": "WebRTC Transport",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTC-1.4",
+    "cluster": "WebRTC Transport",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTC-1.5",
+    "cluster": "WebRTC Transport",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTC-1.6",
+    "cluster": "WebRTC Transport",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTC-1.7",
+    "cluster": "WebRTC Transport",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-WEBRTC-1.8",
+    "cluster": "WebRTC Transport",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-LCFG-2.1",
+    "cluster": "Localization Configuration Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-COMMTR-2.1",
+    "cluster": "Commodity Metering Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-COMMTR-3.1",
+    "cluster": "Commodity Metering Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MTRID-2.1",
+    "cluster": "Meter Identification Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MTRID-3.1",
+    "cluster": "Meter Identification Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SOIL-2.1",
+    "cluster": "Soil Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SOIL-2.2",
+    "cluster": "Soil Measurement Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ZONEMGMT-2.1",
+    "cluster": "Zone Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ZONEMGMT-2.2",
+    "cluster": "Zone Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.1",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.2",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.3",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.4",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.5",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.6",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.7",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.8",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.9",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.10",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.11",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.12",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.13",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVSTI-1.1",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVSTI-1.2",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SETRF-2.1",
+    "cluster": "Commodity Tariff Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SETRF-2.2",
+    "cluster": "Commodity Tariff Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SETRF-2.3",
+    "cluster": "Commodity Tariff Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SETRF-3.1",
+    "cluster": "Commodity Tariff Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.1",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.2",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.3",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.4",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.5",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.6",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.7",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.8",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.9",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.10",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.11",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.12",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCERT-2.13",
+    "cluster": "TLS Certificate Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCLIENT-2.1",
+    "cluster": "TLS Client Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCLIENT-3.1",
+    "cluster": "TLS Client Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCLIENT-3.10",
+    "cluster": "TLS Client Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCLIENT-3.2",
+    "cluster": "TLS Client Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCLIENT-3.20",
+    "cluster": "TLS Client Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TLSCLIENT-3.3",
+    "cluster": "TLS Client Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DGSW-2.2",
+    "cluster": "Software Diagnostics Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DGSW-2.1",
+    "cluster": "Software Diagnostics Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-G-2.2",
+    "cluster": "Groups Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DISHALM-2.1",
+    "cluster": "Dishwasher Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DD-1.5",
+    "cluster": "Device Discovery",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DD-3.23",
+    "cluster": "Device Discovery",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DD-3.24",
+    "cluster": "Device Discovery",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SU-2.2",
+    "cluster": "OTA Software Update",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SU-2.7",
+    "cluster": "OTA Software Update",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SU-4.1",
+    "cluster": "OTA Software Update",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-GC-2.1",
+    "cluster": "Groupcast",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-GC-2.2",
+    "cluster": "Groupcast",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-GC-2.3",
+    "cluster": "Groupcast",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-GC-2.4",
+    "cluster": "Groupcast",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-GC-2.5",
+    "cluster": "Groupcast",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-GC-2.6",
+    "cluster": "Groupcast",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-GC-2.7",
+    "cluster": "Groupcast",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-GC-2.8",
+    "cluster": "Groupcast",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFADMIN-1.1",
+    "cluster": "Joint Fabric Administrator Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFADMIN-1.2",
+    "cluster": "Joint Fabric Administrator Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFADMIN-1.4",
+    "cluster": "Joint Fabric Administrator Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFADMIN-2.1",
+    "cluster": "Joint Fabric Administrator Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFADMIN-2.2",
+    "cluster": "Joint Fabric Administrator Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFDS-2.1",
+    "cluster": "Joint Fabric Datastore Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFDS-2.2",
+    "cluster": "Joint Fabric Datastore Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFDS-2.3",
+    "cluster": "Joint Fabric Datastore Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-JFDS-2.4",
+    "cluster": "Joint Fabric Datastore Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SMOKECO-2.1",
+    "cluster": "Smoke CO Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SMOKECO-2.2",
+    "cluster": "Smoke CO Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SMOKECO-2.3",
+    "cluster": "Smoke CO Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SMOKECO-2.4",
+    "cluster": "Smoke CO Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SMOKECO-2.5",
+    "cluster": "Smoke CO Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SMOKECO-2.6",
+    "cluster": "Smoke CO Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SMOKECO-2.7",
+    "cluster": "Smoke CO Alarm Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-5.1",
+    "cluster": "Group Communication",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-5.2",
+    "cluster": "Group Communication",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-S-2.3",
+    "cluster": "Scenes Management Cluster",
     "enabled": true
   }
 ]

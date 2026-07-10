@@ -129,7 +129,8 @@ def count_steps(log_text: str) -> dict:
     return {
         "step_total":   total,
         "step_skipped": skipped,
-        "step_passed":  max(total - skipped, 0),
+        "step_failed":  0,                       # set by caller when a step fails
+        "step_passed":  max(total - skipped, 0),  # caller subtracts failed steps
     }
 
 
@@ -204,7 +205,13 @@ def parse_result(log_text: str, exit_code: int = 0,
         # Everything else (setup crashes, real exceptions) → ERROR (harness/DUT
         # couldn't complete the test).
         status = FAIL if (is_assertion and not is_setup) else ERROR
-        return status, dict(steps), reason
+        step_counts = dict(steps)
+        if status == FAIL and step_counts["step_total"] > 0:
+            # The test stopped at a failing step — count it as failed, not passed.
+            step_counts["step_failed"] = 1
+            step_counts["step_passed"] = max(
+                step_counts["step_total"] - step_counts["step_skipped"] - 1, 0)
+        return status, step_counts, reason
 
     # ── Signal 2 — Commissioning / pairing failure ────────────────────────────
     if re.search(
@@ -467,6 +474,10 @@ class DUTManager:
                 except ProcessLookupError:
                     pass
             print("  [DUT] Stopped.")
+            # Brief settle so the killed instance's mDNS records / UDP ports are
+            # released before the next test relaunches on the SAME discriminator
+            # (avoids the commissioner briefly targeting a stale advertisement).
+            time.sleep(self.cfg["test_execution"].get("dut_settle_wait", 2))
         if self._log_file:
             self._log_file.close()
         self._proc = None
@@ -662,10 +673,20 @@ class TestRunner:
             reason_short = f" | {reason[:70]}" if reason else ""
             print(f"  [{status}] {tc_id} — {elapsed}s  {counts}{reason_short}")
 
-            # Determine if we should retry
+            # Determine if we should retry. Besides outright commissioning
+            # failures, retry transient SESSION/PASE errors during setup — these
+            # come from the DUT not being ready / stale mDNS on a rapid restart
+            # (the test passes on a fresh relaunch, which _run_attempt does). A
+            # manual re-run works for exactly this reason.
+            SESSION_RETRY_MARKERS = (
+                "Commissioning", "Not connected", "Incorrect state",
+                "secure session", "Secure Pairing", "PASE",
+                "setup_class", "ChipStackError",
+                "0x00000048", "0x00000003",
+            )
             is_commissioning_error = (
-                status == ERROR and
-                reason and "Commissioning" in reason
+                status == ERROR and reason and
+                any(m in reason for m in SESSION_RETRY_MARKERS)
             )
             is_step_failure = status == FAIL
 
@@ -689,7 +710,7 @@ class TestRunner:
         # Build retry note for report
         retry_note = ""
         if commissioning_attempts > 0:
-            retry_note = f"(commissioning retried {commissioning_attempts}x) "
+            retry_note = f"(session/commissioning retried {commissioning_attempts}x) "
         if step_retry_done:
             retry_note += "(step failure retried 1x) "
         if retry_note:
@@ -872,8 +893,8 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
         st_total = counts.get("step_total", 0)
         if st_total > 0:
             st_skip = counts.get("step_skipped", 0)
-            st_fail = counts.get("failed", 0) or (1 if status == FAIL else 0)
-            st_pass = max(st_total - st_skip - st_fail, 0)
+            st_fail = counts.get("step_failed", 1 if status == FAIL else 0)
+            st_pass = counts.get("step_passed", max(st_total - st_skip - st_fail, 0))
             counts_str = (f"✅{st_pass} "
                           f"❌{st_fail} "
                           f"⏭{st_skip} "
