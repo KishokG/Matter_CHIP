@@ -201,7 +201,7 @@ test_execution:
   # reported as PASS* (partial). e.g. 8 passed + 2 skipped of 10 = 80% ≥ 75% → PASS.
   pass_threshold_percent: 75
   # Retry settings
-  retry_on_commissioning_failure: 1    # retries if commissioning fails
+  retry_on_commissioning_failure: 2    # retries if commissioning/session fails
   retry_on_step_failure: 1             # retries if any test step fails
   # PICS file path — used when python command contains --PICS parameter
   # Set to empty string "" to skip PICS injection

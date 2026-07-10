@@ -366,6 +366,7 @@ class DUTManager:
         self._proc     = None
         self._log_file = None
         self._app_name = None
+        self.last_straggler_count = 0   # leftover DUTs seen before the last launch
 
     def _find_binary(self, dut_cmd: str) -> tuple[Path | None, str]:
         """
@@ -424,6 +425,27 @@ class DUTManager:
         if not binary:
             print(f"  [DUT] ❌ {err}")
             return False, err
+
+        # Detect + kill any DUT left over from a previous test BEFORE launching a
+        # new one. A missed kill leaves a stale app advertising on the same
+        # discriminator, so the commissioner may pair with the wrong/dead instance
+        # → PASE "Incorrect state" (deterministically breaks AccessChecker/
+        # TC-ACE-2.x, which re-commissions from scratch in setup_class). Match by
+        # the SDK out/ path so it covers every app type (chip-*, matter-*, *-app,
+        # fabric-*, lit-icd, …). The count is surfaced in the run log + summary so
+        # kill-races are visible without SSHing into the RPi.
+        ps = subprocess.run(f"pgrep -af '{self.sdk_dir}/out/' 2>/dev/null || true",
+                            shell=True, capture_output=True, text=True)
+        strays = [ln for ln in ps.stdout.splitlines() if ln.strip()]
+        self.last_straggler_count = len(strays)
+        if strays:
+            print(f"  [DUT] ⚠️  {len(strays)} leftover DUT process(es) still running "
+                  f"before launch — killing (indicates a prior kill race):")
+            for ln in strays[:5]:
+                print(f"          {ln[:110]}")
+            subprocess.run(f"pkill -f '{self.sdk_dir}/out/' 2>/dev/null || true",
+                           shell=True)
+            time.sleep(self.cfg["test_execution"].get("dut_settle_wait", 2))
 
         # Advertise the DUT on our configured discriminator (not the default 3840).
         disc = self.cfg["test_execution"].get("discriminator", "")
@@ -609,7 +631,8 @@ class TestRunner:
         launched, launch_err = dut.launch(dut_cmd, dut_log)
         if not launched:
             elapsed = round(time.time() - start, 2)
-            return ERROR, {}, launch_err, elapsed
+            c = {"stragglers_before": dut.last_straggler_count} if dut.last_straggler_count else {}
+            return ERROR, c, launch_err, elapsed
 
         cmd_parts = self._build_python_cmd(py_cmd)
         print(f"  [TEST] Running: {' '.join(str(p) for p in cmd_parts[:4])}...")
@@ -641,6 +664,12 @@ class TestRunner:
         finally:
             dut.stop()
             self._clean_storage()
+
+        # Record whether leftover DUT(s) had to be killed before this attempt —
+        # surfaced in the report/summary so kill-races are visible.
+        if dut.last_straggler_count:
+            counts = dict(counts or {})
+            counts["stragglers_before"] = dut.last_straggler_count
 
         elapsed = round(time.time() - start, 2)
         return status, counts, reason, elapsed

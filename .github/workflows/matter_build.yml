@@ -589,10 +589,22 @@ jobs:
                           f"⏭{c.get('skipped',0)} ⚠️{c.get('error',0)}")
               return ""
 
+          # Straggler check: which TCs found a leftover DUT still running before
+          # they launched (a kill-race that can break commissioning/AccessChecker).
+          stragglers = [(r["test_case_id"], (r.get("counts") or {}).get("stragglers_before", 0))
+                        for r in results if (r.get("counts") or {}).get("stragglers_before", 0)]
+
           with open(summary_file, 'a') as f:
               f.write(f"| Total | Pass | Pass* | Fail | Rerun | Error | Cancelled |\n")
               f.write(f"|---|---|---|---|---|---|---|\n")
               f.write(f"| {total} | {passed} | {pass_warn} | {failed} | {rerun} | {errors} | {cancelled} |\n\n")
+              if stragglers:
+                  f.write(f"> ⚠️ **Leftover DUT processes detected before {len(stragglers)} test(s)** "
+                          f"(a previous test's app was still running — possible kill race, can break "
+                          f"commissioning): "
+                          + ", ".join(f"{tc} ({n})" for tc, n in stragglers) + "\n\n")
+              else:
+                  f.write("> ✅ No leftover DUT processes detected between tests.\n\n")
               f.write("> \\*Partial pass — too many steps skipped to accept as a full "
                       "pass. A run with a few skipped steps still counts as PASS when "
                       "enough steps passed (pass_threshold_percent). Skips may be "
