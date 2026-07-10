@@ -178,7 +178,7 @@ test_execution:
   # Per-test timeout in seconds
   timeout_seconds: 600
   # Seconds to wait after DUT launches before running test script
-  dut_startup_wait: 15
+  dut_startup_wait: 5
   # Log and report output paths (relative to Matter_CI workspace)
   log_dir: "logs/test_runs"
   report_path: "logs/report.html"
