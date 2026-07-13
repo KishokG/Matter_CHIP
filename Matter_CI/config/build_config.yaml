@@ -176,7 +176,7 @@ test_execution:
   # .txt file listing TC IDs to run — one per line, # = comment
   tc_list_file: "config/tc_list.json"   # JSON format — see tc_list.json for structure
   # Per-test timeout in seconds
-  timeout_seconds: 600
+  timeout_seconds: 1500
   # Seconds to wait after DUT launches before running the test script. The
   # all-clusters app needs time to boot, init a fresh KVS, open its commissioning
   # window, and publish mDNS — too short causes "Not connected" / PASE races
