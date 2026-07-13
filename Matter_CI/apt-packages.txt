@@ -87,12 +87,19 @@ libgstreamer1.0-dev
 libgstreamer-plugins-base1.0-dev
 libcurl4-openssl-dev
 #
-# camera RUNTIME deps (NOT needed to build — install on the RPi ONLY when you
-# actually test camera; they provide the gstreamer pipeline plugins, no .pc):
-#   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
-#   gstreamer1.0-plugins-ugly gstreamer1.0-libav
-#   + runtime libs: libgstreamer1.0-0 libgstreamer-plugins-base1.0-0
-#     libavcodec60 libavformat60 libavutil58
+# camera RUNTIME deps — REQUIRED ON THE RPi to RUN chip-camera-app (separate from
+# the build-time -dev libs above; without them the app fails at launch with
+# "error while loading shared libraries: ... No such file or directory", rc=127).
+# The RPi is a persistent runner, so install these ONCE during RPi setup. Using
+# the `ffmpeg` package pulls the correct libav* runtime versions for whatever
+# Ubuntu the RPi runs (24.04→libav*60/58, 22.04→libav*58/56) — version-agnostic:
+#
+#   sudo apt-get install -y ffmpeg libcurl4 \
+#     libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+#     gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+#     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
+#
+# Confirm what's missing first with:  ldd out/camera/chip-camera-app | grep 'not found'
 
 # ── GD library ───────────────────────────────────────────────────────────────
 libgd-dev

@@ -61,9 +61,18 @@ sudo ./svc.sh install && sudo ./svc.sh start
 ```
 Confirm it shows **Idle** with the `rpi` label.
 
-> If you test the **camera** app, also install its runtime deps on the RPi
-> (gstreamer plugins + ffmpeg/gstreamer runtime libs — see the notes in
-> `apt-packages.txt`) and add the user to the `video` group.
+> If you test the **camera** app, install its RUNTIME libs on the RPi once —
+> otherwise `chip-camera-app` dies at launch with *"error while loading shared
+> libraries … No such file or directory"* (rc=127):
+> ```bash
+> sudo apt-get install -y ffmpeg libcurl4 \
+>   libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+>   gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+>   gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
+> sudo usermod -aG video "$USER"   # camera device access
+> ```
+> Verify nothing is missing: `ldd out/camera/chip-camera-app | grep 'not found'`
+> (empty output = good). These are separate from the build-time `-dev` packages.
 
 ---
 

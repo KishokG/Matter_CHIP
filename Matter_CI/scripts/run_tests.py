@@ -482,8 +482,25 @@ class DUTManager:
 
         if self._proc.poll() is not None:
             rc = self._proc.returncode
-            print(f"  [DUT] ❌ Process exited immediately (rc={rc})")
-            return False, f"DUT process exited immediately with rc={rc}"
+            # Surface WHY it died — a bare rc=127 is usually a missing runtime
+            # shared library on the RPi (e.g. camera app needs ffmpeg/gstreamer
+            # runtime libs, which are separate from the build-time -dev packages).
+            detail, hint = "", ""
+            try:
+                tail = log_path.read_text(errors="replace")
+                m = re.search(r"error while loading shared libraries:[^\n]+", tail)
+                if m:
+                    detail = f" — {m.group(0).strip()}"
+                    hint = (" The DUT is missing a RUNTIME shared library on the RPi. "
+                            "Install the app's runtime libs (camera: `sudo apt-get install "
+                            "-y ffmpeg gstreamer1.0-plugins-base gstreamer1.0-plugins-good "
+                            "gstreamer1.0-plugins-bad gstreamer1.0-libav libcurl4`).")
+            except OSError:
+                pass
+            if not detail and rc == 127:
+                detail = " — rc=127 (missing binary or shared library)"
+            print(f"  [DUT] ❌ Process exited immediately (rc={rc}){detail}")
+            return False, f"DUT process exited immediately (rc={rc}){detail}.{hint}"
 
         print(f"  [DUT] ✅ Running (PID {self._proc.pid})")
         return True, ""
@@ -1286,6 +1303,65 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
 # =============================================================================
 # Main
 # =============================================================================
+def preflight_ldd_check(cfg: dict, commands: list[dict]) -> list[dict]:
+    """
+    Before running any TC, `ldd` every DISTINCT DUT binary that the run will
+    launch and report missing RUNTIME shared libraries ONCE, up-front — instead
+    of a confusing per-TC "rc=127 / error while loading shared libraries". Common
+    for the camera app (needs ffmpeg/gstreamer runtime libs on the RPi).
+    Returns [{binary, missing:[...]}] and writes logs/preflight.json for the job
+    summary. Never aborts — apps with all libs still run.
+    """
+    sdk_dir = Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
+    # Map every enabled app + chip-tool binary name → its path on the RPi.
+    name_to_path = {}
+    for app in resolve_pipeline_apps(sdk_dir, cfg):
+        if app.get("enabled"):
+            name_to_path[app["binary_name"]] = sdk_dir / app["build_dir"] / app["binary_name"]
+    ct = cfg.get("chip_tool", {})
+    if ct.get("binary_name"):
+        name_to_path[ct["binary_name"]] = sdk_dir / ct["build_dir"] / ct["binary_name"]
+
+    # Only the binaries actually referenced by the TCs we're about to run.
+    needed = set()
+    for tc in commands:
+        m = re.search(r"\./([^\s]+)", tc.get("dut_command", ""))
+        if m:
+            needed.add(m.group(1))
+
+    problems, checked = [], 0
+    for bin_name in sorted(needed):
+        path = name_to_path.get(bin_name)
+        if not path or not path.exists():
+            continue   # a truly missing binary is reported per-TC by _find_binary
+        checked += 1
+        r = subprocess.run(f"ldd '{path}' 2>&1 | grep 'not found' || true",
+                           shell=True, capture_output=True, text=True)
+        missing = sorted({ln.strip().split()[0] for ln in r.stdout.splitlines() if ln.strip()})
+        if missing:
+            problems.append({"binary": bin_name, "missing": missing})
+
+    print("\n" + "=" * 70)
+    print(f"[PREFLIGHT] Checked shared libraries for {checked} DUT binary(ies).")
+    if problems:
+        print(f"[PREFLIGHT] ⚠️  {len(problems)} binary(ies) MISSING runtime libraries "
+              f"— their TCs will fail to launch until installed on the RPi:")
+        for p in problems:
+            print(f"   ❌ {p['binary']}: {', '.join(p['missing'])}")
+        print("[PREFLIGHT] Fix: install the app's runtime libs on the RPi "
+              "(camera → ffmpeg/gstreamer; see Matter_CI/apt-packages.txt).")
+    else:
+        print("[PREFLIGHT] ✅ All DUT binaries resolve their shared libraries.")
+    print("=" * 70)
+
+    try:
+        (PROJECT_ROOT / "logs").mkdir(parents=True, exist_ok=True)
+        (PROJECT_ROOT / "logs" / "preflight.json").write_text(json.dumps(problems, indent=2))
+    except OSError:
+        pass
+    return problems
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config",   default=str(PROJECT_ROOT / "config" / "build_config.yaml"))
@@ -1305,6 +1381,10 @@ def main():
     if not commands:
         print("[WARN] No commands to run.")
         sys.exit(0)
+
+    # One-shot shared-library preflight so missing runtime libs are reported
+    # up-front (in the run log + job summary), not as a per-TC rc=127.
+    preflight_ldd_check(cfg, commands)
 
     runner  = TestRunner(cfg, commands)
     results = runner.run_all()

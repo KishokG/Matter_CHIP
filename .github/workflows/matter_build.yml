@@ -594,10 +594,24 @@ jobs:
           stragglers = [(r["test_case_id"], (r.get("counts") or {}).get("stragglers_before", 0))
                         for r in results if (r.get("counts") or {}).get("stragglers_before", 0)]
 
+          # Preflight: DUT binaries missing runtime shared libraries (reported once).
+          preflight = []
+          try:
+              if os.path.exists('Matter_CI/logs/preflight.json'):
+                  preflight = json.load(open('Matter_CI/logs/preflight.json'))
+          except Exception:
+              preflight = []
+
           with open(summary_file, 'a') as f:
               f.write(f"| Total | Pass | Pass* | Fail | Rerun | Error | Cancelled |\n")
               f.write(f"|---|---|---|---|---|---|---|\n")
               f.write(f"| {total} | {passed} | {pass_warn} | {failed} | {rerun} | {errors} | {cancelled} |\n\n")
+              if preflight:
+                  f.write("> 🚫 **DUT binaries missing runtime shared libraries** — their tests "
+                          "cannot launch until the libs are installed on the RPi "
+                          "(camera → ffmpeg/gstreamer; see apt-packages.txt): "
+                          + "; ".join(f"`{p['binary']}` → {', '.join(p['missing'])}" for p in preflight)
+                          + "\n\n")
               if stragglers:
                   f.write(f"> ⚠️ **Leftover DUT processes detected before {len(stragglers)} test(s)** "
                           f"(a previous test's app was still running — possible kill race, can break "
