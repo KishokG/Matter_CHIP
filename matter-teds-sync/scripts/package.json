@@ -1,0 +1,12 @@
+{
+  "name": "matter-teds-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Downloads a CSV export from the Matter TEDS Knack tool and pushes it into a Google Sheet",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.47.0",
+    "googleapis": "^140.0.1",
+    "csv-parse": "^5.5.6"
+  }
+}
