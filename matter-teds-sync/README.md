@@ -33,7 +33,7 @@ These are shared across every release — no per-release secrets needed:
 | `KNACK_APP_URL` | Base app URL, e.g. `https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds` |
 | `KNACK_USERNAME` | Your Knack login email |
 | `KNACK_PASSWORD` | Your Knack login password |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full contents of your service account's JSON key file (paste the whole JSON — not a file path) |
+| `CREDENTIALS_JSON` | Full contents of your service account's JSON key file (paste the whole JSON — not a file path) |
 
 ### 2. Fill in `config/releases.json`
 Each entry looks like:
