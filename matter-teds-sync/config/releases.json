@@ -1,0 +1,20 @@
+{
+  "releases": [
+    {
+      "name": "matter-1.7",
+      "description": "Matter 1.7 TE#1 - Anonymized DUTs",
+      "tableUrl": "https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds#teds-for-matter/my-test-events7/view-test-event-registration-details/6a43593cb69ac5ee0bfbe232/?view_2250_filters=%5B%5D",
+      "tableHeading": "Anonymized DUTs",
+      "sheetId": "171Wwn6JCx_zWum9oLiEO_4GCDVKiYsN2cAcr6ubsp5c",
+      "tabName": "Matter 1.7"
+    },
+    {
+      "name": "matter-1.6",
+      "description": "Copy this block for each additional release you want synced — update tableUrl (and tabName/sheetId if it goes somewhere different), then delete this comment-like description line if you like.",
+      "tableUrl": "PASTE_THE_MATTER_1.6_TABLE_URL_HERE",
+      "tableHeading": "Anonymized DUTs",
+      "sheetId": "171Wwn6JCx_zWum9oLiEO_4GCDVKiYsN2cAcr6ubsp5c",
+      "tabName": "Matter 1.6"
+    }
+  ]
+}
