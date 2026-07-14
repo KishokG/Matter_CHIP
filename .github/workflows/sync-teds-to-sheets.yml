@@ -21,7 +21,7 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-        working-directory: ./scripts
+        working-directory: ./matter-teds-sync/scripts
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
