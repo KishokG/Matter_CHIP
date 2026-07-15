@@ -229,7 +229,14 @@ def generate_html_report(
         "    --shadow-md: 0 4px 12px rgba(0,0,0,.1);",
         "}",
         "body { font-family: 'IBM Plex Sans', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }",
-        ".topbar { background: var(--text); color: #fff; padding: 0 32px; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow-md); }",
+        ".topbar { background: linear-gradient(135deg, #1f232b 0%, #14161a 100%); color: #fff; padding: 0 32px; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow-md); }",
+        ".topbar::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;"
+        " background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.75) 50%, rgba(255,255,255,0) 100%) no-repeat,"
+        " linear-gradient(90deg, #dc2626 0%, #b45309 50%, #15803d 100%) no-repeat;"
+        " background-size: 45% 100%, 100% 100%; background-position: -45% 0, 0 0;"
+        " animation: underline-shimmer 3.5s ease-in-out infinite; }",
+        "@keyframes underline-shimmer { 0% { background-position: -45% 0, 0 0; } 100% { background-position: 145% 0, 0 0; } }",
+        "@media (prefers-reduced-motion: reduce) { .topbar::after { animation: none; } }",
         ".topbar-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: #fff; }",
         ".topbar-title span { color: #93c5fd; }",
         ".topbar-ts { font-size: 11px; color: #9ca3af; font-family: 'IBM Plex Mono', monospace; }",
