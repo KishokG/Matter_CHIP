@@ -30,6 +30,12 @@ const CONFIG_PATH = process.env.RELEASES_CONFIG_PATH || path.join(__dirname, "..
 // Optional: restrict to a single release by name (matches the "name" field
 // in config/releases.json). Leave unset to run every release, as normal.
 const RELEASE_NAME_FILTER = (process.env.RELEASE_NAME || "").trim();
+// Optional: restrict to releases of a given "type" — "registration" or
+// "results" — matching the "type" field in config/releases.json. This is
+// what lets the workflow run "just registration data" or "just event
+// results" as separate stages. Leave unset to run every release regardless
+// of type.
+const RELEASE_TYPE_FILTER = (process.env.RELEASE_TYPE || "").trim();
 const DEBUG_DIR = __dirname;
 
 if (!APP_URL || !USERNAME || !PASSWORD || !SERVICE_ACCOUNT_JSON) {
@@ -52,16 +58,29 @@ function loadReleases() {
       if (!r[field]) throw new Error(`Release entry missing required field "${field}": ${JSON.stringify(r)}`);
     }
   }
-  if (RELEASE_NAME_FILTER) {
-    const filtered = releases.filter((r) => r.name === RELEASE_NAME_FILTER);
+
+  let filtered = releases;
+
+  if (RELEASE_TYPE_FILTER) {
+    filtered = filtered.filter((r) => (r.type || "registration") === RELEASE_TYPE_FILTER);
     if (filtered.length === 0) {
+      const types = [...new Set(releases.map((r) => r.type || "registration"))];
       throw new Error(
-        `No release named "${RELEASE_NAME_FILTER}" found in ${CONFIG_PATH}. Available: ${releases.map((r) => r.name).join(", ")}`
+        `No releases with type "${RELEASE_TYPE_FILTER}" found in ${CONFIG_PATH}. Available types: ${types.join(", ")}`
       );
     }
-    return filtered;
   }
-  return releases;
+
+  if (RELEASE_NAME_FILTER) {
+    filtered = filtered.filter((r) => r.name === RELEASE_NAME_FILTER);
+    if (filtered.length === 0) {
+      throw new Error(
+        `No release named "${RELEASE_NAME_FILTER}" found (after type filtering) in ${CONFIG_PATH}. Available: ${releases.map((r) => r.name).join(", ")}`
+      );
+    }
+  }
+
+  return filtered;
 }
 
 async function main() {
