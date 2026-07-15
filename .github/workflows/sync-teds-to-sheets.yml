@@ -28,7 +28,7 @@ on:
         required: false
         type: string
   schedule:
-    - cron: "0 14 * * *"      # runs daily at 14:00 UTC — edit or remove as needed
+    - cron: "30 1,7,13,19 * * *"  # 7PM/1AM/7AM/1PM IST daily (UTC times, since cron always runs in UTC) — edit or remove as needed
 
 permissions:
   contents: read
