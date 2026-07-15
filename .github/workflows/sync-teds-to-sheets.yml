@@ -11,6 +11,10 @@ on:
           - registration-only
           - results-only
         default: both
+      save_as_schedule_default:
+        description: "Also save the 'stage' selection above as the new default for future SCHEDULED (cron) runs, until changed again here"
+        type: boolean
+        default: false
       registration_release_name:
         description: "Optional: only sync this ONE registration release (name from config/releases.json 'releases' list, type=registration). Leave blank to sync all registration releases."
         required: false
@@ -26,10 +30,62 @@ on:
   schedule:
     - cron: "0 14 * * *"      # runs daily at 14:00 UTC — edit or remove as needed
 
+permissions:
+  contents: read
+  actions: write   # needed to write the SCHEDULE_STAGE repo variable from "Save as new schedule default"
+
 jobs:
+  plan:
+    name: "Determine which stage(s) to run"
+    runs-on: ubuntu-latest
+    outputs:
+      stage: ${{ steps.decide.outputs.stage }}
+      run_registration: ${{ steps.decide.outputs.run_registration }}
+      run_results: ${{ steps.decide.outputs.run_results }}
+    steps:
+      - name: Decide
+        id: decide
+        run: |
+          # For scheduled runs, which stage(s) to run is controlled by a repo
+          # Variable (SCHEDULE_STAGE), settable either via Settings → Secrets
+          # and variables → Actions → Variables, OR by ticking "Save as new
+          # schedule default" on a manual run (see step below). Valid values:
+          # both, registration-only, results-only. Defaults to "both" if unset.
+          # For manual runs, the workflow_dispatch "stage" input wins instead.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            STAGE="${{ vars.SCHEDULE_STAGE }}"
+            STAGE="${STAGE:-both}"
+          else
+            STAGE="${{ inputs.stage }}"
+          fi
+
+          case "$STAGE" in
+            registration-only) RUN_REG=true;  RUN_RES=false ;;
+            results-only)      RUN_REG=false; RUN_RES=true  ;;
+            both)              RUN_REG=true;  RUN_RES=true  ;;
+            *)
+              echo "::warning::Unrecognized stage value '$STAGE' — defaulting to 'both'."
+              STAGE="both"; RUN_REG=true; RUN_RES=true
+              ;;
+          esac
+
+          echo "Resolved stage: $STAGE (run_registration=$RUN_REG, run_results=$RUN_RES)"
+          echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
+          echo "run_registration=$RUN_REG" >> "$GITHUB_OUTPUT"
+          echo "run_results=$RUN_RES" >> "$GITHUB_OUTPUT"
+
+      - name: Save as new schedule default (optional)
+        if: github.event_name == 'workflow_dispatch' && inputs.save_as_schedule_default == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh variable set SCHEDULE_STAGE --body "${{ inputs.stage }}" --repo "${{ github.repository }}"
+          echo "Saved SCHEDULE_STAGE=${{ inputs.stage }} — future scheduled runs will use this until changed again."
+
   sync-registration-data:
     name: "Stage 1 — Download TE/SVE Registration Data → Import to Google Sheets"
-    if: github.event_name == 'schedule' || inputs.stage == 'both' || inputs.stage == 'registration-only'
+    needs: plan
+    if: needs.plan.outputs.run_registration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -72,14 +128,11 @@ jobs:
 
   sync-results-and-analyze:
     name: "Stage 2 — Download TE/SVE Event Results → Import → Calculate Summary → Generate Report"
-    needs: sync-registration-data
+    needs: [plan, sync-registration-data]
     if: |
       !cancelled() &&
-      (
-        github.event_name == 'schedule' ||
-        inputs.stage == 'results-only' ||
-        (inputs.stage == 'both' && needs.sync-registration-data.result == 'success')
-      )
+      needs.plan.outputs.run_results == 'true' &&
+      (needs.sync-registration-data.result == 'success' || needs.sync-registration-data.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
