@@ -5,7 +5,7 @@ import json
 import datetime
 from google.oauth2.service_account import Credentials
 from collections import defaultdict
-from sve_html_report import generate_html_report
+from sve_html_report import generate_html_report, IST
 
 # === CONFIGURATION (loaded at runtime — see load_analyses_config() below) ===
 # No sheet IDs, tab names, or column mappings are hardcoded here; they all
@@ -690,7 +690,7 @@ def run_analysis(cfg, client):
     col_matter_case = columns.get("matterCase", 8)
     col_test_result = columns.get("testResult", 9)
 
-    report_filename = f"sve_summary_report_{name}_{datetime.date.today().strftime('%d-%m-%Y')}.html"
+    report_filename = f"sve_summary_report_{name}_{datetime.datetime.now(IST).strftime('%d-%m-%Y')}.html"
 
     print(f"\n=== Running analysis: {name} ===")
     spreadsheet = client.open_by_key(cfg["sheetId"])
