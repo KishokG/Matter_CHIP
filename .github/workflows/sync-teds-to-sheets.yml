@@ -8,11 +8,15 @@ on:
         type: choice
         options:
           - both
-          - sync-only
-          - analysis-only
+          - registration-only
+          - results-only
         default: both
-      release_name:
-        description: "Optional: only sync this release (name from config/releases.json 'releases' list). Leave blank to sync all."
+      registration_release_name:
+        description: "Optional: only sync this ONE registration release (name from config/releases.json 'releases' list, type=registration). Leave blank to sync all registration releases."
+        required: false
+        type: string
+      results_release_name:
+        description: "Optional: only sync this ONE event-results release (name from config/releases.json 'releases' list, type=results). Leave blank to sync all results releases."
         required: false
         type: string
       analysis_name:
@@ -23,9 +27,9 @@ on:
     - cron: "0 14 * * *"      # runs daily at 14:00 UTC — edit or remove as needed
 
 jobs:
-  sync-knack-to-sheets:
-    name: "Stage 1 — Download CSVs from Knack → Import to Google Sheets"
-    if: github.event_name == 'schedule' || inputs.stage == 'both' || inputs.stage == 'sync-only'
+  sync-registration-data:
+    name: "Stage 1 — Download TE/SVE Registration Data → Import to Google Sheets"
+    if: github.event_name == 'schedule' || inputs.stage == 'both' || inputs.stage == 'registration-only'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -46,34 +50,35 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: ./matter-teds-sync/scripts
 
-      - name: Sync configured release(s) (Knack → Google Sheets)
+      - name: Sync registration release(s) (Knack → Google Sheets)
         env:
           KNACK_APP_URL: ${{ secrets.KNACK_APP_URL }}
           KNACK_USERNAME: ${{ secrets.KNACK_USERNAME }}
           KNACK_PASSWORD: ${{ secrets.KNACK_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CREDENTIALS_JSON }}
-          RELEASE_NAME: ${{ inputs.release_name }}
+          RELEASE_TYPE: "registration"
+          RELEASE_NAME: ${{ inputs.registration_release_name }}
         run: node sync-all.js
         working-directory: ./matter-teds-sync/scripts
 
       # Optional: keep copies of every downloaded CSV as a build artifact for debugging
-      - name: Upload CSVs as workflow artifact
+      - name: Upload registration CSVs as workflow artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teds-exports
+          name: teds-registration-exports
           path: matter-teds-sync/scripts/*.csv
           retention-days: 7
 
-  run-analysis:
-    name: "Stage 2 — Run SVE Results Analysis"
-    needs: sync-knack-to-sheets
+  sync-results-and-analyze:
+    name: "Stage 2 — Download TE/SVE Event Results → Import → Calculate Summary → Generate Report"
+    needs: sync-registration-data
     if: |
       !cancelled() &&
       (
         github.event_name == 'schedule' ||
-        inputs.stage == 'analysis-only' ||
-        (inputs.stage == 'both' && needs.sync-knack-to-sheets.result == 'success')
+        inputs.stage == 'results-only' ||
+        (inputs.stage == 'both' && needs.sync-registration-data.result == 'success')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -82,6 +87,38 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Node dependencies
+        run: npm install
+        working-directory: ./matter-teds-sync/scripts
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+        working-directory: ./matter-teds-sync/scripts
+
+      - name: Sync event-results release(s) (Knack → Google Sheets)
+        env:
+          KNACK_APP_URL: ${{ secrets.KNACK_APP_URL }}
+          KNACK_USERNAME: ${{ secrets.KNACK_USERNAME }}
+          KNACK_PASSWORD: ${{ secrets.KNACK_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CREDENTIALS_JSON }}
+          RELEASE_TYPE: "results"
+          RELEASE_NAME: ${{ inputs.results_release_name }}
+        run: node sync-all.js
+        working-directory: ./matter-teds-sync/scripts
+
+      - name: Upload event-results CSVs as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teds-results-exports
+          path: matter-teds-sync/scripts/*.csv
+          retention-days: 7
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -89,29 +126,29 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
-        working-directory: ./matter-teds-sync/analysis
+        working-directory: ./matter-teds-sync/results
 
       - name: Write Google service account credentials
         run: echo "$GOOGLE_CREDENTIALS" > credentials.json
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.CREDENTIALS_JSON }}
-        working-directory: ./matter-teds-sync/analysis
+        working-directory: ./matter-teds-sync/results
 
-      - name: Run SVE results analysis
+      - name: Calculate pass/fail summary and generate report
         env:
           ANALYSIS_NAME: ${{ inputs.analysis_name }}
         run: python TEDS_results.py
-        working-directory: ./matter-teds-sync/analysis
+        working-directory: ./matter-teds-sync/results
 
       - name: Remove credentials file
         if: always()
         run: rm -f credentials.json
-        working-directory: ./matter-teds-sync/analysis
+        working-directory: ./matter-teds-sync/results
 
       - name: Upload HTML report as workflow artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sve-summary-report
-          path: matter-teds-sync/analysis/*.html
+          path: matter-teds-sync/results/*.html
           retention-days: 30
