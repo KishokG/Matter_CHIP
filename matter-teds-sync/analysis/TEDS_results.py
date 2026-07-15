@@ -29,7 +29,11 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
 
 
 def load_analyses_config():
-    """Load the list of analysis configs from config/releases.json."""
+    """Load the list of analysis configs from config/releases.json.
+
+    If the ANALYSIS_NAME env var is set, only the matching entry is returned
+    (matches the "name" field). Leave it unset to run every analysis.
+    """
     if not os.path.exists(CONFIG_PATH):
         raise FileNotFoundError(f"Config file not found at {CONFIG_PATH}")
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -45,6 +49,14 @@ def load_analyses_config():
         for field in required_fields:
             if not entry.get(field):
                 raise ValueError(f"Analysis entry missing required field \"{field}\": {entry}")
+
+    name_filter = os.environ.get("ANALYSIS_NAME", "").strip()
+    if name_filter:
+        filtered = [a for a in analyses if a["name"] == name_filter]
+        if not filtered:
+            available = ", ".join(a["name"] for a in analyses)
+            raise ValueError(f"No analysis named \"{name_filter}\" found in {CONFIG_PATH}. Available: {available}")
+        return filtered
     return analyses
 
 
