@@ -27,6 +27,9 @@ const USERNAME = process.env.KNACK_USERNAME;
 const PASSWORD = process.env.KNACK_PASSWORD;
 const SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 const CONFIG_PATH = process.env.RELEASES_CONFIG_PATH || path.join(__dirname, "..", "config", "releases.json");
+// Optional: restrict to a single release by name (matches the "name" field
+// in config/releases.json). Leave unset to run every release, as normal.
+const RELEASE_NAME_FILTER = (process.env.RELEASE_NAME || "").trim();
 const DEBUG_DIR = __dirname;
 
 if (!APP_URL || !USERNAME || !PASSWORD || !SERVICE_ACCOUNT_JSON) {
@@ -48,6 +51,15 @@ function loadReleases() {
     for (const field of ["name", "tableUrl", "sheetId", "tabName"]) {
       if (!r[field]) throw new Error(`Release entry missing required field "${field}": ${JSON.stringify(r)}`);
     }
+  }
+  if (RELEASE_NAME_FILTER) {
+    const filtered = releases.filter((r) => r.name === RELEASE_NAME_FILTER);
+    if (filtered.length === 0) {
+      throw new Error(
+        `No release named "${RELEASE_NAME_FILTER}" found in ${CONFIG_PATH}. Available: ${releases.map((r) => r.name).join(", ")}`
+      );
+    }
+    return filtered;
   }
   return releases;
 }
