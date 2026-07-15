@@ -48,7 +48,8 @@ async function uploadCsvToSheet({ csvPath, sheetId, tabName, serviceAccountJson 
 
   const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
   const existingTab = meta.data.sheets.find((s) => s.properties.title === tabName);
-  if (!existingTab) {
+  const tabWasCreated = !existingTab;
+  if (tabWasCreated) {
     console.log(`Tab "${tabName}" not found in sheet ${sheetId} — creating it.`);
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: sheetId,
@@ -65,6 +66,12 @@ async function uploadCsvToSheet({ csvPath, sheetId, tabName, serviceAccountJson 
   });
 
   console.log(`Wrote ${rows.length} rows to tab "${tabName}" in spreadsheet ${sheetId}.`);
+
+  return {
+    rowCount: rows.length,
+    dataRowCount: Math.max(0, rows.length - 1), // excluding header
+    tabWasCreated,
+  };
 }
 
 module.exports = { uploadCsvToSheet };
