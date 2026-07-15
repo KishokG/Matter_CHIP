@@ -933,31 +933,72 @@ def run_analysis(cfg, client):
 
     print(f"✅ Summary and Delta sheets updated successfully for '{name}'!")
 
+    return {
+        "total_test_cases": len(all_test_cases),
+        "never_executed": len(never_executed),
+        "low_pass": len(low_pass),
+        "passed": len(others),
+        "report_filename": report_filename,
+    }
+
 
 # === MAIN ENTRY POINT ===
+def append_step_summary(markdown):
+    """Append markdown to GitHub's step summary file, if running in Actions."""
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return  # not running in GitHub Actions — skip silently
+    try:
+        with open(summary_path, "a", encoding="utf-8") as f:
+            f.write(markdown + "\n")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not write to GITHUB_STEP_SUMMARY: {e}")
+
+
 if __name__ == "__main__":
     try:
         creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
         client = gspread.authorize(creds)
     except Exception as auth_error:
         print(f"❌ Authentication failed: {auth_error}")
+        append_step_summary(f"### SVE Results Analysis\n\n❌ **Authentication failed:** {auth_error}\n")
         exit(1)
 
     try:
         analyses = load_analyses_config()
     except Exception as e:
         print(f"❌ Could not load analyses config: {e}")
+        append_step_summary(f"### SVE Results Analysis\n\n❌ **Could not load config:** {e}\n")
         exit(1)
 
     print(f"Loaded {len(analyses)} analysis config(s) from {CONFIG_PATH}")
 
     had_failure = False
+    summary_rows = []
     for cfg in analyses:
         try:
-            run_analysis(cfg, client)
+            stats = run_analysis(cfg, client)
+            summary_rows.append({"name": cfg["name"], "status": "ok", **stats})
         except Exception as e:
             had_failure = True
             print(f"❌ Analysis '{cfg.get('name')}' failed: {e}")
+            summary_rows.append({"name": cfg.get("name"), "status": "failed", "error": str(e)})
+
+    summary_lines = [
+        "### SVE Results Analysis",
+        "",
+        "| Analysis | Status | Total TCs | Not Executed | Below Required | Certifiable | Report |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for r in summary_rows:
+        if r["status"] == "ok":
+            summary_lines.append(
+                f"| {r['name']} | ✅ | {r['total_test_cases']} | {r['never_executed']} | "
+                f"{r['low_pass']} | {r['passed']} | `{r['report_filename']}` |"
+            )
+        else:
+            summary_lines.append(f"| {r['name']} | ❌ {r.get('error', 'failed')} | — | — | — | — | — |")
+    append_step_summary("\n".join(summary_lines))
 
     if had_failure:
         exit(1)
