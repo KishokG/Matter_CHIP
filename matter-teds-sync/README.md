@@ -20,6 +20,14 @@ Actions. Supports syncing **multiple releases/tables** in a single run.
 4. **`scripts/download-teds-csv.js`** / **`scripts/upload-to-sheets.js`** —
    optional single-table testers, driven entirely by env vars, for trying
    out a *new* table/URL before adding it to the config.
+5. **`analysis/TEDS_results.py`** (+ `analysis/sve_html_report.py`) — runs
+   after the sync step. Reads the raw results from the `1.6_SVE_Results` tab
+   (populated by the sync step above) and a master test-case list, computes
+   pass/fail/certification status per test case, writes the `1.5_Summary`
+   and `Summary Changes` tabs back into that same sheet, and generates a
+   standalone HTML report. This step is independent of the Node sync — it
+   just expects the raw data tab to already be populated when it runs,
+   which is why it comes right after in the same workflow.
 
 ## One-time setup
 
@@ -78,7 +86,7 @@ npx playwright install chromium
 export KNACK_APP_URL="https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds"
 export KNACK_USERNAME="you@example.com"
 export KNACK_PASSWORD="yourpassword"
-export GOOGLE_SERVICE_ACCOUNT_JSON="$(cat /path/to/service-account.json)"
+export GOOGLE_SERVICE_ACCOUNT_JSON="$(cat /path/to/service-account.json)"   # locally this can be named anything; only the GitHub *secret* is called CREDENTIALS_JSON
 
 node sync-all.js
 ```
@@ -121,3 +129,51 @@ attached to the run as a build artifact for 7 days.
 - Rotate `KNACK_PASSWORD` if it's ever been typed directly into a terminal
   command (shell history keeps a plaintext copy) — use `read -s` to enter it
   without echoing/logging it, going forward.
+
+## SVE results analysis stage (`analysis/`)
+
+This stage runs `analysis/TEDS_results.py`, which reads its entire
+configuration from the `"analyses"` array in `config/releases.json` — no
+sheet IDs, tab names, or column mappings are hardcoded in the script itself.
+It loops through every entry in that array and, for each one:
+
+- Reads raw results from `sourceSheetName` and the master test-case list
+  from `masterTcSheet` (both in the sheet identified by `sheetId`).
+- Computes pass/fail/certification status per test case and writes
+  `summarySheetName` and `deltaSheetName`.
+- Generates a standalone HTML report via `analysis/sve_html_report.py`,
+  named `sve_summary_report_<analysis-name>_<today's-date>.html`.
+
+Each entry in `"analyses"` looks like:
+
+```json
+{
+  "name": "matter-1.6-sve",
+  "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
+  "sourceSheetName": "1.6_SVE_Results",
+  "masterTcSheet": "1.5_SVE_TC_List",
+  "summarySheetName": "1.5_Summary",
+  "deltaSheetName": "Summary Changes",
+  "reportTitle": "SVE Results Summary",
+  "reportSubtitle": "Matter 1.6",
+  "columns": { "companyId": 3, "dutId": 4, "matterCase": 8, "testResult": 9 }
+}
+```
+
+Add another entry (e.g. for Matter 1.7) the same way you'd add a release —
+just point it at the right sheet/tabs. `columns` only needs to change if a
+future export's column order differs from this one.
+
+**This uses the same `CREDENTIALS_JSON` secret** as the sync step — the
+workflow writes it out to `analysis/credentials.json` before running, and
+deletes it again afterward regardless of success/failure.
+
+To test locally:
+```bash
+cd analysis
+pip install -r requirements.txt
+cp /path/to/service-account.json ./credentials.json
+python TEDS_results.py
+```
+Generated HTML reports land in the `analysis/` folder alongside the
+scripts.
