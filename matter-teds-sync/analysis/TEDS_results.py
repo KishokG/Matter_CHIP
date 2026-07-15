@@ -298,6 +298,56 @@ def read_summary_data(sheet):
         return {}
 
 
+def read_existing_comments(sheet):
+    """
+    Read the Comments column keyed by Test Case Name, BEFORE the sheet is
+    cleared, so any manually-typed comments survive being overwritten by
+    this run's auto-generated data.
+    """
+    try:
+        data = sheet.get_all_values()
+        if not data:
+            return {}
+        header = data[0]
+        try:
+            tc_idx = header.index("Test Case Name")
+            comment_idx = header.index("Comments")
+        except ValueError:
+            return {}
+        existing = {}
+        for row in data[1:]:
+            if len(row) <= max(tc_idx, comment_idx):
+                continue
+            tc_name = row[tc_idx].strip()
+            comment = row[comment_idx].strip()
+            if tc_name and comment:
+                existing[tc_name] = comment
+        return existing
+    except Exception as e:
+        print(f"⚠️ Warning: Could not read existing comments: {e}")
+        return {}
+
+
+def merge_comment(old_comment, auto_comment):
+    """
+    Combine a preserved (possibly manually-edited) comment with this run's
+    auto-generated one, without losing manual text or duplicating on repeat
+    runs where nothing changed.
+    """
+    old_comment = (old_comment or "").strip()
+    auto_comment = (auto_comment or "").strip()
+
+    if not old_comment:
+        return auto_comment
+    if not auto_comment:
+        return old_comment
+    if old_comment == auto_comment or auto_comment in old_comment:
+        # Already up to date, or the auto note is already folded into the
+        # existing (manually-edited) text — don't duplicate it.
+        return old_comment
+    return f"{old_comment} | {auto_comment}"
+
+
 def compare_deltas(old, new, filtered_cases):
     deltas = [["Test Case Name", "Old Pass", "New Pass", "Old Fail", "New Fail",
                 "Old Not Tested", "New Not Tested", "Old Total", "New Total", "Status"]]
@@ -649,10 +699,14 @@ def run_analysis(cfg, client):
     try:
         summary_ws = spreadsheet.worksheet(summary_sheet_name)
         old_summary_data = read_summary_data(summary_ws)
+        # Capture any manually-edited Comments BEFORE clearing, keyed by
+        # Test Case Name, so they survive this run's overwrite.
+        existing_comments = read_existing_comments(summary_ws)
         clear_backgrounds_except_header(summary_ws)
     except gspread.exceptions.WorksheetNotFound:
         summary_ws = spreadsheet.add_worksheet(title=summary_sheet_name, rows=2000, cols=10)
         old_summary_data = {}
+        existing_comments = {}
 
     try:
         delta_ws = spreadsheet.worksheet(delta_sheet_name)
@@ -795,11 +849,14 @@ def run_analysis(cfg, client):
 
         cert_status = get_certification_status(effective_pass, adjusted_runs_req)
 
-        # Comments column
+        # Comments column — combine the auto-generated note with whatever
+        # was previously in this test case's Comments cell (which may
+        # include manual edits made directly in the sheet).
         if prev_sve > 0:
-            comment = f"Had {prev_sve} run{'s' if prev_sve > 1 else ''} in Previous SVE"
+            auto_comment = f"Had {prev_sve} run{'s' if prev_sve > 1 else ''} in Previous SVE"
         else:
-            comment = ""
+            auto_comment = ""
+        comment = merge_comment(existing_comments.get(tc, ""), auto_comment)
 
         _m = _re.search(r'\[(TC-[^\]]+)\]', tc)
         tc_id = _m.group(1) if _m else ""
