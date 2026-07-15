@@ -83,6 +83,16 @@ function loadReleases() {
   return filtered;
 }
 
+function appendStepSummary(markdown) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return; // not running in GitHub Actions (or older runner) — skip silently
+  try {
+    fs.appendFileSync(summaryPath, markdown + "\n");
+  } catch (err) {
+    console.error("Could not write to GITHUB_STEP_SUMMARY:", err.message);
+  }
+}
+
 async function main() {
   const releases = loadReleases();
   console.log(`Loaded ${releases.length} release(s) from ${CONFIG_PATH}`);
@@ -94,11 +104,20 @@ async function main() {
   const results = [];
 
   try {
-    await loginToKnack(page, { appUrl: APP_URL, username: USERNAME, password: PASSWORD });
+    try {
+      await loginToKnack(page, { appUrl: APP_URL, username: USERNAME, password: PASSWORD });
+    } catch (err) {
+      console.error("Knack login failed:", err.message);
+      appendStepSummary(
+        ["### Knack → Google Sheets Sync", "", `❌ **Login to Knack failed:** ${err.message}`, ""].join("\n")
+      );
+      throw err;
+    }
 
     for (const release of releases) {
       const csvPath = path.join(__dirname, `${release.name}.csv`);
       console.log(`\n=== ${release.name} ===`);
+      const detail = { name: release.name, type: release.type || "registration" };
       try {
         await exportTableCsv(page, context, {
           tableUrl: release.tableUrl,
@@ -108,19 +127,24 @@ async function main() {
           outputPath: csvPath,
           debugDir: DEBUG_DIR,
         });
+        detail.downloadOk = true;
 
-        await uploadCsvToSheet({
+        const uploadResult = await uploadCsvToSheet({
           csvPath,
           sheetId: release.sheetId,
           tabName: release.tabName,
           serviceAccountJson: SERVICE_ACCOUNT_JSON,
         });
-
-        results.push({ name: release.name, status: "ok" });
+        detail.uploadOk = true;
+        detail.rowCount = uploadResult.dataRowCount;
+        detail.tabWasCreated = uploadResult.tabWasCreated;
+        detail.status = "ok";
       } catch (err) {
         console.error(`Failed to sync "${release.name}":`, err.message);
-        results.push({ name: release.name, status: "failed", error: err.message });
+        detail.status = "failed";
+        detail.error = err.message;
       }
+      results.push(detail);
     }
   } finally {
     await browser.close();
@@ -130,6 +154,26 @@ async function main() {
   for (const r of results) {
     console.log(`${r.status === "ok" ? "✔" : "✘"} ${r.name}${r.error ? ` — ${r.error}` : ""}`);
   }
+
+  // Write a GitHub Actions step summary so the run's summary page shows a
+  // clear per-release breakdown (login/download/import), without needing
+  // separate jobs or steps for each phase.
+  const summaryLines = [
+    "### Knack → Google Sheets Sync",
+    "",
+    `✅ Logged into Knack (\`${APP_URL}\`)`,
+    "",
+    "| Release | Type | Download | Import | Rows Imported | Sheet Tab |",
+    "|---|---|---|---|---|---|",
+  ];
+  for (const r of results) {
+    const downloadCell = r.downloadOk ? "✅" : "❌";
+    const importCell = r.uploadOk ? "✅" : "❌";
+    const rowsCell = r.status === "ok" ? `${r.rowCount} data row${r.rowCount === 1 ? "" : "s"}` : "—";
+    const tabCell = r.status === "ok" ? (r.tabWasCreated ? "created" : "updated") : (r.error || "failed");
+    summaryLines.push(`| ${r.name} | ${r.type} | ${downloadCell} | ${importCell} | ${rowsCell} | ${tabCell} |`);
+  }
+  appendStepSummary(summaryLines.join("\n"));
 
   if (results.some((r) => r.status !== "ok")) {
     process.exit(1);
