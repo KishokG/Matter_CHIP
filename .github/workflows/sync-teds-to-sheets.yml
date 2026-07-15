@@ -32,7 +32,6 @@ on:
 
 permissions:
   contents: read
-  actions: write   # needed to write the SCHEDULE_STAGE repo variable from "Save as new schedule default"
 
 jobs:
   plan:
@@ -77,8 +76,12 @@ jobs:
       - name: Save as new schedule default (optional)
         if: github.event_name == 'workflow_dispatch' && inputs.save_as_schedule_default == true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SCHEDULE_STAGE_PAT }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::SCHEDULE_STAGE_PAT secret is not set. GITHUB_TOKEN can never write repo Variables (a hard GitHub platform limit, not a permissions setting) — you need a Personal Access Token stored as the SCHEDULE_STAGE_PAT secret. See README for setup steps."
+            exit 1
+          fi
           gh variable set SCHEDULE_STAGE --body "${{ inputs.stage }}" --repo "${{ github.repository }}"
           echo "Saved SCHEDULE_STAGE=${{ inputs.stage }} — future scheduled runs will use this until changed again."
 
