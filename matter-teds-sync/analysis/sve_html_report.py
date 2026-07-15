@@ -21,6 +21,12 @@ SECTION_NOT_EXECUTED = "---- Not Executed Yet----"
 SECTION_LOW_PASS     = "---- Pass Count < Required ----"
 SECTION_PASSED       = "---- Passed Rule of Three ----"
 
+# Fixed UTC+5:30 offset for IST. Using a fixed offset (rather than relying on
+# the system timezone or the zoneinfo/tzdata database) keeps this correct
+# regardless of what timezone the machine running this script is set to —
+# e.g. GitHub Actions runners default to UTC.
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30), name="IST")
+
 
 def generate_html_report(
     output_data,
@@ -80,7 +86,7 @@ def generate_html_report(
                 if len(r) > cert_idx and r[cert_idx].strip() == "Certifiable":
                     n_cert += 1
 
-    ts = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
+    ts = datetime.datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
 
     # ── Column indices ─────────────────────────────────────────────────────
     def ci(name):
