@@ -3,7 +3,7 @@ name: Sync Matter TEDS CSV to Google Sheets
 on:
   workflow_dispatch: {}       # lets you click "Run workflow" manually in the Actions tab
   schedule:
-    - cron: "0 6 * * *"       # runs daily at 06:00 UTC — edit or remove as needed
+    - cron: "0 14 * * *"      # runs daily at 14:00 UTC — edit or remove as needed
 
 jobs:
   sync:
@@ -17,7 +17,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install dependencies
         run: npm install
@@ -44,3 +44,35 @@ jobs:
           name: teds-exports
           path: matter-teds-sync/scripts/*.csv
           retention-days: 7
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+        working-directory: ./matter-teds-sync/analysis
+
+      - name: Write Google service account credentials
+        run: echo "$GOOGLE_CREDENTIALS" > credentials.json
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.CREDENTIALS_JSON }}
+        working-directory: ./matter-teds-sync/analysis
+
+      - name: Run SVE results analysis
+        run: python TEDS_results.py
+        working-directory: ./matter-teds-sync/analysis
+
+      - name: Remove credentials file
+        if: always()
+        run: rm -f credentials.json
+        working-directory: ./matter-teds-sync/analysis
+
+      - name: Upload HTML report as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sve-summary-report
+          path: matter-teds-sync/analysis/*.html
+          retention-days: 30
