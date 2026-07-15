@@ -15,6 +15,32 @@
       "tableHeading": "Anonymized DUTs",
       "sheetId": "171Wwn6JCx_zWum9oLiEO_4GCDVKiYsN2cAcr6ubsp5c",
       "tabName": "Matter_1.6.1_reg_data"
+    },
+    {
+      "name": "matter-1.6-sve-results",
+      "description": "Anonymized Matter Test Results — feeds the 1.6_SVE_Results tab used by analysis/TEDS_results.py",
+      "tableUrl": "PASTE_THE_ANONYMIZED_MATTER_TEST_RESULTS_TABLE_URL_HERE",
+      "tableHeading": "Anonymized Matter Test Results",
+      "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
+      "tabName": "1.6_SVE_Results"
+    }
+  ],
+  "analyses": [
+    {
+      "name": "matter-1.6-sve",
+      "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
+      "sourceSheetName": "1.6_SVE_Results",
+      "masterTcSheet": "1.5_SVE_TC_List",
+      "summarySheetName": "1.5_Summary",
+      "deltaSheetName": "Summary Changes",
+      "reportTitle": "SVE Results Summary",
+      "reportSubtitle": "Matter 1.6",
+      "columns": {
+        "companyId": 3,
+        "dutId": 4,
+        "matterCase": 8,
+        "testResult": 9
+      }
     }
   ]
 }
