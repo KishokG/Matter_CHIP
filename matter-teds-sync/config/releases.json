@@ -17,24 +17,24 @@
       "tabName": "Matter_1.6.1_reg_data"
     },
     {
-      "name": "matter-1.6-sve-results",
+      "name": "matter-1.5-sve-results",
       "description": "Anonymized Matter Test Results — feeds the 1.6_SVE_Results tab used by analysis/TEDS_results.py",
-      "tableUrl": "PASTE_THE_ANONYMIZED_MATTER_TEST_RESULTS_TABLE_URL_HERE",
+      "tableUrl": "https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds#teds-for-matter/my-test-events7/view-test-event-registration-details/68df474f4f73ec02b9a1c511/?view_2250_filters=%5B%5D:~:text=Anonymized%20Matter%20Test%20Results",
       "tableHeading": "Anonymized Matter Test Results",
       "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
-      "tabName": "1.6_SVE_Results"
+      "tabName": "1.5_SVE_Results"
     }
   ],
   "analyses": [
     {
-      "name": "matter-1.6-sve",
+      "name": "matter-1.5-sve",
       "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
-      "sourceSheetName": "1.6_SVE_Results",
+      "sourceSheetName": "1.5_SVE_Results",
       "masterTcSheet": "1.5_SVE_TC_List",
       "summarySheetName": "1.5_Summary",
       "deltaSheetName": "Summary Changes",
       "reportTitle": "SVE Results Summary",
-      "reportSubtitle": "Matter 1.6",
+      "reportSubtitle": "Matter 1.5",
       "columns": {
         "companyId": 3,
         "dutId": 4,
