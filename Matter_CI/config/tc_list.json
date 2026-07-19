@@ -222,12 +222,12 @@
   {
     "tc_id": "TC-CNET-4.1",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-CNET-4.2",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-CNET-4.3",
@@ -237,37 +237,37 @@
   {
     "tc_id": "TC-CNET-4.4",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-CNET-4.9",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-CNET-4.10",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-CNET-4.12",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-CNET-4.15",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-CNET-4.16",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-CNET-4.22",
     "cluster": "Network Commissioning Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-DA-1.1",

@@ -353,6 +353,14 @@ def apply_discriminator(cmd: str, value) -> str:
     return f"{cmd.rstrip()} --discriminator {value}"
 
 
+def set_cmd_flag(cmd: str, flag: str, value: str) -> str:
+    """Replace-or-append `flag value` in a command string (e.g. --app-pipe)."""
+    pat = re.compile(rf"{re.escape(flag)}(?:\s+|=)\S+")
+    if pat.search(cmd):
+        return pat.sub(f"{flag} {value}", cmd, count=1)
+    return f"{cmd.rstrip()} {flag} {value}"
+
+
 # =============================================================================
 # DUT manager
 # =============================================================================
@@ -577,6 +585,12 @@ class TestRunner:
         except (TypeError, ValueError):
             self.pass_threshold = 0.75
         self.pass_threshold = min(max(self.pass_threshold, 0.0), 1.0)
+        # App-pipe: auto-drive DUT state changes via the SDK named pipe
+        # (is_pics_sdk_ci_only) so "operator-required" tests run unattended.
+        # NOTE: this SIMULATES DUT state in software — great for regression CI,
+        # but NOT equivalent to a physical certification run.
+        self.enable_app_pipe = bool(cfg["test_execution"].get("enable_app_pipe", False))
+        self._app_pipe_cache: dict[str, bool] = {}   # script name -> uses pipe?
 
     def _clean_storage(self):
         """Remove admin_storage.json before AND after each test.
@@ -608,13 +622,16 @@ class TestRunner:
         # value the DUT is advertising on (see DUTManager.launch).
         cmd = apply_discriminator(cmd, self.discriminator)
 
-        # Fix 4: Resolve --PICS placeholder with PICS folder path
-        # The SDK reads all XML files in the folder and picks the right one per cluster
+        # Fix 4: Resolve --PICS placeholder with the configured PICS path.
+        # --PICS accepts a DIRECTORY of per-cluster PICS XMLs OR a single flat
+        # PICS values FILE (e.g. ci-pics-values, which also carries
+        # PICS_SDK_CI_ONLY=1 — needed for the app-pipe / is_pics_sdk_ci_only path).
+        # So accept either (exists), not just a directory.
         if "__PICS_PLACEHOLDER__" in cmd:
-            if self.pics_folder and Path(self.pics_folder).is_dir():
+            if self.pics_folder and Path(self.pics_folder).exists():
                 cmd = cmd.replace("--PICS __PICS_PLACEHOLDER__",
                                   f"--PICS {self.pics_folder}")
-                print(f"  [PICS] Using PICS folder: {self.pics_folder}")
+                print(f"  [PICS] Using PICS: {self.pics_folder}")
             else:
                 # Remove --PICS entirely if folder not configured or not found
                 cmd = cmd.replace("--PICS __PICS_PLACEHOLDER__", "").strip()
@@ -633,6 +650,38 @@ class TestRunner:
             return parts
         return cmd.split()
 
+    def _uses_app_pipe(self, py_cmd: str) -> bool:
+        """
+        True if this test drives DUT state via the SDK named pipe — i.e. the
+        script calls write_to_app_pipe (the is_pics_sdk_ci_only path). Detected by
+        reading the SDK test script (cached per script), so no manual per-TC flags.
+        """
+        if not self.enable_app_pipe:
+            return False
+        m = re.search(r"\b(TC_\w+\.py)\b", py_cmd)
+        if not m:
+            return False
+        script = m.group(1)
+        if script not in self._app_pipe_cache:
+            try:
+                text = (self.scripts_dir / script).read_text(errors="replace")
+                self._app_pipe_cache[script] = "write_to_app_pipe" in text
+            except OSError:
+                self._app_pipe_cache[script] = False
+        return self._app_pipe_cache[script]
+
+    def _ensure_pics(self, cmd: str) -> str:
+        """
+        Ensure --PICS is present so PICS_SDK_CI_ONLY (in ci-pics-values) is active —
+        without it, is_pics_sdk_ci_only is False and the test prompts an operator.
+        Leaves an existing --PICS (or placeholder) alone; else appends the folder.
+        """
+        if "--PICS" in cmd:
+            return cmd
+        if self.pics_folder and Path(self.pics_folder).exists():
+            return f"{cmd.rstrip()} --PICS {self.pics_folder}"
+        return cmd
+
     def _run_attempt(self, tc: dict, dut: DUTManager,
                      attempt: int, log_path: Path, dut_log: Path) -> tuple:
         """Single test attempt. Returns (status, counts, reason, elapsed)."""
@@ -646,6 +695,20 @@ class TestRunner:
             dut_log   = dut_log.parent  / (dut_log.stem  + suffix + ".log")
             print(f"  [RETRY] Attempt {attempt}...")
 
+        # App-pipe: for tests that drive DUT state via write_to_app_pipe, inject a
+        # MATCHING --app-pipe into BOTH the DUT app and the python command (SDK CI
+        # pattern), and ensure --PICS so PICS_SDK_CI_ONLY makes the test take the
+        # pipe path instead of prompting an operator. Pipe lives under /tmp/chip_*
+        # so the DUT's own `rm -rf /tmp/chip_*` + our cleanup wipe it.
+        app_pipe = None
+        if self._uses_app_pipe(py_cmd):
+            safe = re.sub(r"[^A-Za-z0-9_]", "_", tc_id)
+            app_pipe = f"/tmp/chip_apppipe_{safe}"
+            dut_cmd  = set_cmd_flag(dut_cmd, "--app-pipe", app_pipe)
+            py_cmd   = set_cmd_flag(py_cmd, "--app-pipe", app_pipe)
+            py_cmd   = self._ensure_pics(py_cmd)
+            print(f"  [PIPE] app-pipe driven (CI-simulated DUT state) → {app_pipe}")
+
         self._clean_storage()
         start = time.time()
 
@@ -654,6 +717,12 @@ class TestRunner:
             elapsed = round(time.time() - start, 2)
             c = {"stragglers_before": dut.last_straggler_count} if dut.last_straggler_count else {}
             return ERROR, c, launch_err, elapsed
+
+        # The DUT app creates the FIFO at startup. If it's absent, the app doesn't
+        # support --app-pipe → write_to_app_pipe will fail; warn early.
+        if app_pipe and not os.path.exists(app_pipe):
+            print(f"  [PIPE] ⚠️  {app_pipe} was not created by the DUT — the app may "
+                  f"not support --app-pipe; write_to_app_pipe will raise FileNotFound.")
 
         cmd_parts = self._build_python_cmd(py_cmd)
         print(f"  [TEST] Running: {' '.join(str(p) for p in cmd_parts[:4])}...")
@@ -691,6 +760,11 @@ class TestRunner:
         if dut.last_straggler_count:
             counts = dict(counts or {})
             counts["stragglers_before"] = dut.last_straggler_count
+
+        # Mark pipe-driven runs so results are clearly CI-simulated (not physical).
+        if app_pipe:
+            counts = dict(counts or {})
+            counts["app_pipe"] = True
 
         elapsed = round(time.time() - start, 2)
         return status, counts, reason, elapsed
@@ -759,12 +833,14 @@ class TestRunner:
 
         # Build retry note for report
         retry_note = ""
+        if (counts or {}).get("app_pipe"):
+            retry_note = "[CI-simulated via app-pipe] "
         if commissioning_attempts > 0:
-            retry_note = f"(session/commissioning retried {commissioning_attempts}x) "
+            retry_note += f"(session/commissioning retried {commissioning_attempts}x) "
         if step_retry_done:
             retry_note += "(step failure retried 1x) "
         if retry_note:
-            reason = retry_note.strip() + " | " + (reason or "")
+            reason = retry_note.strip() + (" | " + reason if reason else "")
 
         # Use the last log file as final log
         if attempt > 1:

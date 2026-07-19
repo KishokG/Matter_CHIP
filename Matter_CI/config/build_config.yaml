@@ -195,6 +195,14 @@ test_execution:
   report_path: "logs/report.html"
   # admin_storage.json — cleared before each test
   admin_storage: "admin_storage.json"
+  # App-pipe: auto-drive DUT state changes for "operator-required" tests via the
+  # SDK named pipe (the is_pics_sdk_ci_only path), so they run unattended. When a
+  # test's SDK script uses write_to_app_pipe, the runner injects a matching
+  # --app-pipe into BOTH the DUT app and the python command and ensures --PICS
+  # (PICS_SDK_CI_ONLY, from ci-pics-values). NOTE: this SIMULATES DUT state in
+  # software — ideal for regression CI, but NOT a physical certification run.
+  # Requires pics_folder to point at a PICS source containing PICS_SDK_CI_ONLY=1.
+  enable_app_pipe: true
   # Pass tolerance: a run with some SKIPPED steps still counts as a full PASS
   # (green) when at least this % of its steps passed — the rest are treated as
   # acceptable (often DUT-implementation / feature dependent). Below this, it is
