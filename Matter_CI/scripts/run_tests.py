@@ -652,9 +652,15 @@ class TestRunner:
 
     def _uses_app_pipe(self, py_cmd: str) -> bool:
         """
-        True if this test drives DUT state via the SDK named pipe — i.e. the
-        script calls write_to_app_pipe (the is_pics_sdk_ci_only path). Detected by
-        reading the SDK test script (cached per script), so no manual per-TC flags.
+        True if this test drives DUT state via the SDK WRITE named pipe. Detected
+        from the SDK test script (cached per script) by EITHER:
+          - its CI-arguments header declaring `--app-pipe <path>` (the SDK's own
+            authoritative declaration — this also catches tests whose actual
+            write_to_app_pipe() call lives in a shared base module, e.g.
+            TC_OPSTATE_2_1 → TC_OpstateCommon, OVENOPSTATE, RVCOPSTATE), OR
+          - the file directly calling write_to_app_pipe.
+        The `(?!-out)` guard excludes `--app-pipe-out` (the READ pipe), which is a
+        different mechanism we don't inject here.
         """
         if not self.enable_app_pipe:
             return False
@@ -665,7 +671,9 @@ class TestRunner:
         if script not in self._app_pipe_cache:
             try:
                 text = (self.scripts_dir / script).read_text(errors="replace")
-                self._app_pipe_cache[script] = "write_to_app_pipe" in text
+                uses = bool(re.search(r"--app-pipe(?!-out)[ =]", text)) or \
+                    ("write_to_app_pipe" in text)
+                self._app_pipe_cache[script] = uses
             except OSError:
                 self._app_pipe_cache[script] = False
         return self._app_pipe_cache[script]
