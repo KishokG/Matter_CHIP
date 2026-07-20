@@ -21,6 +21,13 @@ on:
           - build-only
           - test-only
           - build-test
+      save_as_schedule_default:
+        description: >
+          Also save the 'pipeline' selection above as the new default for future
+          SCHEDULED (cron) runs, until changed again here. (Lets a nightly cron
+          run tests too, not just build.)
+        type: boolean
+        default: false
       build_mode:
         description: >
           Build mode (ignored when pipeline=test-only).
@@ -77,10 +84,61 @@ env:
 
 jobs:
   # ──────────────────────────────────────────────────────────
+  # Job 0: Plan — resolve which pipeline to run (GitHub cloud runner)
+  #   • Manual run  → the workflow_dispatch "pipeline" input wins.
+  #   • Scheduled   → the repo Variable SCHEDULE_PIPELINE (set below by ticking
+  #     "save_as_schedule_default", or via Settings → Secrets and variables →
+  #     Actions → Variables). Defaults to "build-only" when unset — so cron keeps
+  #     doing build-only until you choose otherwise.
+  # Every downstream job gates on needs.plan.outputs.pipeline (NOT on
+  # github.event.inputs.pipeline), so schedule and manual funnel through one value.
+  # ──────────────────────────────────────────────────────────
+  plan:
+    name: Determine pipeline
+    runs-on: ubuntu-latest
+    outputs:
+      pipeline: ${{ steps.decide.outputs.pipeline }}
+    steps:
+      - name: Decide pipeline
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            PIPELINE="${{ vars.SCHEDULE_PIPELINE }}"
+            PIPELINE="${PIPELINE:-build-only}"
+          else
+            PIPELINE="${{ inputs.pipeline }}"
+          fi
+          case "$PIPELINE" in
+            build-only|test-only|build-test) ;;
+            *)
+              echo "::warning::Unrecognized pipeline value '$PIPELINE' — defaulting to 'build-only'."
+              PIPELINE="build-only"
+              ;;
+          esac
+          echo "Resolved pipeline: $PIPELINE (event=${{ github.event_name }})"
+          echo "pipeline=$PIPELINE" >> "$GITHUB_OUTPUT"
+
+      - name: Save as new schedule default (optional)
+        if: github.event_name == 'workflow_dispatch' && inputs.save_as_schedule_default == true
+        env:
+          # GITHUB_TOKEN can never write repo Variables (a hard GitHub platform
+          # limit) — this needs a PAT stored as the SCHEDULE_STAGE_PAT secret
+          # (already set up for the TEDS sync workflow in this same repo).
+          GH_TOKEN: ${{ secrets.SCHEDULE_STAGE_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::SCHEDULE_STAGE_PAT secret is not set. GITHUB_TOKEN cannot write repo Variables — store a Personal Access Token (repo/variables scope) as the SCHEDULE_STAGE_PAT secret."
+            exit 1
+          fi
+          gh variable set SCHEDULE_PIPELINE --body "${{ inputs.pipeline }}" --repo "${{ github.repository }}"
+          echo "Saved SCHEDULE_PIPELINE=${{ inputs.pipeline }} — future scheduled runs will use this until changed again."
+
+  # ──────────────────────────────────────────────────────────
   # Job 1: Validate config — always runs (GitHub cloud runner)
   # ──────────────────────────────────────────────────────────
   validate:
     name: Validate Config
+    needs: plan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -100,7 +158,7 @@ jobs:
 
       - name: Print pipeline plan
         run: |
-          PIPELINE="${{ github.event.inputs.pipeline }}"
+          PIPELINE="${{ needs.plan.outputs.pipeline }}"
           echo "════════════════════════════════════"
           echo "  Pipeline : ${PIPELINE}"
           echo "  Build mode: ${{ github.event.inputs.build_mode }}"
@@ -121,11 +179,10 @@ jobs:
   build:
     name: Build on Mac mini (Docker)
     runs-on: [self-hosted, mac-mini]
-    needs: validate
-    # Run on schedule (nightly) OR when pipeline is not test-only
-    if: |
-      github.event_name == 'schedule' ||
-      github.event.inputs.pipeline != 'test-only'
+    needs: [plan, validate]
+    # Build unless the resolved pipeline is test-only (covers schedule + manual,
+    # since 'plan' resolves cron → SCHEDULE_PIPELINE and manual → the input).
+    if: needs.plan.outputs.pipeline != 'test-only'
     timeout-minutes: 21600
 
     steps:
@@ -271,7 +328,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| Pipeline | ${{ github.event.inputs.pipeline || 'scheduled' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pipeline | ${{ needs.plan.outputs.pipeline }}${{ github.event_name == 'schedule' && ' (scheduled)' || '' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Build Mode | ${{ github.event.inputs.build_mode || 'skip-clone' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
@@ -298,15 +355,13 @@ jobs:
   upload-artifacts:
     name: Upload to Google Drive
     runs-on: [self-hosted, mac-mini]
-    needs: build
+    needs: [plan, build]
     outputs:
       drive_link: ${{ steps.upload.outputs.drive_link }}
     if: |
       always() &&
       needs.build.result == 'success' &&
-      (github.event_name == 'schedule' ||
-       github.event.inputs.pipeline == 'build-only' ||
-       github.event.inputs.pipeline == 'build-test')
+      needs.plan.outputs.pipeline != 'test-only'
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -349,12 +404,10 @@ jobs:
   notify:
     name: Send Email Notification
     runs-on: [self-hosted, mac-mini]
-    needs: [build, upload-artifacts]
+    needs: [plan, build, upload-artifacts]
     if: |
       always() &&
-      (github.event_name == 'schedule' ||
-       github.event.inputs.pipeline == 'build-only' ||
-       github.event.inputs.pipeline == 'build-test')
+      needs.plan.outputs.pipeline != 'test-only'
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -415,11 +468,11 @@ jobs:
   fetch-tests:
     name: Fetch Test Commands
     runs-on: [self-hosted, rpi]
-    needs: [validate, build]
+    needs: [plan, validate, build]
     if: |
       always() &&
-      (github.event.inputs.pipeline == 'test-only' ||
-       github.event.inputs.pipeline == 'build-test') &&
+      (needs.plan.outputs.pipeline == 'test-only' ||
+       needs.plan.outputs.pipeline == 'build-test') &&
       (needs.validate.result == 'success') &&
       (needs.build.result == 'success' || needs.build.result == 'skipped')
 
