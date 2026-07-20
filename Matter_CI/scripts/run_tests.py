@@ -357,6 +357,13 @@ def apply_discriminator(cmd: str, value) -> str:
     """
     if value in (None, ""):
         return cmd
+    # Commands that commission via --qr-code / --manual-code carry the
+    # discriminator+passcode ENCODED in that payload. Adding --discriminator here
+    # would create a discriminator with no matching --passcode ("supplied number
+    # of discriminators does not match number of passcodes"). Leave them alone —
+    # the pairing code is substituted from the DUT's real log instead.
+    if re.search(r"--(?:qr-code|manual-code)\b", cmd):
+        return cmd
     value = str(value).strip()
     if re.search(r"--discriminator(?:\s+|=)\S+", cmd):
         return re.sub(r"--discriminator(?:\s+|=)\S+",
@@ -754,6 +761,51 @@ class TestRunner:
             return f"{cmd.rstrip()} --PICS {self.pics_folder}"
         return cmd
 
+    def _substitute_pairing_code(self, py_cmd: str, dut_log: Path) -> str:
+        """
+        Tests that commission INSIDE the test (CGEN, DeviceBasicComposition, …)
+        pass --qr-code / --manual-code. The Sheet's value is usually stale AND is
+        invalidated once we override the DUT's discriminator — the payload encodes
+        discriminator+passcode. So replace it with the DUT's ACTUAL code, which the
+        app prints at startup ("SetupQRCode: [MT:…]" / "Manual pairing code: […]").
+        """
+        want_qr = "--qr-code" in py_cmd
+        want_mc = "--manual-code" in py_cmd
+        if not (want_qr or want_mc):
+            return py_cmd
+        qr = mc = None
+        deadline = time.time() + 10          # code is printed at app startup
+        while time.time() < deadline:
+            try:
+                dlog = dut_log.read_text(errors="replace")
+            except OSError:
+                dlog = ""
+            if want_qr and not qr:
+                m = re.search(r"SetupQRCode:\s*\[?(MT:[^\]\s]+?)\]?\s*$", dlog, re.MULTILINE)
+                qr = m.group(1) if m else None
+            if want_mc and not mc:
+                m = re.search(r"Manual pairing code:\s*\[?([0-9][0-9\- ]*[0-9])\]?", dlog)
+                mc = m.group(1) if m else None
+            if (not want_qr or qr) and (not want_mc or mc):
+                break
+            time.sleep(0.5)
+        if want_qr:
+            if qr:
+                py_cmd = re.sub(r"--qr-code\s+\S+", f"--qr-code {qr}", py_cmd, count=1)
+                print(f"  [PAIR] Using DUT's actual QR code: {qr}")
+            else:
+                print("  [PAIR] ⚠️  --qr-code test but no SetupQRCode in DUT log — "
+                      "keeping the Sheet value (commissioning will likely fail).")
+        if want_mc:
+            if mc:
+                code = re.sub(r"\D", "", mc)
+                py_cmd = re.sub(r"--manual-code\s+\S+", f"--manual-code {code}", py_cmd, count=1)
+                print(f"  [PAIR] Using DUT's actual manual code: {code}")
+            else:
+                print("  [PAIR] ⚠️  --manual-code test but no Manual pairing code in "
+                      "DUT log — keeping the Sheet value (commissioning will likely fail).")
+        return py_cmd
+
     def _run_attempt(self, tc: dict, dut: DUTManager,
                      attempt: int, log_path: Path, dut_log: Path) -> tuple:
         """Single test attempt. Returns (status, counts, reason, elapsed)."""
@@ -819,6 +871,11 @@ class TestRunner:
                 return ERROR, {"app_pipe": True}, reason, elapsed
             print(f"  [PIPE] {app_pipe} ready "
                   f"({round(time.time() - start, 1)}s after launch).")
+
+        # For in-test commissioning (--qr-code / --manual-code), swap in the DUT's
+        # ACTUAL pairing payload from its startup log (the Sheet value is stale /
+        # invalidated by our discriminator override).
+        py_cmd = self._substitute_pairing_code(py_cmd, dut_log)
 
         cmd_parts = self._build_python_cmd(py_cmd)
         # The FINAL commands actually executed (after discriminator / app-pipe /
