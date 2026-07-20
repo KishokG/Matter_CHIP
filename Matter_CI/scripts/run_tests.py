@@ -933,7 +933,12 @@ class TestRunner:
                 tc, dut, attempt, log_path, dut_log)
 
             reason_short = f" | {reason[:70]}" if reason else ""
-            print(f"  [{status}] {tc_id} — {elapsed}s  {counts}{reason_short}")
+            # Show only the numeric counts on the progress line — the full
+            # executed commands are already printed above (the "(full)" lines)
+            # and saved to the result JSON, so don't repeat them here.
+            shown = {k: v for k, v in (counts or {}).items()
+                     if k not in ("executed_dut_command", "executed_python_command")}
+            print(f"  [{status}] {tc_id} — {elapsed}s  {shown}{reason_short}")
 
             # Determine if we should retry. Besides outright commissioning
             # failures, retry transient SESSION/PASE errors during setup — these
