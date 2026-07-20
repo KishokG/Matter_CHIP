@@ -885,7 +885,12 @@ class TestRunner:
         if not (want_qr or want_mc):
             return py_cmd
         qr = mc = None
-        deadline = time.time() + 10          # code is printed at app startup
+        # The app prints the code shortly after its Matter stack finishes init,
+        # but on a loaded RPi that can lag well past a few seconds. Poll a
+        # generous, configurable window (was a fixed 10s — too short under load,
+        # which left the <placeholder> in place → "argparse: --manual-code invalid").
+        wait_s = self.cfg.get("test_execution", {}).get("pairing_code_wait", 30)
+        deadline = time.time() + wait_s
         while time.time() < deadline:
             try:
                 dlog = dut_log.read_text(errors="replace")
@@ -908,16 +913,22 @@ class TestRunner:
                 py_cmd = re.sub(r"--qr-code\s+\S+", f"--qr-code {qr}", py_cmd, count=1)
                 print(f"  [PAIR] Using DUT's actual QR code: {qr}")
             else:
-                print("  [PAIR] ⚠️  --qr-code test but no SetupQRCode in DUT log — "
-                      "keeping the Sheet value (commissioning will likely fail).")
+                # Fallback: strip any <…> brackets off the Sheet value so it stays
+                # a VALID arg (argparse rejects "<MT:…>"). Commissioning may still
+                # fail, but with a clear reason — not a "Bad test command" exit 2.
+                py_cmd = re.sub(r"(--qr-code\s+)<?([^<>\s]+)>?", r"\1\2", py_cmd, count=1)
+                print(f"  [PAIR] ⚠️  --qr-code test but no SetupQRCode in DUT log after "
+                      f"{wait_s}s — using the Sheet value (commissioning may fail).")
         if want_mc:
             if mc:
                 code = re.sub(r"\D", "", mc)
                 py_cmd = re.sub(r"--manual-code\s+\S+", f"--manual-code {code}", py_cmd, count=1)
                 print(f"  [PAIR] Using DUT's actual manual code: {code}")
             else:
-                print("  [PAIR] ⚠️  --manual-code test but no Manual pairing code in "
-                      "DUT log — keeping the Sheet value (commissioning will likely fail).")
+                # Same fallback: strip <…> so it's a valid (if possibly stale) code.
+                py_cmd = re.sub(r"(--manual-code\s+)<?([^<>\s]+)>?", r"\1\2", py_cmd, count=1)
+                print(f"  [PAIR] ⚠️  --manual-code test but no Manual pairing code in "
+                      f"DUT log after {wait_s}s — using the Sheet value (commissioning may fail).")
         return py_cmd
 
     def _run_attempt(self, tc: dict, dut: DUTManager,
