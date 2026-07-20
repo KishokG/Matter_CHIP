@@ -926,6 +926,14 @@ class TestRunner:
         # event-trigger/joint-fabric tests run unattended with correct values.
         dut_cmd, py_cmd = self._apply_ci_test_args(dut_cmd, py_cmd)
 
+        # Ensure --PICS is present for EVERY test (not just app-pipe ones) so the
+        # configured PICS source — which carries PICS_SDK_CI_ONLY — is active and
+        # is_pics_sdk_ci_only is True. Without it, CI-simulated tests (JFDS,
+        # SMOKECO, …) fall into their real-DUT branch (external app +
+        # dut_rpc_server_port + setup_passcodes) and fail. Leaves an existing
+        # --PICS or --PICS placeholder in the Sheet command untouched.
+        py_cmd = self._ensure_pics(py_cmd)
+
         # Self-orchestrating tests (e.g. Joint Fabric JFDS/JFADMIN) launch their
         # OWN helper apps and pass their paths via --string-arg; the DUT command
         # has no `./app` for us to launch (and launching one would collide). Detect
@@ -943,7 +951,7 @@ class TestRunner:
             app_pipe = f"/tmp/chip_apppipe_{safe}"
             dut_cmd  = set_cmd_flag(dut_cmd, "--app-pipe", app_pipe)
             py_cmd   = set_cmd_flag(py_cmd, "--app-pipe", app_pipe)
-            py_cmd   = self._ensure_pics(py_cmd)
+            # (--PICS already ensured above for every test)
             print(f"  [PIPE] app-pipe driven (CI-simulated DUT state) → {app_pipe}")
 
         self._clean_storage()
