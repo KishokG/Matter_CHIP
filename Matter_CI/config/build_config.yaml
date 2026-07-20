@@ -181,10 +181,15 @@ test_execution:
   # all-clusters app needs time to boot, init a fresh KVS, open its commissioning
   # window, and publish mDNS — too short causes "Not connected" / PASE races
   # (esp. AccessChecker/TC-ACE-2.x). 8-10s is safer than 5 on an RPi.
-  dut_startup_wait: 3
+  dut_startup_wait: 4
   # Seconds to wait AFTER a DUT is stopped, before the next test relaunches on
   # the same discriminator — lets stale mDNS records / UDP ports clear.
   dut_settle_wait: 2
+  # For app-pipe tests: max seconds to actively wait for the DUT to create its
+  # named-pipe FIFO before starting the python test. The runner requires the pipe
+  # to exist at arg-parse time; the DUT creates it only after its Matter stack
+  # inits (can exceed dut_startup_wait on a slow RPi / heavy app).
+  app_pipe_wait: 25
   # Discriminator (12-bit, 0-4095) the DUT is advertised on AND the controller
   # commissions to. Overrides the SDK default (3840) in BOTH the DUT command and
   # the python command — pick a value unlikely to clash with others on the same

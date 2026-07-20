@@ -726,11 +726,30 @@ class TestRunner:
             c = {"stragglers_before": dut.last_straggler_count} if dut.last_straggler_count else {}
             return ERROR, c, launch_err, elapsed
 
-        # The DUT app creates the FIFO at startup. If it's absent, the app doesn't
-        # support --app-pipe → write_to_app_pipe will fail; warn early.
-        if app_pipe and not os.path.exists(app_pipe):
-            print(f"  [PIPE] ⚠️  {app_pipe} was not created by the DUT — the app may "
-                  f"not support --app-pipe; write_to_app_pipe will raise FileNotFound.")
+        # The DUT app creates the FIFO only AFTER its Matter stack finishes init,
+        # which can exceed the fixed startup wait on a slow RPi / heavy app. The
+        # python runner REQUIRES --app-pipe to exist the moment it parses args, so
+        # actively wait for the FIFO instead of racing it (that intermittent race
+        # is why some pipe tests passed and others hit "pipe does NOT exist").
+        if app_pipe:
+            wait_s = self.cfg["test_execution"].get("app_pipe_wait", 25)
+            deadline = time.time() + wait_s
+            while not os.path.exists(app_pipe) and time.time() < deadline:
+                if dut._proc is None or dut._proc.poll() is not None:
+                    break   # DUT died — stop waiting
+                time.sleep(0.5)
+            if not os.path.exists(app_pipe):
+                elapsed = round(time.time() - start, 2)
+                reason = (f"App-pipe {app_pipe} was not created by the DUT within "
+                          f"{wait_s}s — the launched app may not support --app-pipe "
+                          f"or crashed at startup (wrong DUT app for this test?). "
+                          f"The python runner requires the pipe to exist at launch.")
+                print(f"  [PIPE] ❌ {reason}")
+                dut.stop()
+                self._clean_storage()
+                return ERROR, {"app_pipe": True}, reason, elapsed
+            print(f"  [PIPE] {app_pipe} ready "
+                  f"({round(time.time() - start, 1)}s after launch).")
 
         cmd_parts = self._build_python_cmd(py_cmd)
         print(f"  [TEST] Running: {' '.join(str(p) for p in cmd_parts[:4])}...")
@@ -773,6 +792,31 @@ class TestRunner:
         if app_pipe:
             counts = dict(counts or {})
             counts["app_pipe"] = True
+
+        # If the DUT CRASHED mid-test, the controller only sees a Timeout (0x32).
+        # Surface the real cause from the DUT log so it's actionable — most often
+        # the wrong DUT app for this test's app-pipe commands (e.g. all-clusters
+        # VerifyOrDie/core-dumps on RVC's "Reset" — RVC tests need chip-rvc-app).
+        if status in (ERROR, FAIL):
+            try:
+                dlog = dut_log.read_text(errors="replace") if dut_log.exists() else ""
+            except OSError:
+                dlog = ""
+            crash = None
+            if ("Named pipe command not supported" in dlog
+                    or "VerifyOrDie failure" in dlog):
+                m = re.search(r"Unhandled command '([^']+)'", dlog)
+                cmd = m.group(1) if m else "?"
+                crash = (f"DUT CRASHED on unsupported app-pipe command '{cmd}' "
+                         f"(app aborted/core-dumped) — the launched DUT app does not "
+                         f"implement this test's pipe commands. Use the app the test "
+                         f"expects (RVC tests need chip-rvc-app, not all-clusters).")
+            elif re.search(r"core dumped|Aborted|Segmentation fault|terminate called",
+                           dlog):
+                crash = "DUT crashed (core dump/abort) mid-test — see the DUT log."
+            if crash:
+                status = ERROR
+                reason = crash + (f" | {reason}" if reason else "")
 
         elapsed = round(time.time() - start, 2)
         return status, counts, reason, elapsed
