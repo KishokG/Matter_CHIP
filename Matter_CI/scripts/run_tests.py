@@ -591,6 +591,57 @@ class TestRunner:
         # but NOT equivalent to a physical certification run.
         self.enable_app_pipe = bool(cfg["test_execution"].get("enable_app_pipe", False))
         self._app_pipe_cache: dict[str, bool] = {}   # script name -> uses pipe?
+        # Auto-apply each test's SDK CI-header args (the SDK's own declaration):
+        #   --enable-key <k>  → DUT (test-event-trigger key; else TestEventTrigger
+        #                       is rejected: "Event Triggers are not enabled")
+        #   --bool/int/hex/string-arg NAME:VAL → python cmd (e.g. simulate_mounting,
+        #                       simulate_occupancy, PIXIT.* keys) if not already set.
+        # Self-updating from the SDK; fixes the malformed/missing Sheet values.
+        self.apply_ci_test_args = bool(cfg["test_execution"].get("apply_ci_test_args", True))
+        self._ci_header_cache: dict[str, str] = {}   # script name -> CI header text
+
+    def _ci_header(self, script_name: str) -> str:
+        """The test's '=== BEGIN CI TEST ARGUMENTS ===' block, comment-stripped (cached)."""
+        if script_name not in self._ci_header_cache:
+            text = ""
+            try:
+                raw = (self.scripts_dir / script_name).read_text(errors="replace")
+                m = re.search(r"BEGIN CI TEST ARGUMENTS(.*?)END CI TEST ARGUMENTS",
+                              raw, re.DOTALL)
+                if m:
+                    text = "\n".join(re.sub(r"^\s*#\s?", "", ln)
+                                     for ln in m.group(1).splitlines())
+            except OSError:
+                pass
+            self._ci_header_cache[script_name] = text
+        return self._ci_header_cache[script_name]
+
+    def _apply_ci_test_args(self, dut_cmd: str, py_cmd: str) -> tuple[str, str]:
+        """Inject the test's declared CI args so operator/CI-sim tests run
+        unattended — from the SDK CI header, so values are always correct and
+        self-updating (fixes missing --enable-key and simulate_* flags)."""
+        if not self.apply_ci_test_args:
+            return dut_cmd, py_cmd
+        m = re.search(r"\b(TC_\w+\.py)\b", py_cmd)
+        if not m:
+            return dut_cmd, py_cmd
+        hdr = self._ci_header(m.group(1))
+        if not hdr:
+            return dut_cmd, py_cmd
+        # 1) DUT test-event-trigger key
+        ek = re.search(r"--enable-key\s+([0-9a-fA-F]{2,})", hdr)
+        if ek and "--enable-key" not in dut_cmd:
+            dut_cmd = set_cmd_flag(dut_cmd, "--enable-key", ek.group(1))
+            print(f"  [DUT] +--enable-key (test event triggers) from CI header")
+        # 2) python typed args (bool/int/hex/string/float)-arg NAME:VAL — add any
+        #    the Sheet didn't already provide (match by NAME, any -arg type).
+        for typ, name, val in re.findall(
+                r"--(bool|int|hex|string|float)-arg\s+([\w.]+):(\S+)", hdr):
+            if re.search(rf"-arg\s+{re.escape(name)}:", py_cmd):
+                continue
+            py_cmd = f"{py_cmd.rstrip()} --{typ}-arg {name}:{val}"
+            print(f"  [CI-ARG] +--{typ}-arg {name}:{val}")
+        return dut_cmd, py_cmd
 
     def _clean_storage(self):
         """Remove admin_storage.json before AND after each test.
@@ -702,6 +753,11 @@ class TestRunner:
             log_path  = log_path.parent / (log_path.stem + suffix + ".log")
             dut_log   = dut_log.parent  / (dut_log.stem  + suffix + ".log")
             print(f"  [RETRY] Attempt {attempt}...")
+
+        # Apply the test's SDK CI-header args (--enable-key to the DUT, simulate_*/
+        # PIXIT typed args to the python cmd) so operator/event-trigger tests run
+        # unattended with correct, self-updating values.
+        dut_cmd, py_cmd = self._apply_ci_test_args(dut_cmd, py_cmd)
 
         # App-pipe: for tests that drive DUT state via write_to_app_pipe, inject a
         # MATCHING --app-pipe into BOTH the DUT app and the python command (SDK CI
