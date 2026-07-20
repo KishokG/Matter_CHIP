@@ -681,6 +681,21 @@ class TestRunner:
         # is concrete (e.g. dut_rpc_server_ip:<127.0.0.1> → 127.0.0.1). A bracketed
         # value with spaces is left alone (it's a description, not a value).
         py_cmd = re.sub(r"([\w.]+):<([^<>\s]+)>", r"\1:\2", py_cmd)
+
+        # Joint-Fabric: the JF controller connects to the JF admin app's RPC port,
+        # which is HARDCODED in the SDK test. Force dut_rpc_server_port to that real
+        # port (the Sheet placeholder is often wrong → "Connection refused") and
+        # dut_rpc_server_ip to localhost (both apps run on this RPi).
+        if re.search(r"dut_rpc_server_(?:port|ip)\b", py_cmd):
+            try:
+                src = (self.scripts_dir / m.group(1)).read_text(errors="replace")
+            except OSError:
+                src = ""
+            pm = re.search(r"--rpc-server-port[\"',\s]+(\d+)", src)
+            if pm:
+                py_cmd = re.sub(r"(dut_rpc_server_port):\S+", rf"\1:{pm.group(1)}", py_cmd)
+                print(f"  [CI-ARG] dut_rpc_server_port → {pm.group(1)} (from the test's admin app)")
+            py_cmd = re.sub(r"(dut_rpc_server_ip):\S+", r"\1:127.0.0.1", py_cmd)
         return dut_cmd, py_cmd
 
     def _sdk_app_map(self) -> dict:
