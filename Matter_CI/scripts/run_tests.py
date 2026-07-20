@@ -620,6 +620,7 @@ class TestRunner:
         # Self-updating from the SDK; fixes the malformed/missing Sheet values.
         self.apply_ci_test_args = bool(cfg["test_execution"].get("apply_ci_test_args", True))
         self._ci_header_cache: dict[str, str] = {}   # script name -> CI header text
+        self._sdk_app_map_cache = None               # ${ENV_KEY} -> binary path
 
     def _ci_header(self, script_name: str) -> str:
         """The test's '=== BEGIN CI TEST ARGUMENTS ===' block, comment-stripped (cached)."""
@@ -654,29 +655,69 @@ class TestRunner:
         if ek and "--enable-key" not in dut_cmd:
             dut_cmd = set_cmd_flag(dut_cmd, "--enable-key", ek.group(1))
             print(f"  [DUT] +--enable-key (test event triggers) from CI header")
-        # 2) python typed args (bool/int/hex/string/float)-arg NAME:VAL — add any
-        #    the Sheet didn't already provide (match by NAME, any -arg type).
+        # 2) python typed args (bool/int/hex/string/float)-arg NAME:VAL. For each
+        #    arg the SDK header declares, with its value resolved from ${...}:
+        #      - Sheet has NAME:<placeholder>  → replace the placeholder value
+        #        (e.g. jfc_server_app:</root/jfc-app> → real jfc-app path)
+        #      - Sheet has NAME:realvalue      → keep the Sheet's value
+        #      - Sheet lacks NAME              → inject it
         for typ, name, val in re.findall(
                 r"--(bool|int|hex|string|float)-arg\s+([\w.]+):(\S+)", hdr):
-            if re.search(rf"-arg\s+{re.escape(name)}:", py_cmd):
-                continue
             val = self._resolve_sdk_placeholders(val)
             if "${" in val:
-                # Unresolvable SDK runner placeholder — don't inject a broken value.
-                print(f"  [CI-ARG] skip --{typ}-arg {name} (unresolved placeholder {val})")
+                print(f"  [CI-ARG] skip {name} (unresolved SDK placeholder {val})")
                 continue
-            py_cmd = f"{py_cmd.rstrip()} --{typ}-arg {name}:{val}"
-            print(f"  [CI-ARG] +--{typ}-arg {name}:{val}")
+            if re.search(rf"{re.escape(name)}:<[^>]*>", py_cmd):
+                py_cmd = re.sub(rf"{re.escape(name)}:<[^>]*>",
+                                lambda mm: f"{name}:{val}", py_cmd)
+                print(f"  [CI-ARG] resolved {name} → {val}")
+            elif re.search(rf"-arg\s+{re.escape(name)}:", py_cmd):
+                continue
+            else:
+                py_cmd = f"{py_cmd.rstrip()} --{typ}-arg {name}:{val}"
+                print(f"  [CI-ARG] +--{typ}-arg {name}:{val}")
+
+        # Strip any leftover angle-bracket placeholder on a named arg whose value
+        # is concrete (e.g. dut_rpc_server_ip:<127.0.0.1> → 127.0.0.1). A bracketed
+        # value with spaces is left alone (it's a description, not a value).
+        py_cmd = re.sub(r"([\w.]+):<([^<>\s]+)>", r"\1:\2", py_cmd)
         return dut_cmd, py_cmd
+
+    def _sdk_app_map(self) -> dict:
+        """
+        Map SDK ${ENV_KEY} placeholders → the built binary path on the RPi, from
+        the SDK's own scripts/tests/local.py env_key→binary table crossed with the
+        binaries under out/ (placed by prepare_rpi_tests). Self-updating. Cached.
+        e.g. ${JF_ADMIN_APP} → out/jf-admin-app/jfa-app, ${ALL_CLUSTERS_APP} → …
+        """
+        if self._sdk_app_map_cache is None:
+            m = {}
+            try:
+                text = (self.sdk_dir / "scripts" / "tests" / "local.py").read_text(errors="replace")
+                for em in re.finditer(r'env_key="([A-Z0-9_]+)"[^)]*?binary="([^"]+)"',
+                                      text, re.DOTALL):
+                    key, binname = em.group(1), em.group(2)
+                    found = next(iter((self.sdk_dir / "out").glob(f"*/{binname}")), None)
+                    if found:
+                        m[key] = str(found)
+            except OSError:
+                pass
+            # The push-av server is a script, not a built app target.
+            m["PUSH_AV_SERVER"] = str(
+                self.sdk_dir / "src" / "tools" / "push_av_server" / "src" / "server.py")
+            self._sdk_app_map_cache = m
+        return self._sdk_app_map_cache
 
     def _resolve_sdk_placeholders(self, text: str) -> str:
         """
-        Resolve the SDK CI-header ${...} placeholders the SDK's own test runner
-        would substitute — otherwise they reach the test literally (e.g.
-        th_server_app_path:${PUSH_AV_SERVER} → "can't open file '${PUSH_AV_SERVER}'").
+        Resolve SDK CI-header ${...} placeholders the SDK's own test runner would
+        substitute — otherwise they reach the test literally (e.g.
+        th_server_app_path:${PUSH_AV_SERVER} → "can't open file '${PUSH_AV_SERVER}'",
+        or jfc_server_app:${JF_CONTROL_APP} → path-does-not-exist).
         """
-        server_py = self.sdk_dir / "src" / "tools" / "push_av_server" / "src" / "server.py"
-        return text.replace("${PUSH_AV_SERVER}", str(server_py))
+        for key, path in self._sdk_app_map().items():
+            text = text.replace("${%s}" % key, path)
+        return text
 
     def _clean_storage(self):
         """Remove admin_storage.json before AND after each test.
@@ -697,7 +738,7 @@ class TestRunner:
             shell=True, capture_output=True
         )
 
-    def _build_python_cmd(self, raw_py_cmd: str) -> list[str]:
+    def _build_python_cmd(self, raw_py_cmd: str, inject_discriminator: bool = True) -> list[str]:
         """
         Replace 'python3' with venv python, expand TC script path,
         and resolve --PICS placeholder with actual PICS file path from config.
@@ -709,8 +750,11 @@ class TestRunner:
         cmd = self._resolve_sdk_placeholders(cmd)
 
         # Override the discriminator so the controller commissions to the same
-        # value the DUT is advertising on (see DUTManager.launch).
-        cmd = apply_discriminator(cmd, self.discriminator)
+        # value the DUT is advertising on (see DUTManager.launch). Skipped for
+        # self-orchestrating tests (no DUT we launch) — they manage their own
+        # apps' discriminators (e.g. JFDS launches jfa/jfc on defaults).
+        if inject_discriminator:
+            cmd = apply_discriminator(cmd, self.discriminator)
 
         # Fix 4: Resolve --PICS placeholder with the configured PICS path.
         # --PICS accepts a DIRECTORY of per-cluster PICS XMLs OR a single flat
@@ -847,9 +891,15 @@ class TestRunner:
             print(f"  [RETRY] Attempt {attempt}...")
 
         # Apply the test's SDK CI-header args (--enable-key to the DUT, simulate_*/
-        # PIXIT typed args to the python cmd) so operator/event-trigger tests run
-        # unattended with correct, self-updating values.
+        # PIXIT typed args + resolved app paths to the python cmd) so operator/
+        # event-trigger/joint-fabric tests run unattended with correct values.
         dut_cmd, py_cmd = self._apply_ci_test_args(dut_cmd, py_cmd)
+
+        # Self-orchestrating tests (e.g. Joint Fabric JFDS/JFADMIN) launch their
+        # OWN helper apps and pass their paths via --string-arg; the DUT command
+        # has no `./app` for us to launch (and launching one would collide). Detect
+        # that and skip our DUT launch + discriminator override.
+        has_dut_app = bool(re.search(r"\./\S+", dut_cmd))
 
         # App-pipe: for tests that drive DUT state via write_to_app_pipe, inject a
         # MATCHING --app-pipe into BOTH the DUT app and the python command (SDK CI
@@ -857,7 +907,7 @@ class TestRunner:
         # pipe path instead of prompting an operator. Pipe lives under /tmp/chip_*
         # so the DUT's own `rm -rf /tmp/chip_*` + our cleanup wipe it.
         app_pipe = None
-        if self._uses_app_pipe(py_cmd):
+        if has_dut_app and self._uses_app_pipe(py_cmd):
             safe = re.sub(r"[^A-Za-z0-9_]", "_", tc_id)
             app_pipe = f"/tmp/chip_apppipe_{safe}"
             dut_cmd  = set_cmd_flag(dut_cmd, "--app-pipe", app_pipe)
@@ -868,11 +918,18 @@ class TestRunner:
         self._clean_storage()
         start = time.time()
 
-        launched, launch_err = dut.launch(dut_cmd, dut_log)
-        if not launched:
-            elapsed = round(time.time() - start, 2)
-            c = {"stragglers_before": dut.last_straggler_count} if dut.last_straggler_count else {}
-            return ERROR, c, launch_err, elapsed
+        if not has_dut_app:
+            # No DUT to launch — the test manages its own apps. Just clear stale
+            # chip state so those apps start fresh.
+            print("  [DUT] No DUT app in command — self-orchestrating test; "
+                  "skipping DUT launch (the test launches its own apps).")
+            subprocess.run("rm -rf /tmp/chip_* 2>/dev/null || true", shell=True)
+        else:
+            launched, launch_err = dut.launch(dut_cmd, dut_log)
+            if not launched:
+                elapsed = round(time.time() - start, 2)
+                c = {"stragglers_before": dut.last_straggler_count} if dut.last_straggler_count else {}
+                return ERROR, c, launch_err, elapsed
 
         # The DUT app creates the FIFO only AFTER its Matter stack finishes init,
         # which can exceed the fixed startup wait on a slow RPi / heavy app. The
@@ -902,13 +959,14 @@ class TestRunner:
         # For in-test commissioning (--qr-code / --manual-code), swap in the DUT's
         # ACTUAL pairing payload from its startup log (the Sheet value is stale /
         # invalidated by our discriminator override).
-        py_cmd = self._substitute_pairing_code(py_cmd, dut_log)
+        if has_dut_app:
+            py_cmd = self._substitute_pairing_code(py_cmd, dut_log)
 
-        cmd_parts = self._build_python_cmd(py_cmd)
+        cmd_parts = self._build_python_cmd(py_cmd, inject_discriminator=has_dut_app)
         # The FINAL commands actually executed (after discriminator / app-pipe /
         # PICS / --enable-key / CI-arg injection) — logged in full and saved to
         # the result, since these differ from the raw Sheet commands.
-        executed_dut = dut.last_full_cmd
+        executed_dut = dut.last_full_cmd if has_dut_app else f"(no DUT app) {dut_cmd}"
         executed_py  = " ".join(str(p) for p in cmd_parts)
         print(f"  [TEST] Running (full): {executed_py}")
 
@@ -947,8 +1005,9 @@ class TestRunner:
             self._clean_storage()
 
         # Record whether leftover DUT(s) had to be killed before this attempt —
-        # surfaced in the report/summary so kill-races are visible.
-        if dut.last_straggler_count:
+        # surfaced in the report/summary so kill-races are visible. (Only when we
+        # actually launched a DUT — otherwise the count is stale from a prior test.)
+        if has_dut_app and dut.last_straggler_count:
             counts = dict(counts or {})
             counts["stragglers_before"] = dut.last_straggler_count
 
@@ -967,7 +1026,7 @@ class TestRunner:
         # Surface the real cause from the DUT log so it's actionable — most often
         # the wrong DUT app for this test's app-pipe commands (e.g. all-clusters
         # VerifyOrDie/core-dumps on RVC's "Reset" — RVC tests need chip-rvc-app).
-        if status in (ERROR, FAIL):
+        if status in (ERROR, FAIL) and has_dut_app:
             try:
                 dlog = dut_log.read_text(errors="replace") if dut_log.exists() else ""
             except OSError:

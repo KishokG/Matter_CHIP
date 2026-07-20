@@ -535,6 +535,16 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-IDM-4.3",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-IDM-5.2",
+    "cluster": "Interaction Data Model",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-IDM-9.1",
     "cluster": "Interaction Data Model",
     "enabled": true
