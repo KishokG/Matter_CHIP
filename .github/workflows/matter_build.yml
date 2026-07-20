@@ -689,3 +689,60 @@ jobs:
               f.write("\n</details>\n\n")
           PY
           fi
+
+      - name: Upload test results to Google Drive
+        id: upload-results
+        if: always()
+        env:
+          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
+        run: |
+          # Bundle the HTML report + JSON summary + per-test logs and upload to
+          # Drive, capturing a permanent download link for the execution email.
+          echo "${CREDENTIALS_JSON}" > "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          chmod 600 "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+          export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
+          pip3 install pyyaml google-auth google-auth-httplib2 google-api-python-client \
+            --break-system-packages --quiet
+
+          python3 Matter_CI/scripts/upload_test_results.py \
+            --config Matter_CI/config/build_config.yaml \
+            --run-id "${{ github.run_number }}" || true
+
+          rm -f "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
+
+          LINK=""
+          [[ -f Matter_CI/logs/results_drive_link.txt ]] && LINK=$(cat Matter_CI/logs/results_drive_link.txt)
+          echo "drive_link=${LINK}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$LINK" ]]; then
+            echo "### 📥 Test Results Archive" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **Download:** ${LINK}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Send test execution email
+        if: always()
+        env:
+          GMAIL_SENDER:        ${{ secrets.GMAIL_SENDER }}
+          GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAILS:       ${{ secrets.NOTIFY_EMAILS }}
+        run: |
+          pip3 install pyyaml --break-system-packages --quiet
+
+          # Commit/branch under test — from the build-info bundled with the run,
+          # so the execution email matches exactly what was tested.
+          COMMIT=""; BRANCH=""
+          if [[ -f Matter_CI/logs/build-info.json ]]; then
+            COMMIT=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('commit_short') or d.get('commit','unknown'))" 2>/dev/null || echo "")
+            BRANCH=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('branch','unknown'))" 2>/dev/null || echo "")
+          fi
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          python3 Matter_CI/scripts/notify.py \
+            --mode       execution \
+            --config     Matter_CI/config/build_config.yaml \
+            --results    Matter_CI/logs/test_results.json \
+            --drive-link "${{ steps.upload-results.outputs.drive_link }}" \
+            --run-id     "${{ github.run_number }}" \
+            --run-url    "${RUN_URL}" \
+            --commit     "${COMMIT}" \
+            --branch     "${BRANCH}"

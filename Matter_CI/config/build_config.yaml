@@ -145,6 +145,12 @@ google_drive:
   # Upload only on fully successful builds (all enabled targets built)
   # Set to true to upload even partial builds
   upload_on_partial: true
+  # OPTIONAL: separate Drive folder for TEST-EXECUTION result archives
+  # (HTML report + JSON summary + per-test logs, uploaded by
+  # upload_test_results.py). Leave empty to reuse folder_id above — pruning of
+  # result archives is name-scoped ("matter-ci-results-*"), so build bundles in
+  # the same folder are never touched. Share the folder with the service account.
+  results_folder_id: ""
   
 # ============================================================
 # Google Sheets — Test Command Source
