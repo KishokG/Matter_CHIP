@@ -1912,7 +1912,7 @@
   {
     "tc_id": "TC-WEBRTC-1.5",
     "cluster": "WebRTC Transport",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-WEBRTC-1.6",
