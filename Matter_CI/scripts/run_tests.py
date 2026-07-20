@@ -660,9 +660,23 @@ class TestRunner:
                 r"--(bool|int|hex|string|float)-arg\s+([\w.]+):(\S+)", hdr):
             if re.search(rf"-arg\s+{re.escape(name)}:", py_cmd):
                 continue
+            val = self._resolve_sdk_placeholders(val)
+            if "${" in val:
+                # Unresolvable SDK runner placeholder — don't inject a broken value.
+                print(f"  [CI-ARG] skip --{typ}-arg {name} (unresolved placeholder {val})")
+                continue
             py_cmd = f"{py_cmd.rstrip()} --{typ}-arg {name}:{val}"
             print(f"  [CI-ARG] +--{typ}-arg {name}:{val}")
         return dut_cmd, py_cmd
+
+    def _resolve_sdk_placeholders(self, text: str) -> str:
+        """
+        Resolve the SDK CI-header ${...} placeholders the SDK's own test runner
+        would substitute — otherwise they reach the test literally (e.g.
+        th_server_app_path:${PUSH_AV_SERVER} → "can't open file '${PUSH_AV_SERVER}'").
+        """
+        server_py = self.sdk_dir / "src" / "tools" / "push_av_server" / "src" / "server.py"
+        return text.replace("${PUSH_AV_SERVER}", str(server_py))
 
     def _clean_storage(self):
         """Remove admin_storage.json before AND after each test.
@@ -689,6 +703,10 @@ class TestRunner:
         and resolve --PICS placeholder with actual PICS file path from config.
         """
         cmd = raw_py_cmd
+
+        # Resolve any SDK ${...} placeholders (e.g. ${PUSH_AV_SERVER}) that came
+        # from the Sheet or a CI-header arg — the SDK runner would substitute them.
+        cmd = self._resolve_sdk_placeholders(cmd)
 
         # Override the discriminator so the controller commissions to the same
         # value the DUT is advertising on (see DUTManager.launch).
