@@ -61,6 +61,30 @@ def cfg_int(cfg, *keys, default=0):
 # Extracts: rm -rf /tmp/chip_* && ./chip-xxx-app [args]
 # Strips:   notes, path prefix (./apps/), header text
 # =============================================================================
+def _cut_multi_command(cmd: str) -> str:
+    """
+    A Sheet cell sometimes packs TWO command variants + English prose into one
+    field, e.g. "…admin_storage.json When test is executed on sample app … use the
+    below command python3 …". Fetched as-is, the extra words become bogus argparse
+    tokens → the script exits 2 before running. Keep only the FIRST command by
+    truncating at a second interpreter invocation OR at the prose that introduces
+    the next variant. (The pipeline auto-injects sample-app extras — app-pipe,
+    simulate_*, --enable-key, --PICS — so the clean real-DUT command is enough.)
+    """
+    cuts = []
+    for marker in (r'\bpython3\b', r'\brm\s+-rf\s+/tmp/chip'):
+        idxs = [m.start() for m in re.finditer(marker, cmd, re.IGNORECASE)]
+        if len(idxs) > 1:
+            cuts.append(idxs[1])                     # start of the 2nd command
+    for pat in (r'\bwhen\s+(?:the\s+)?(?:test|executed|run|it\b)',
+                r'\buse\s+the\s+below\b', r'\bnote\s*:',
+                r'\bon\s+(?:real\s+dut|sample\s+app)\b'):
+        m = re.search(pat, cmd, re.IGNORECASE)
+        if m:
+            cuts.append(m.start())
+    return cmd[:min(cuts)].strip() if cuts else cmd
+
+
 def parse_dut_command(raw: str) -> str:
     if not raw:
         return ""
@@ -105,6 +129,10 @@ def parse_dut_command(raw: str) -> str:
         return ""
     cmd = match.group(1).strip()
 
+    # Keep only the FIRST command variant (defensive — same multi-command cell
+    # pattern can appear on the DUT side too).
+    cmd = _cut_multi_command(cmd)
+
     # Strip path prefix: ./apps/chip-all-clusters-app → ./chip-all-clusters-app
     cmd = re.sub(r'\./(?:[\w\-]+/)+', './', cmd)
 
@@ -143,6 +171,10 @@ def parse_python_command(raw: str) -> str:
         return ""
 
     cmd = match.group(1).strip()
+
+    # Keep only the FIRST command variant (drop a second command + prose crammed
+    # into the same cell — the common "real DUT / sample app" Sheet pattern).
+    cmd = _cut_multi_command(cmd)
 
     # Remove Note: suffix if on same line
     cmd = re.sub(r'\s*Note:.*$', '', cmd, flags=re.IGNORECASE).strip()

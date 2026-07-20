@@ -311,12 +311,23 @@ def parse_result(log_text: str, exit_code: int = 0,
 
     # ── Signal 4 — No summary + non-zero exit code ────────────────────────────
     if exit_code != 0:
+        # argparse / CLI errors (usually exit 2) — surface the offending argument
+        # directly. This is a command-construction problem (bad/duplicate/unknown
+        # arg in the python command), not a DUT test failure → ERROR.
+        m = re.search(r"^[^\n]*:\s*error:\s*(.+)$", log_text, re.MULTILINE)
+        if m and ("unrecognized arguments" in m.group(1)
+                  or "argument" in m.group(1) or exit_code == 2):
+            return ERROR, {}, (
+                f"Bad test command (exit {exit_code}) — argparse: "
+                f"{m.group(1).strip()[:180]}. Check the executed python command's "
+                f"arguments (see the executed_python_command / top of the Ctrl Log)."
+            )
         error_lines = [
             line.strip() for line in log_text.splitlines()
-            if re.search(r"\bERROR\b|\bFAIL\b|exception|traceback",
+            if re.search(r"\bERROR\b|\bFAIL\b|exception|traceback|error:",
                          line, re.IGNORECASE)
         ]
-        hint = error_lines[-1][:120] if error_lines else "Check log for details"
+        hint = error_lines[-1][:140] if error_lines else "Check log for details"
         return FAIL, {}, (
             f"Script exited with code {exit_code} — no result summary found. "
             f"Last error hint: {hint}"
@@ -375,6 +386,7 @@ class DUTManager:
         self._log_file = None
         self._app_name = None
         self.last_straggler_count = 0   # leftover DUTs seen before the last launch
+        self.last_full_cmd = ""         # the exact DUT shell command last launched
 
     def _find_binary(self, dut_cmd: str) -> tuple[Path | None, str]:
         """
@@ -468,10 +480,11 @@ class DUTManager:
         # Replace ./binary-name with actual full path
         bin_match = re.search(r'\./([^\s]+)', dut_cmd)
         full_cmd  = dut_cmd.replace(bin_match.group(0), str(binary))
+        self.last_full_cmd = full_cmd   # exposed for logging the executed command
 
         # The rm -rf part runs first, then the binary
         # We need to run it as shell command so && works
-        print(f"  [DUT] Launching: {full_cmd[:80]}...")
+        print(f"  [DUT] Launching (full): {full_cmd}")
 
         log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_file = open(log_path, 'w')
@@ -808,10 +821,21 @@ class TestRunner:
                   f"({round(time.time() - start, 1)}s after launch).")
 
         cmd_parts = self._build_python_cmd(py_cmd)
-        print(f"  [TEST] Running: {' '.join(str(p) for p in cmd_parts[:4])}...")
+        # The FINAL commands actually executed (after discriminator / app-pipe /
+        # PICS / --enable-key / CI-arg injection) — logged in full and saved to
+        # the result, since these differ from the raw Sheet commands.
+        executed_dut = dut.last_full_cmd
+        executed_py  = " ".join(str(p) for p in cmd_parts)
+        print(f"  [TEST] Running (full): {executed_py}")
 
         try:
             with open(log_path, "w") as lf:
+                # Record the exact commands at the TOP of the Ctrl Log so they're
+                # visible when you open it from the report.
+                lf.write(f"[CI] Executed DUT command    : {executed_dut}\n")
+                lf.write(f"[CI] Executed Python command : {executed_py}\n")
+                lf.write("[CI] " + "-" * 70 + "\n\n")
+                lf.flush()
                 proc = subprocess.run(
                     cmd_parts,
                     stdout=lf,
@@ -848,6 +872,12 @@ class TestRunner:
         if app_pipe:
             counts = dict(counts or {})
             counts["app_pipe"] = True
+
+        # Carry the FINAL executed commands into the result (promoted to top-level
+        # keys by _result) so they're visible in test_results.json / the report.
+        counts = dict(counts or {})
+        counts["executed_dut_command"]    = executed_dut
+        counts["executed_python_command"] = executed_py
 
         # If the DUT CRASHED mid-test, the controller only sees a Timeout (0x32).
         # Surface the real cause from the DUT log so it's actionable — most often
@@ -959,16 +989,24 @@ class TestRunner:
         return self._result(tc, status, counts, elapsed, final_log, note=reason)
 
     def _result(self, tc, status, counts, elapsed, log_path, note=""):
+        # Move the executed commands out of counts to top-level result keys, so
+        # counts stays purely numeric (Steps column) and the JSON clearly shows
+        # both the raw Sheet command and the FINAL executed command.
+        counts = dict(counts or {})
+        exec_dut = counts.pop("executed_dut_command", tc["dut_command"])
+        exec_py  = counts.pop("executed_python_command", tc["python_command"])
         return {
-            "test_case_id":   tc["test_case_id"],
-            "cluster":        tc.get("cluster", ""),
-            "dut_command":    tc["dut_command"],
-            "python_command": tc["python_command"],
-            "status":         status,
-            "counts":         counts,
-            "elapsed_s":      elapsed,
-            "log_file":       str(log_path),
-            "note":           note,
+            "test_case_id":            tc["test_case_id"],
+            "cluster":                 tc.get("cluster", ""),
+            "dut_command":             tc["dut_command"],          # raw (from Sheet)
+            "python_command":          tc["python_command"],       # raw (from Sheet)
+            "executed_dut_command":    exec_dut,                   # actually launched
+            "executed_python_command": exec_py,                    # actually run
+            "status":                  status,
+            "counts":                  counts,
+            "elapsed_s":               elapsed,
+            "log_file":                str(log_path),
+            "note":                    note,
         }
 
     def run_all(self) -> list[dict]:
