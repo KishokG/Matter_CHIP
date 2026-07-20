@@ -738,7 +738,7 @@ class TestRunner:
             shell=True, capture_output=True
         )
 
-    def _build_python_cmd(self, raw_py_cmd: str, inject_discriminator: bool = True) -> list[str]:
+    def _build_python_cmd(self, raw_py_cmd: str) -> list[str]:
         """
         Replace 'python3' with venv python, expand TC script path,
         and resolve --PICS placeholder with actual PICS file path from config.
@@ -750,11 +750,15 @@ class TestRunner:
         cmd = self._resolve_sdk_placeholders(cmd)
 
         # Override the discriminator so the controller commissions to the same
-        # value the DUT is advertising on (see DUTManager.launch). Skipped for
-        # self-orchestrating tests (no DUT we launch) — they manage their own
-        # apps' discriminators (e.g. JFDS launches jfa/jfc on defaults).
-        if inject_discriminator:
-            cmd = apply_discriminator(cmd, self.discriminator)
+        # value the DUT advertises on (see DUTManager.launch). For self-launching
+        # tests (JFDS) this becomes discriminators[0], which they pass to their
+        # own apps — so it's still correct. Skipped only for qr/manual-code cmds.
+        cmd = apply_discriminator(cmd, self.discriminator)
+
+        # Ensure a --passcode accompanies --discriminator: the framework requires
+        # equal counts, and self-launching tests read setup_passcodes[0] (which
+        # the Sheet often omits, e.g. JFDS). Uses the standard test passcode.
+        cmd = self._ensure_passcode(cmd)
 
         # Fix 4: Resolve --PICS placeholder with the configured PICS path.
         # --PICS accepts a DIRECTORY of per-cluster PICS XMLs OR a single flat
@@ -827,6 +831,18 @@ class TestRunner:
             return cmd
         if self.pics_folder and Path(self.pics_folder).exists():
             return f"{cmd.rstrip()} --PICS {self.pics_folder}"
+        return cmd
+
+    def _ensure_passcode(self, cmd: str) -> str:
+        """
+        Add the standard test passcode when a --discriminator is present but no
+        --passcode is. The framework requires #discriminators == #passcodes, and
+        self-launching tests (JFDS) read setup_passcodes[0] to commission their own
+        apps. No-op for commands that commission via --qr-code/--manual-code (those
+        have no --discriminator, so nothing is added).
+        """
+        if re.search(r"--discriminator\b", cmd) and not re.search(r"--passcode\b", cmd):
+            return f"{cmd.rstrip()} --passcode 20202021"
         return cmd
 
     def _substitute_pairing_code(self, py_cmd: str, dut_log: Path) -> str:
@@ -962,7 +978,7 @@ class TestRunner:
         if has_dut_app:
             py_cmd = self._substitute_pairing_code(py_cmd, dut_log)
 
-        cmd_parts = self._build_python_cmd(py_cmd, inject_discriminator=has_dut_app)
+        cmd_parts = self._build_python_cmd(py_cmd)
         # The FINAL commands actually executed (after discriminator / app-pipe /
         # PICS / --enable-key / CI-arg injection) — logged in full and saved to
         # the result, since these differ from the raw Sheet commands.

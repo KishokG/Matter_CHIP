@@ -440,6 +440,11 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-EEVSEM-1.2",
+    "cluster": "Energy EVSE Mode Cluster",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-EPM-2.1",
     "cluster": "Electrical Power Measurement Cluster",
     "enabled": true
@@ -766,6 +771,11 @@
   },
   {
     "tc_id": "TC-RVCOPSTATE-2.3",
+    "cluster": "RVC Operational State Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-RVCOPSTATE-2.4",
     "cluster": "RVC Operational State Cluster",
     "enabled": true
   },
@@ -1245,6 +1255,11 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-SEAR-1.6",
+    "cluster": "Service Area Cluster",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-BRBINFO-2.1",
     "cluster": "Bridged Device Basic Information Cluster",
     "enabled": true
@@ -1547,6 +1562,36 @@
   {
     "tc_id": "TC-CLCTRL-6.1",
     "cluster": "Closure Control Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CHIME-2.1",
+    "cluster": "Chime Cluster ",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CHIME-2.2",
+    "cluster": "Chime Cluster ",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CHIME-2.3",
+    "cluster": "Chime Cluster ",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CHIME-2.4",
+    "cluster": "Chime Cluster ",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CHIME-2.5",
+    "cluster": "Chime Cluster ",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CHIME-2.6",
+    "cluster": "Chime Cluster ",
     "enabled": true
   },
   {
@@ -1930,6 +1975,16 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-ZONEMGMT-2.4",
+    "cluster": "Zone Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-ZONEMGMT-2.4",
+    "cluster": "Zone Management Cluster",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-PAVST-2.1",
     "cluster": "Push AV Stream Transport Cluster",
     "enabled": true
@@ -2142,32 +2197,32 @@
   {
     "tc_id": "TC-DD-1.5",
     "cluster": "Device Discovery",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-DD-3.23",
     "cluster": "Device Discovery",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-DD-3.24",
     "cluster": "Device Discovery",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-SU-2.2",
     "cluster": "OTA Software Update",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-SU-2.7",
     "cluster": "OTA Software Update",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-SU-4.1",
     "cluster": "OTA Software Update",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-GC-2.1",
