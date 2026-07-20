@@ -16,6 +16,8 @@ unzip
 wget
 rsync
 build-essential
+# patch: applies the push-av-server hypercorn TLS patch (camera PAVST/AVSM tests)
+patch
 pkg-config
 cmake
 ninja-build

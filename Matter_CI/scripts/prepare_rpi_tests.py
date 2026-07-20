@@ -297,7 +297,50 @@ def install_wheels(cfg: dict, sdk_dir: Path, bundle_dir: Path):
     # Safety net: a few runner/CLI deps not always in the SDK requirements.
     log(f"Installing extra runner deps: {', '.join(TEST_PIP_DEPS)} ...")
     subprocess.run([str(py), "-m", "pip", "install", *TEST_PIP_DEPS, "--quiet"], check=False)
+
+    setup_push_av_server(py, sdk_dir)
     log("Python env ready.")
+
+
+def setup_push_av_server(py: Path, sdk_dir: Path):
+    """
+    Camera Push-AV tests (TC-PAVST-*/TC-AVSM-*) launch src/tools/push_av_server/
+    src/server.py IN THIS VENV and wait for 'Running on https://0.0.0.0:1234'.
+    That server has its OWN deps (fastapi, Hypercorn, aioquic, …) AND needs a
+    patch to hypercorn (TLS-ASGI extension) — without them it never starts and
+    setup_class times out. Install + patch here (idempotent).
+    """
+    pav = sdk_dir / "src" / "tools" / "push_av_server"
+    req = pav / "requirements.txt"
+    if not req.exists():
+        return
+    log(f"Installing push-av-server requirements: {req.relative_to(sdk_dir)} ...")
+    subprocess.run([str(py), "-m", "pip", "install", "-r", str(req), "--quiet"], check=False)
+
+    patch = pav / "hypercorn.patch"
+    if not patch.exists():
+        return
+    # Apply the patch in hypercorn's install location (README uses `patch -d
+    # <Location>` at -p0). --forward makes it a no-op if already applied.
+    show = subprocess.run([str(py), "-m", "pip", "show", "hypercorn"],
+                          capture_output=True, text=True)
+    loc = ""
+    for line in show.stdout.splitlines():
+        if line.startswith("Location:"):
+            loc = line.split(":", 1)[1].strip()
+            break
+    if not loc:
+        log("⚠️  hypercorn not installed — cannot apply TLS patch (PAVST may fail).")
+        return
+    r = subprocess.run(f"patch -d '{loc}' -p0 --forward < '{patch}'",
+                       shell=True, capture_output=True, text=True)
+    out = (r.stdout + r.stderr).lower()
+    if r.returncode == 0:
+        log("Applied hypercorn TLS patch.")
+    elif "previously applied" in out or "already applied" in out or "ignoring" in out:
+        log("hypercorn TLS patch already applied.")
+    else:
+        log(f"⚠️  hypercorn patch may have failed: {r.stdout.strip()[:200]}")
 
 
 def main():
