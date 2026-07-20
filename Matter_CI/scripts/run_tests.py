@@ -780,8 +780,11 @@ class TestRunner:
                 dlog = dut_log.read_text(errors="replace")
             except OSError:
                 dlog = ""
+            # DUT log lines are wrapped in ANSI colour codes (e.g. "…]\x1b[0m") —
+            # strip them so the payload isn't followed by escape bytes.
+            dlog = re.sub(r"\x1b\[[0-9;]*m", "", dlog)
             if want_qr and not qr:
-                m = re.search(r"SetupQRCode:\s*\[?(MT:[^\]\s]+?)\]?\s*$", dlog, re.MULTILINE)
+                m = re.search(r"SetupQRCode:\s*\[?(MT:[^\]\s]+)\]?", dlog)
                 qr = m.group(1) if m else None
             if want_mc and not mc:
                 m = re.search(r"Manual pairing code:\s*\[?([0-9][0-9\- ]*[0-9])\]?", dlog)
