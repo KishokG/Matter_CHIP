@@ -179,9 +179,16 @@ def parse_python_command(raw: str) -> str:
     # Remove Note: suffix if on same line
     cmd = re.sub(r'\s*Note:.*$', '', cmd, flags=re.IGNORECASE).strip()
 
-    # Fix 4: Remove --PICS <path> placeholder — will be resolved at runtime
-    # The actual PICS path comes from build_config.yaml pics_file setting
-    cmd = re.sub(r'--PICS\s+\S+', '--PICS __PICS_PLACEHOLDER__', cmd).strip()
+    # Normalize the --PICS value to our runtime placeholder (the real PICS path
+    # comes from build_config at run time). The Sheet writes it several ways:
+    #   --PICS /real/path            (real path)
+    #   --PICS <PICS path>           (angle-bracket placeholder, may contain spaces)
+    #   --PICS<PICS File>            (NO space after --PICS)
+    # Consume the WHOLE value in every form so no fragment (e.g. "path>") leaks
+    # through as a stray argument (argparse: "unrecognized arguments").
+    cmd = re.sub(r'--PICS\s*<[^>]*>', '--PICS __PICS_PLACEHOLDER__', cmd)   # <placeholder>
+    cmd = re.sub(r'--PICS\s+\S+', '--PICS __PICS_PLACEHOLDER__', cmd)       # real path
+    cmd = cmd.strip()
 
     return cmd
 
