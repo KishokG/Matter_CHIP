@@ -22,6 +22,7 @@ import re
 import sys
 import json
 import signal
+import shlex
 import shutil
 import subprocess
 import time
@@ -711,15 +712,20 @@ class TestRunner:
                 else:
                     print("  [WARN] --PICS in command but pics_folder not set in config — removing --PICS flag")
 
-        if cmd.startswith("python3 "):
-            parts = cmd.split()
-            script_name = parts[1]
-            script_path = self.scripts_dir / script_name
-            if script_path.exists():
-                parts[1] = str(script_path)
+        # Split like a shell so QUOTED args are de-quoted (subprocess runs without
+        # a shell). Naive .split() would keep the literal quotes, e.g.
+        # --string-arg "th_server_app_path:..." → argparse "invalid str_named_arg".
+        try:
+            parts = shlex.split(cmd)
+        except ValueError:
+            parts = cmd.split()   # unbalanced quotes — best effort
+        if parts and parts[0] == "python3":
             parts[0] = str(self.venv_python)
-            return parts
-        return cmd.split()
+            if len(parts) > 1:
+                script_path = self.scripts_dir / parts[1]
+                if script_path.exists():
+                    parts[1] = str(script_path)
+        return parts
 
     def _uses_app_pipe(self, py_cmd: str) -> bool:
         """
