@@ -150,7 +150,7 @@ google_drive:
   # upload_test_results.py). Leave empty to reuse folder_id above — pruning of
   # result archives is name-scoped ("matter-ci-results-*"), so build bundles in
   # the same folder are never touched. Share the folder with the service account.
-  results_folder_id: ""
+  results_folder_id: "1NSH10PQiOlnuoLlG6x_sdk9Drl7uCVGG"
   
 # ============================================================
 # Google Sheets — Test Command Source

@@ -69,15 +69,24 @@ def drive_service(sa_key: str):
 
 
 def latest_bundle(service, folder_id: str) -> dict:
-    """Newest matter-sdk-*.tar.gz in the single Drive folder (by createdTime)."""
+    """Newest BUILD bundle (matter-sdk-*.tar.gz) in the Drive folder (by createdTime).
+
+    Must match build bundles ONLY. Test-result archives (matter-ci-results-*.tar.gz,
+    uploaded by upload_test_results.py) may share this folder — selecting one by
+    mistake gives a binary-less bundle and every test errors "not built". Drive's
+    query language has no NOT-contains, so we over-fetch .tar.gz then filter by name.
+    """
     files = service.files().list(
         q=f"'{folder_id}' in parents and trashed=false and name contains '.tar.gz'",
         fields="files(id,name,createdTime,size)",
         orderBy="createdTime desc",
     ).execute().get("files", [])
-    if not files:
-        die(f"No .tar.gz bundle found in Drive folder {folder_id}")
-    return files[0]
+    bundles = [f for f in files
+               if f["name"].startswith("matter-sdk-")
+               and not f["name"].startswith("matter-ci-results-")]
+    if not bundles:
+        die(f"No build bundle (matter-sdk-*.tar.gz) found in Drive folder {folder_id}")
+    return bundles[0]
 
 
 def download_file(service, file_id: str, dest: Path):

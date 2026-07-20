@@ -579,9 +579,12 @@ def upload_to_drive(cfg: dict, tar_path: Path, commit: str = "", branch: str = "
         f"Download: pip3 install gdown --break-system-packages && gdown {file_id}\n"
     )
 
-    # ── Prune: keep only the newest N bundle tarballs ─────────────────────
+    # ── Prune: keep only the newest N BUILD bundle tarballs ───────────────
+    # Scope to matter-sdk-* so test-result archives (matter-ci-results-*.tar.gz)
+    # that may share this folder are never counted or deleted by the build prune.
     bundles = [f for f in list_files_in_folder(service, folder_id)
-               if f["name"].endswith(".tar.gz")]   # oldest-first (createdTime)
+               if f["name"].startswith("matter-sdk-")
+               and f["name"].endswith(".tar.gz")]   # oldest-first (createdTime)
     if len(bundles) > keep_history:
         for f in bundles[:len(bundles) - keep_history]:
             delete_file(service, f["id"], f["name"])
