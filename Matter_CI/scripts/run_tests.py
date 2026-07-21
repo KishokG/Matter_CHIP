@@ -382,6 +382,16 @@ def apply_discriminator(cmd: str, value) -> str:
     return f"{cmd.rstrip()} --discriminator {value}"
 
 
+def is_controller_app(cmd: str) -> bool:
+    """True if the DUT command launches a CONTROLLER app rather than a
+    commissionable server. e.g. chip-camera-controller (WEBRTCR/WEBRTCP tests,
+    run as "interactive server") acts as the TH's controller and launches its own
+    peer app via --string-arg th_server_app_path. Controllers do NOT advertise
+    for commissioning, so --discriminator must NOT be injected (it's meaningless
+    and the app rejects/ignores it)."""
+    return bool(re.search(r"\bchip-camera-controller\b|\bcamera-controller\b", cmd))
+
+
 def set_cmd_flag(cmd: str, flag: str, value: str) -> str:
     """Replace-or-append `flag value` in a command string (e.g. --app-pipe)."""
     pat = re.compile(rf"{re.escape(flag)}(?:\s+|=)\S+")
@@ -490,10 +500,17 @@ class DUTManager:
             time.sleep(self.cfg["test_execution"].get("dut_settle_wait", 2))
 
         # Advertise the DUT on our configured discriminator (not the default 3840).
+        # EXCEPT controller apps (e.g. chip-camera-controller for WEBRTCR/WEBRTCP):
+        # they aren't commissionable devices and must NOT be launched with a
+        # --discriminator.
         disc = self.cfg["test_execution"].get("discriminator", "")
-        dut_cmd = apply_discriminator(dut_cmd, disc)
-        if disc not in (None, ""):
-            print(f"  [DUT] Using discriminator {disc}")
+        if is_controller_app(dut_cmd):
+            print("  [DUT] Controller app (chip-camera-controller) — "
+                  "not injecting --discriminator (not a commissionable device)")
+        else:
+            dut_cmd = apply_discriminator(dut_cmd, disc)
+            if disc not in (None, ""):
+                print(f"  [DUT] Using discriminator {disc}")
 
         # Replace ./binary-name with actual full path
         bin_match = re.search(r'\./([^\s]+)', dut_cmd)
