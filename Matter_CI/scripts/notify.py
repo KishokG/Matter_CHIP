@@ -605,8 +605,7 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
     if drive_link:
         drive_block = (
             f'<a href="{drive_link}" class="drive-btn" style="background:#1a5fa8">'
-            f'<span class="drive-title">📥 Download test results</span>'
-            f'<span class="drive-sub">HTML report + per-test logs · {drive_link}</span></a>')
+            f'<span class="drive-title">📥 Download test results</span></a>')
     else:
         drive_block = (
             '<div style="padding:12px;border:1px dashed #E5E7EB;border-radius:10px;'
@@ -645,8 +644,7 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
     .mono{{font-family:'Courier New',monospace}}
     .drive-btn{{display:block;border-radius:10px;padding:15px 20px;text-align:center;
                 text-decoration:none;margin-bottom:10px}}
-    .drive-title{{display:block;font-size:14px;font-weight:700;color:#fff;margin-bottom:4px}}
-    .drive-sub{{display:block;font-size:11px;color:rgba(255,255,255,0.75);word-break:break-all}}
+    .drive-title{{display:block;font-size:14px;font-weight:700;color:#fff}}
     .gh-btn{{display:block;background:#fff;border:1px solid #E5E7EB;border-radius:10px;
              padding:11px 20px;text-align:center;text-decoration:none}}
     .gh-text{{font-size:12px;color:#4B5563;font-weight:500}}

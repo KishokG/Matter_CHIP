@@ -1540,11 +1540,17 @@ def read_build_info() -> dict:
     return {}
 
 
-def generate_report(results: list[dict], cfg: dict) -> Path:
-    report_path = PROJECT_ROOT / cfg["test_execution"]["report_path"]
+def generate_report(results: list[dict], cfg: dict = None,
+                    report_path=None, build_info=None) -> Path:
+    # report_path / build_info can be passed explicitly to regenerate a report
+    # from an EXISTING run's test_results.json (see regenerate_report.py) without
+    # a live run. Falls back to the config / logs/build-info.json for a live run.
+    if report_path is None:
+        report_path = PROJECT_ROOT / cfg["test_execution"]["report_path"]
+    report_path = Path(report_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
-    bi          = read_build_info()
+    bi          = build_info if build_info is not None else read_build_info()
     bi_commit   = bi.get("commit_short") or bi.get("commit") or "unknown"
     bi_branch   = bi.get("branch", "unknown")
     bi_date     = bi.get("date", "")
@@ -1664,18 +1670,29 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
 
     # ---- Stat tiles (single row of 7) ----
     _TILES = [
-        ("t-total", "Total", total, "ALL"),
-        ("t-pass", "Passed", passed, "PASS"),
-        ("t-passw", "Pass*", pass_warn, "PASS*"),
-        ("t-fail", "Failed", failed, "FAIL"),
-        ("t-rerun", "Rerun", rerun, "RERUN"),
-        ("t-err", "Error", errors, "ERROR"),
-        ("t-cancel", "Cancelled", cancelled, "CANCEL"),
+        ("t-total", "Total", total, "ALL",
+         "Total test cases in this run. Click to clear the status filter."),
+        ("t-pass", "Passed", passed, "PASS",
+         "All steps executed and passed — clean result."),
+        ("t-passw", "Pass*", pass_warn, "PASS*",
+         "Partial — some steps skipped (PICS/feature-gated or an unmet precondition) "
+         "but enough passed to accept. See the Ctrl Log for each skip reason."),
+        ("t-fail", "Failed", failed, "FAIL",
+         "One or more test steps failed. Check the Reason column and the Ctrl Log."),
+        ("t-rerun", "Rerun", rerun, "RERUN",
+         "All steps skipped — PICS/feature-gated, unsupported feature, or another "
+         "issue. Check the Ctrl Log for the skip reasons."),
+        ("t-err", "Error", errors, "ERROR",
+         "Script crashed, timed out, or commissioning failed before steps ran. "
+         "Check the Ctrl Log for the traceback."),
+        ("t-cancel", "Cancelled", cancelled, "CANCEL",
+         "Run was cancelled (SIGTERM / GitHub Actions cancel). These TCs did not execute."),
     ]
     stat_tiles = "".join(
         f'<div class="tile {cls}" data-filter="{filt}" onclick="setStatus(\'{filt}\')">'
-        f'<div class="num mono">{val}</div><div class="lbl">{lbl}</div></div>'
-        for cls, lbl, val, filt in _TILES
+        f'<div class="num mono">{val}</div><div class="lbl">{lbl}</div>'
+        f'<div class="tip">{tip}</div></div>'
+        for cls, lbl, val, filt, tip in _TILES
     )
 
     # ---- Cluster multi-select checkboxes ----
@@ -1728,13 +1745,22 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     /* ---- Stat tiles (always one row of 7) ---- */
     .tiles { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; padding: 20px 32px; }
     .tile {
-      border-radius: 12px; padding: 15px 18px; cursor: pointer; border: 1px solid rgba(255,255,255,.05);
+      position: relative; border-radius: 12px; padding: 15px 18px; cursor: pointer; border: 1px solid rgba(255,255,255,.05);
       transition: transform .12s ease, box-shadow .12s ease; user-select: none;
     }
     .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16,24,40,.16); }
     .tile.active { outline: 2px solid rgba(255,255,255,.55); outline-offset: 1px; }
     .tile .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 32px; font-weight: 700; line-height: 1; }
     .tile .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; margin-top: 8px; color: rgba(255,255,255,.55); font-weight: 600; }
+    .tile .tip {
+      position: absolute; top: calc(100% + 8px); left: 12px; right: 12px; z-index: 60;
+      background: #0E1120; color: #e5e7eb; border: 1px solid #2a3143; border-radius: 8px;
+      padding: 9px 11px; font-size: 11px; line-height: 1.5; font-weight: 400; text-transform: none;
+      letter-spacing: 0; box-shadow: 0 10px 24px rgba(16,24,40,.28);
+      opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity .16s, transform .16s;
+    }
+    .tile .tip::after { content: ""; position: absolute; bottom: 100%; left: 24px; border: 6px solid transparent; border-bottom-color: #0E1120; }
+    .tile:hover .tip { opacity: 1; transform: translateY(0); }
     .t-total  { background: #1B2131; } .t-total .num  { color: #CBD5E1; }
     .t-pass   { background: #0F2A1D; } .t-pass .num   { color: #34D399; }
     .t-passw  { background: #12291F; } .t-passw .num  { color: #6EE7B7; }
