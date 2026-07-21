@@ -1691,10 +1691,10 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-      background: var(--bg); color: var(--ink); padding: 22px;
+      background: var(--bg); color: var(--ink); padding: 24px;
       -webkit-font-smoothing: antialiased;
     }
-    .wrap { max-width: 1280px; margin: 0 auto; }
+    .wrap { width: 100%; }
 
     /* ---- Header ---- */
     .header {
@@ -1705,13 +1705,27 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     .header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
     .header h1 { font-size: 1.45em; font-weight: 650; letter-spacing: -.2px; }
     .header .meta { font-size: .82em; opacity: .78; margin-top: 5px; }
-    .rate { min-width: 230px; flex: 1; max-width: 340px; }
-    .rate-top { display: flex; justify-content: space-between; font-size: .78em; opacity: .85; margin-bottom: 6px; }
-    .rate-pct { font-weight: 700; font-size: 1.05em; opacity: 1; }
-    .rate-bar { height: 9px; border-radius: 20px; background: rgba(255,255,255,.18); overflow: hidden; display: flex; }
-    .rate-fill-pass { height: 100%; background: linear-gradient(90deg,#22a559,#34d17f); }
-    .rate-fill-warn { height: 100%; background: #f0b429; }
-    .rate-fill-fail { height: 100%; background: #e0392b; }
+
+    /* ---- Full-width pass-rate bar (below header) ---- */
+    .ratebar {
+      background: var(--panel); border-radius: 12px; padding: 16px 20px 18px;
+      margin-bottom: 18px; box-shadow: var(--shadow);
+    }
+    .ratebar-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+    .ratebar-title { font-size: .82em; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+    .ratebar-pct { font-size: 1.5em; font-weight: 750; color: var(--ink); }
+    .ratebar-pct small { font-size: .5em; font-weight: 600; color: var(--muted); margin-left: 6px; letter-spacing: .3px; }
+    .ratebar-track {
+      height: 14px; border-radius: 20px; background: #eef1f6; overflow: hidden; display: flex;
+      box-shadow: inset 0 1px 2px rgba(16,24,40,.08);
+    }
+    .ratebar-track > div { height: 100%; transition: width .5s ease; }
+    .rf-pass { background: linear-gradient(90deg,#22a559,#34d17f); }
+    .rf-warn { background: linear-gradient(90deg,#e6a817,#f0b429); }
+    .rf-fail { background: linear-gradient(90deg,#e0392b,#f05545); }
+    .ratebar-legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 11px; font-size: .78em; color: var(--muted); }
+    .ratebar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .ratebar-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
     /* ---- Summary cards ---- */
     .summary { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 10px; margin-bottom: 18px; }
@@ -1788,8 +1802,8 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     .btn-fail { background: var(--fail); }
     .btn-pass { background: var(--pass); }
     .btn-rerun{ background: var(--rerun); }
-    .btn-clear { background:#fff; color:#374151; border:1px solid var(--line); }
-    .btn-clear:hover { background:#f3f4f6; }
+    .btn-clear { background:#fff; color:#374151; border:1px solid #cbd5e1; }
+    .btn-clear:hover { background:#eef2ff; border-color: var(--accent); color: var(--accent); filter:none; }
     #result-count { font-size: .82em; color: var(--muted); margin-left: auto; font-weight: 600; }
 
     /* ---- Table ---- */
@@ -1831,19 +1845,27 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
 <body>
  <div class="wrap">
   <div class="header">
-    <div class="header-top">
-      <div>
-        <h1>🔬 Matter CI — Test Report</h1>
-        <div class="meta">Generated: __RUN_META__</div>
-      </div>
-      <div class="rate">
-        <div class="rate-top"><span>Pass rate</span><span class="rate-pct">__PASS_PCT__%</span></div>
-        <div class="rate-bar">
-          <div class="rate-fill-pass" style="width: calc(__PASSED__ / __TOTALF__ * 100%)"></div>
-          <div class="rate-fill-warn" style="width: calc(__PASS_WARN__ / __TOTALF__ * 100%)"></div>
-          <div class="rate-fill-fail" style="width: calc((__FAILED__ + __ERRORS__ + __RERUN__ + __CANCELLED__) / __TOTALF__ * 100%)"></div>
-        </div>
-      </div>
+    <h1>🔬 Matter CI — Test Report</h1>
+    <div class="meta">Generated: __RUN_META__</div>
+  </div>
+
+  <div class="ratebar">
+    <div class="ratebar-top">
+      <span class="ratebar-title">Pass rate</span>
+      <span class="ratebar-pct">__PASS_PCT__%<small>__PASSTOTAL__ of __TOTAL__ passed</small></span>
+    </div>
+    <div class="ratebar-track">
+      <div class="rf-pass" style="width: calc(__PASSED__ / __TOTALF__ * 100%)"></div>
+      <div class="rf-warn" style="width: calc(__PASS_WARN__ / __TOTALF__ * 100%)"></div>
+      <div class="rf-fail" style="width: calc((__FAILED__ + __ERRORS__ + __RERUN__ + __CANCELLED__) / __TOTALF__ * 100%)"></div>
+    </div>
+    <div class="ratebar-legend">
+      <span><i style="background:#22a559"></i>Passed __PASSED__</span>
+      <span><i style="background:#1e8449"></i>Pass* __PASS_WARN__</span>
+      <span><i style="background:#e0392b"></i>Failed __FAILED__</span>
+      <span><i style="background:#ea7317"></i>Rerun __RERUN__</span>
+      <span><i style="background:#64748b"></i>Error __ERRORS__</span>
+      <span><i style="background:#8b46b8"></i>Cancelled __CANCELLED__</span>
     </div>
   </div>
 
@@ -1909,10 +1931,6 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       <span class="clr" id="searchClr" onclick="clearSearch()">✕</span>
     </div>
 
-    <button class="filter-btn btn-all"   onclick="setStatus('ALL')">All</button>
-    <button class="filter-btn btn-fail"  onclick="setStatus('FAIL')">Failed</button>
-    <button class="filter-btn btn-pass"  onclick="setStatus('PASS')">Passed</button>
-    <button class="filter-btn btn-rerun" onclick="setStatus('RERUN')">Rerun</button>
     <button class="filter-btn btn-clear" onclick="clearFilters()">↺ Clear filters</button>
 
     <span id="result-count"></span>
@@ -2040,6 +2058,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     html = (_TEMPLATE
             .replace("__RUN_META__", f"{run_time}{build_meta}")
             .replace("__PASS_PCT__", str(pass_pct))
+            .replace("__PASSTOTAL__", str(passed + pass_warn))
             .replace("__TOTALF__", str(total if total else 1))
             .replace("__TOTAL__", str(total))
             .replace("__PASSED__", str(passed))
