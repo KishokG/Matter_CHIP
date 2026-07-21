@@ -1016,15 +1016,28 @@ class TestRunner:
                       f"DUT log after {wait_s}s — using the Sheet value (commissioning may fail).")
         return py_cmd
 
-    def _factory_reset_dut(self, dut, dut_cmd, dut_log, reason, note):
-        """Stop the DUT, wipe its KVS (via the command's `rm -rf /tmp/chip_*`) and
-        relaunch it fresh in commissioning mode, so post-reset steps (e.g.
-        TC-DA-1.1 step 4 re-PASE) see a device back in commissioning mode."""
-        note(f"[RESET] {reason} — resetting DUT (stop → wipe KVS → relaunch fresh)")
+    def _restart_dut(self, dut, dut_cmd, dut_log, mode, note):
+        """Relaunch the DUT for a restart-flag-file / prompt request. Two modes:
+
+        • 'restart'/'reboot'  → REBOOT: PRESERVE persisted data (fabrics, allocated
+          streams). Required by persistence tests (TC-AVSM-2.18/2.19/2.20 step 13
+          reboot → step 15 verify the stream survived). We strip the command's
+          `rm -rf /tmp/chip_*` so the KVS is kept across the relaunch.
+        • 'factory reset*'    → FACTORY RESET: WIPE the KVS (fresh, uncommissioned)
+          so re-commissioning tests (TC-DA-1.1 step 4 re-PASE) work. Keeps the
+          command's `rm -rf /tmp/chip_*`.
+        """
+        reboot = mode.lower().startswith(("restart", "reboot"))
+        if reboot:
+            # Drop the leading `rm -rf <path> &&` so persisted data survives.
+            launch_cmd = re.sub(r"^\s*rm\s+-rf\s+\S+\s*&&\s*", "", dut_cmd)
+            note(f"[RESET] '{mode}' → REBOOT (preserve persisted data) — relaunching")
+        else:
+            launch_cmd = dut_cmd     # keeps `rm -rf /tmp/chip_*` → wipes KVS
+            note(f"[RESET] '{mode}' → FACTORY RESET (wipe KVS) — relaunching fresh")
         dut.stop()
-        ok, err = dut.launch(dut_cmd, dut_log, append=True)
-        note("[RESET] DUT relaunched fresh (commissioning mode)" if ok
-             else f"[RESET] DUT relaunch FAILED: {err}")
+        ok, err = dut.launch(launch_cmd, dut_log, append=True)
+        note("[RESET] DUT back up" if ok else f"[RESET] DUT relaunch FAILED: {err}")
 
     def _run_python_prompted(self, cmd_parts, log_path: Path, header_lines: list,
                              dut: "DUTManager", dut_cmd: str, dut_log: Path,
@@ -1091,8 +1104,7 @@ class TestRunner:
                     mode = Path(restart_flag).read_text(errors="replace").strip()
                 except OSError:
                     mode = "factory reset"
-                self._factory_reset_dut(dut, dut_cmd, dut_log,
-                                        f"restart-flag-file '{mode}'", _note)
+                self._restart_dut(dut, dut_cmd, dut_log, mode or "factory reset", _note)
                 try:
                     os.remove(restart_flag)
                 except OSError:
@@ -1108,9 +1120,10 @@ class TestRunner:
             # (2) stdin prompt line: ">>> <msg> (press enter to confirm)".
             if "press enter to confirm" in line:
                 low = line.lower()
-                if "factory reset" in low or "reboot" in low:
-                    self._factory_reset_dut(dut, dut_cmd, dut_log,
-                                            "stdin factory-reset/reboot prompt", _note)
+                if "factory reset" in low:
+                    self._restart_dut(dut, dut_cmd, dut_log, "factory reset", _note)
+                elif "reboot" in low or "restart" in low:
+                    self._restart_dut(dut, dut_cmd, dut_log, "restart", _note)
                 else:
                     _note("[PROMPT] Operator prompt auto-confirmed (Enter)")
                 try:
