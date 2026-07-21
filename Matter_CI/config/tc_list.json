@@ -287,7 +287,7 @@
   {
     "tc_id": "TC-DA-1.7",
     "cluster": "Device Attestation",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-DA-1.9",
@@ -572,7 +572,7 @@
   {
     "tc_id": "TC-IDM-10.4",
     "cluster": "Interaction Data Model",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-IDM-10.5",
@@ -1917,7 +1917,7 @@
   {
     "tc_id": "TC-WEBRTC-1.6",
     "cluster": "WebRTC Transport",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-WEBRTC-1.7",

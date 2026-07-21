@@ -26,6 +26,8 @@ import shlex
 import shutil
 import subprocess
 import time
+import threading
+import queue
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -481,10 +483,12 @@ class DUTManager:
         )
 
 
-    def launch(self, dut_cmd: str, log_path: Path) -> tuple[bool, str]:
+    def launch(self, dut_cmd: str, log_path: Path, append: bool = False) -> tuple[bool, str]:
         """
         Launch DUT app in background.
         Returns (True, "") on success, (False, error_reason) on failure.
+        append=True keeps the existing DUT log (used for a mid-test factory-reset
+        relaunch, so the pre- and post-reset logs are both preserved).
         """
         global _ACTIVE_DUT
         _ACTIVE_DUT = self
@@ -546,7 +550,11 @@ class DUTManager:
         print(f"  [DUT] Launching (full): {full_cmd}")
 
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        self._log_file = open(log_path, 'w')
+        self._log_file = open(log_path, 'a' if append else 'w')
+        if append:
+            self._log_file.write("\n[CI] ===== DUT factory-reset relaunch "
+                                 "(fresh KVS, back in commissioning mode) =====\n")
+            self._log_file.flush()
         self._proc = subprocess.Popen(
             full_cmd,
             shell=True,
@@ -672,6 +680,7 @@ class TestRunner:
         self.apply_ci_test_args = bool(cfg["test_execution"].get("apply_ci_test_args", True))
         self._ci_header_cache: dict[str, str] = {}   # script name -> CI header text
         self._sdk_app_map_cache = None               # ${ENV_KEY} -> binary path
+        self._prompt_script_cache: dict[str, bool] = {}  # script -> uses wait_for_user_input?
 
     def _ci_header(self, script_name: str) -> str:
         """The test's '=== BEGIN CI TEST ARGUMENTS ===' block, comment-stripped (cached)."""
@@ -838,6 +847,21 @@ class TestRunner:
         # from the Sheet or a CI-header arg — the SDK runner would substitute them.
         cmd = self._resolve_sdk_placeholders(cmd)
 
+        # Resolve SDK-root-relative path string-args to real paths under the SDK
+        # checkout. The SDK CI runs from the SDK root, so its headers use paths like
+        # cd_cert_dir:credentials/development/cd-certs; we run from src/python_testing,
+        # and the Sheet may even carry a leading-slash absolute (/credentials/...)
+        # that resolves to the filesystem root. Either way the dir isn't found
+        # (TC_DA_1_2: "FileNotFoundError: /credentials/development/cd-certs").
+        for arg in ("cd_cert_dir", "paa_trust_store_path"):
+            am = re.search(rf"{arg}:(?:'|\")?([^\s'\"]+)", cmd)
+            if am and not Path(am.group(1)).is_dir():
+                cand = self.sdk_dir / am.group(1).lstrip("/")
+                if cand.is_dir():
+                    cmd = re.sub(rf"{arg}:(?:'|\")?[^\s'\"]+(?:'|\")?",
+                                 f"{arg}:{cand}", cmd)
+                    print(f"  [CI-ARG] {arg} → {cand} (resolved against SDK)")
+
         # Override the discriminator so the controller commissions to the same
         # value the DUT advertises on (see DUTManager.launch). For self-launching
         # tests (JFDS) this becomes discriminators[0], which they pass to their
@@ -993,6 +1017,112 @@ class TestRunner:
                       f"DUT log after {wait_s}s — using the Sheet value (commissioning may fail).")
         return py_cmd
 
+    def _script_needs_prompt(self, py_cmd: str) -> bool:
+        """True if the test calls wait_for_user_input — an operator prompt such as
+        a mid-test 'Factory reset DUT' step (TC-DA-1.1) or 'manually trigger …'
+        (TC-CGEN-2.8). These block on stdin, so we must run them interactively:
+        answer each prompt and, when it asks for a factory reset, actually reset
+        the DUT. Cached per script."""
+        m = re.search(r"\b(TC_\w+\.py)\b", py_cmd)
+        if not m:
+            return False
+        name = m.group(1)
+        if name not in self._prompt_script_cache:
+            try:
+                src = (self.scripts_dir / name).read_text(errors="replace")
+                self._prompt_script_cache[name] = "wait_for_user_input" in src
+            except OSError:
+                self._prompt_script_cache[name] = False
+        return self._prompt_script_cache[name]
+
+    def _run_python_prompted(self, cmd_parts, log_path: Path, header_lines: list,
+                             dut: "DUTManager", dut_cmd: str, dut_log: Path
+                             ) -> tuple[int, bool]:
+        """Run the python test with a live stdin/stdout pipe so operator prompts
+        (wait_for_user_input) are answered unattended. On a 'factory reset' prompt
+        we FACTORY-RESET the DUT (stop → wipe KVS via the command's `rm -rf
+        /tmp/chip_*` → relaunch fresh in commissioning mode) before confirming, so
+        post-reset steps (e.g. TC-DA-1.1 step 4 re-PASE) see the device back in
+        commissioning mode. Any other prompt is auto-confirmed with Enter.
+        Returns (returncode, timed_out).
+        """
+        lf = open(log_path, "w")
+        for ln in header_lines:
+            lf.write(ln + "\n")
+        lf.write("[CI] " + "-" * 70 + "\n\n")
+        lf.flush()
+        log_lock = threading.Lock()
+
+        proc = subprocess.Popen(
+            cmd_parts, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1,
+            cwd=str(self.scripts_dir), preexec_fn=os.setsid,
+            env={**os.environ,
+                 "PATH": f"{self.venv_python.parent}:{os.environ.get('PATH','')}"},
+        )
+
+        q: "queue.Queue" = queue.Queue()
+
+        def _reader():
+            for line in proc.stdout:
+                with log_lock:
+                    lf.write(line)
+                    lf.flush()
+                q.put(line)
+            q.put(None)                                  # EOF sentinel
+
+        reader = threading.Thread(target=_reader, daemon=True)
+        reader.start()
+
+        def _note(msg):
+            with log_lock:
+                lf.write(f"\n[CI] {msg}\n")
+                lf.flush()
+            print(f"  {msg}")
+
+        deadline = time.time() + self.timeout
+        timed_out = False
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                timed_out = True
+                break
+            try:
+                line = q.get(timeout=min(remaining, 1.0))
+            except queue.Empty:
+                continue
+            if line is None:
+                break                                    # test process finished
+            # A prompt line looks like: ">>> <msg> (press enter to confirm)".
+            if "press enter to confirm" in line:
+                if "factory reset" in line.lower():
+                    _note("[PROMPT] Factory-reset requested — resetting DUT "
+                          "(stop → wipe KVS → relaunch fresh in commissioning mode)")
+                    dut.stop()
+                    ok, err = dut.launch(dut_cmd, dut_log, append=True)
+                    _note("[PROMPT] DUT relaunched fresh — confirming" if ok
+                          else f"[PROMPT] DUT relaunch FAILED: {err} — confirming anyway")
+                else:
+                    _note("[PROMPT] Operator prompt auto-confirmed (Enter)")
+                try:
+                    proc.stdin.write("\n")
+                    proc.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    pass
+
+        if timed_out:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+            with log_lock:
+                lf.write(f"\n\n[CI] TIMEOUT after {self.timeout}s\n")
+                lf.flush()
+        rc = proc.wait()
+        reader.join(timeout=5)
+        lf.close()
+        return rc, timed_out
+
     def _run_attempt(self, tc: dict, dut: DUTManager,
                      attempt: int, log_path: Path, dut_log: Path) -> tuple:
         """Single test attempt. Returns (status, counts, reason, elapsed)."""
@@ -1094,27 +1224,45 @@ class TestRunner:
         executed_py  = " ".join(str(p) for p in cmd_parts)
         print(f"  [TEST] Running (full): {executed_py}")
 
+        # Header lines recorded at the TOP of the Ctrl Log so the exact executed
+        # commands are visible when you open it from the report.
+        header = [f"[CI] Executed DUT command    : {executed_dut}",
+                  f"[CI] Executed Python command : {executed_py}"]
         try:
-            with open(log_path, "w") as lf:
-                # Record the exact commands at the TOP of the Ctrl Log so they're
-                # visible when you open it from the report.
-                lf.write(f"[CI] Executed DUT command    : {executed_dut}\n")
-                lf.write(f"[CI] Executed Python command : {executed_py}\n")
-                lf.write("[CI] " + "-" * 70 + "\n\n")
-                lf.flush()
-                proc = subprocess.run(
-                    cmd_parts,
-                    stdout=lf,
-                    stderr=subprocess.STDOUT,
-                    timeout=self.timeout,
-                    cwd=str(self.scripts_dir),
-                    env={**os.environ,
-                         "PATH": f"{self.venv_python.parent}:{os.environ.get('PATH','')}"},
-                )
-            log_text  = log_path.read_text(errors="replace")
-            status, counts, reason = parse_result(
-                log_text, exit_code=proc.returncode,
-                pass_threshold=self.pass_threshold)
+            # Interactive path: tests with wait_for_user_input (e.g. TC-DA-1.1's
+            # 'Factory reset DUT' step) block on stdin. Run them with a live pipe
+            # so we answer prompts and factory-reset the DUT when asked. Only when
+            # we actually launched a DUT (a reset needs an app to relaunch).
+            if has_dut_app and self._script_needs_prompt(py_cmd):
+                print("  [TEST] Interactive mode — operator prompts "
+                      "(factory-reset/confirm) handled automatically")
+                rc, timed_out = self._run_python_prompted(
+                    cmd_parts, log_path, header, dut, dut_cmd, dut_log)
+                if timed_out:
+                    status, counts, reason = ERROR, {}, f"Test timed out after {self.timeout}s"
+                else:
+                    log_text = log_path.read_text(errors="replace")
+                    status, counts, reason = parse_result(
+                        log_text, exit_code=rc, pass_threshold=self.pass_threshold)
+            else:
+                with open(log_path, "w") as lf:
+                    for ln in header:
+                        lf.write(ln + "\n")
+                    lf.write("[CI] " + "-" * 70 + "\n\n")
+                    lf.flush()
+                    proc = subprocess.run(
+                        cmd_parts,
+                        stdout=lf,
+                        stderr=subprocess.STDOUT,
+                        timeout=self.timeout,
+                        cwd=str(self.scripts_dir),
+                        env={**os.environ,
+                             "PATH": f"{self.venv_python.parent}:{os.environ.get('PATH','')}"},
+                    )
+                log_text  = log_path.read_text(errors="replace")
+                status, counts, reason = parse_result(
+                    log_text, exit_code=proc.returncode,
+                    pass_threshold=self.pass_threshold)
 
         except subprocess.TimeoutExpired:
             status, counts, reason = ERROR, {}, f"Test timed out after {self.timeout}s"
