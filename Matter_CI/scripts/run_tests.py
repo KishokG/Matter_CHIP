@@ -680,7 +680,6 @@ class TestRunner:
         self.apply_ci_test_args = bool(cfg["test_execution"].get("apply_ci_test_args", True))
         self._ci_header_cache: dict[str, str] = {}   # script name -> CI header text
         self._sdk_app_map_cache = None               # ${ENV_KEY} -> binary path
-        self._prompt_script_cache: dict[str, bool] = {}  # script -> uses wait_for_user_input?
 
     def _ci_header(self, script_name: str) -> str:
         """The test's '=== BEGIN CI TEST ARGUMENTS ===' block, comment-stripped (cached)."""
@@ -1017,33 +1016,29 @@ class TestRunner:
                       f"DUT log after {wait_s}s — using the Sheet value (commissioning may fail).")
         return py_cmd
 
-    def _script_needs_prompt(self, py_cmd: str) -> bool:
-        """True if the test calls wait_for_user_input — an operator prompt such as
-        a mid-test 'Factory reset DUT' step (TC-DA-1.1) or 'manually trigger …'
-        (TC-CGEN-2.8). These block on stdin, so we must run them interactively:
-        answer each prompt and, when it asks for a factory reset, actually reset
-        the DUT. Cached per script."""
-        m = re.search(r"\b(TC_\w+\.py)\b", py_cmd)
-        if not m:
-            return False
-        name = m.group(1)
-        if name not in self._prompt_script_cache:
-            try:
-                src = (self.scripts_dir / name).read_text(errors="replace")
-                self._prompt_script_cache[name] = "wait_for_user_input" in src
-            except OSError:
-                self._prompt_script_cache[name] = False
-        return self._prompt_script_cache[name]
+    def _factory_reset_dut(self, dut, dut_cmd, dut_log, reason, note):
+        """Stop the DUT, wipe its KVS (via the command's `rm -rf /tmp/chip_*`) and
+        relaunch it fresh in commissioning mode, so post-reset steps (e.g.
+        TC-DA-1.1 step 4 re-PASE) see a device back in commissioning mode."""
+        note(f"[RESET] {reason} — resetting DUT (stop → wipe KVS → relaunch fresh)")
+        dut.stop()
+        ok, err = dut.launch(dut_cmd, dut_log, append=True)
+        note("[RESET] DUT relaunched fresh (commissioning mode)" if ok
+             else f"[RESET] DUT relaunch FAILED: {err}")
 
     def _run_python_prompted(self, cmd_parts, log_path: Path, header_lines: list,
-                             dut: "DUTManager", dut_cmd: str, dut_log: Path
-                             ) -> tuple[int, bool]:
-        """Run the python test with a live stdin/stdout pipe so operator prompts
-        (wait_for_user_input) are answered unattended. On a 'factory reset' prompt
-        we FACTORY-RESET the DUT (stop → wipe KVS via the command's `rm -rf
-        /tmp/chip_*` → relaunch fresh in commissioning mode) before confirming, so
-        post-reset steps (e.g. TC-DA-1.1 step 4 re-PASE) see the device back in
-        commissioning mode. Any other prompt is auto-confirmed with Enter.
+                             dut: "DUTManager", dut_cmd: str, dut_log: Path,
+                             restart_flag: str = None) -> tuple[int, bool]:
+        """Run the python test with a live pipe so it runs unattended:
+
+        1) restart-flag-file (SDK CI mechanism): a test that calls
+           request_device_factory_reset()/reboot() WRITES `restart_flag` and polls
+           for its removal. We detect the file, factory-reset the DUT, and delete
+           it — exactly what the SDK's own test runner does (TC-DA-1.1 step 3).
+        2) stdin prompts (wait_for_user_input fallback / other operator prompts):
+           a 'factory reset' prompt also triggers a reset; any other prompt is
+           auto-confirmed with Enter.
+
         Returns (returncode, timed_out).
         """
         lf = open(log_path, "w")
@@ -1087,21 +1082,35 @@ class TestRunner:
             if remaining <= 0:
                 timed_out = True
                 break
+
+            # (1) restart-flag-file: the test wrote it and is polling for removal.
+            # Reset the DUT, then delete the flag to unblock the test (which then
+            # continues once the freshly-reset DUT is back up).
+            if restart_flag and os.path.exists(restart_flag):
+                try:
+                    mode = Path(restart_flag).read_text(errors="replace").strip()
+                except OSError:
+                    mode = "factory reset"
+                self._factory_reset_dut(dut, dut_cmd, dut_log,
+                                        f"restart-flag-file '{mode}'", _note)
+                try:
+                    os.remove(restart_flag)
+                except OSError:
+                    pass
+                continue
+
             try:
-                line = q.get(timeout=min(remaining, 1.0))
+                line = q.get(timeout=min(remaining, 0.5))
             except queue.Empty:
                 continue
             if line is None:
                 break                                    # test process finished
-            # A prompt line looks like: ">>> <msg> (press enter to confirm)".
+            # (2) stdin prompt line: ">>> <msg> (press enter to confirm)".
             if "press enter to confirm" in line:
-                if "factory reset" in line.lower():
-                    _note("[PROMPT] Factory-reset requested — resetting DUT "
-                          "(stop → wipe KVS → relaunch fresh in commissioning mode)")
-                    dut.stop()
-                    ok, err = dut.launch(dut_cmd, dut_log, append=True)
-                    _note("[PROMPT] DUT relaunched fresh — confirming" if ok
-                          else f"[PROMPT] DUT relaunch FAILED: {err} — confirming anyway")
+                low = line.lower()
+                if "factory reset" in low or "reboot" in low:
+                    self._factory_reset_dut(dut, dut_cmd, dut_log,
+                                            "stdin factory-reset/reboot prompt", _note)
                 else:
                     _note("[PROMPT] Operator prompt auto-confirmed (Enter)")
                 try:
@@ -1154,6 +1163,7 @@ class TestRunner:
         # has no `./app` for us to launch (and launching one would collide). Detect
         # that and skip our DUT launch + discriminator override.
         has_dut_app = bool(re.search(r"\./\S+", dut_cmd))
+        safe = re.sub(r"[^A-Za-z0-9_]", "_", tc_id)
 
         # App-pipe: for tests that drive DUT state via write_to_app_pipe, inject a
         # MATCHING --app-pipe into BOTH the DUT app and the python command (SDK CI
@@ -1162,12 +1172,27 @@ class TestRunner:
         # so the DUT's own `rm -rf /tmp/chip_*` + our cleanup wipe it.
         app_pipe = None
         if has_dut_app and self._uses_app_pipe(py_cmd):
-            safe = re.sub(r"[^A-Za-z0-9_]", "_", tc_id)
             app_pipe = f"/tmp/chip_apppipe_{safe}"
             dut_cmd  = set_cmd_flag(dut_cmd, "--app-pipe", app_pipe)
             py_cmd   = set_cmd_flag(py_cmd, "--app-pipe", app_pipe)
             # (--PICS already ensured above for every test)
             print(f"  [PIPE] app-pipe driven (CI-simulated DUT state) → {app_pipe}")
+
+        # Factory-reset / reboot orchestration — the SDK's CI mechanism. Passing
+        # --restart-flag-file makes request_device_factory_reset()/reboot() (e.g.
+        # TC-DA-1.1 step 3) WRITE a flag file and poll for its removal, instead of
+        # prompting on stdin. Our interactive runner monitors the flag, factory-
+        # resets the DUT (stop → wipe KVS → relaunch fresh in commissioning mode),
+        # then deletes it to unblock the test. The path is OUTSIDE /tmp/chip_* so
+        # the DUT's own `rm -rf /tmp/chip_*` can't delete it early (which would
+        # unblock the test before the freshly-reset DUT is back up). Harmless when
+        # a test never resets — the flag is simply never created.
+        restart_flag = None
+        if has_dut_app:
+            restart_flag = f"/tmp/matterci_restart_{safe}"
+            if "--restart-flag-file" not in py_cmd:
+                py_cmd = f"{py_cmd.rstrip()} --restart-flag-file {restart_flag}"
+            subprocess.run(f"rm -f '{restart_flag}' 2>/dev/null || true", shell=True)
 
         self._clean_storage()
         start = time.time()
@@ -1229,15 +1254,18 @@ class TestRunner:
         header = [f"[CI] Executed DUT command    : {executed_dut}",
                   f"[CI] Executed Python command : {executed_py}"]
         try:
-            # Interactive path: tests with wait_for_user_input (e.g. TC-DA-1.1's
-            # 'Factory reset DUT' step) block on stdin. Run them with a live pipe
-            # so we answer prompts and factory-reset the DUT when asked. Only when
-            # we actually launched a DUT (a reset needs an app to relaunch).
-            if has_dut_app and self._script_needs_prompt(py_cmd):
-                print("  [TEST] Interactive mode — operator prompts "
-                      "(factory-reset/confirm) handled automatically")
+            # DUT tests run through the interactive runner: it tees output and
+            # enforces the timeout exactly like subprocess.run, but ALSO answers
+            # operator prompts (wait_for_user_input) at RUNTIME and factory-resets
+            # the DUT when a test asks (e.g. TC-DA-1.1 step 3). We detect prompts
+            # from the "(press enter to confirm)" marker rather than scanning the
+            # source (unreliable — some tests call the prompt via a shared helper).
+            # Safe as the default: no python_testing test reads stdin except via
+            # wait_for_user_input, which always prints that marker first. No-DUT
+            # self-orchestrating tests keep the plain path (nothing to reset).
+            if has_dut_app:
                 rc, timed_out = self._run_python_prompted(
-                    cmd_parts, log_path, header, dut, dut_cmd, dut_log)
+                    cmd_parts, log_path, header, dut, dut_cmd, dut_log, restart_flag)
                 if timed_out:
                     status, counts, reason = ERROR, {}, f"Test timed out after {self.timeout}s"
                 else:
@@ -1275,6 +1303,8 @@ class TestRunner:
         finally:
             dut.stop()
             self._clean_storage()
+            if restart_flag:
+                subprocess.run(f"rm -f '{restart_flag}' 2>/dev/null || true", shell=True)
 
         # Record whether leftover DUT(s) had to be killed before this attempt —
         # surfaced in the report/summary so kill-races are visible. (Only when we
