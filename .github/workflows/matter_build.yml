@@ -524,10 +524,17 @@ jobs:
   run-tests:
     name: Run Tests
     runs-on: [self-hosted, rpi]
-    needs: fetch-tests
+    # MUST wait for upload-artifacts, not just fetch-tests: prepare_rpi_tests.py
+    # downloads the newest build bundle from Drive, so the FRESH bundle has to be
+    # uploaded first — otherwise the tests run against the PREVIOUS run's bundle
+    # (wrong/old SDK commit). For test-only runs upload-artifacts is skipped (no
+    # build), and we intentionally use the existing latest bundle on Drive.
+    needs: [fetch-tests, upload-artifacts]
     if: |
       always() &&
-      needs.fetch-tests.result == 'success'
+      needs.fetch-tests.result == 'success' &&
+      (needs.upload-artifacts.result == 'success' ||
+       needs.upload-artifacts.result == 'skipped')
     timeout-minutes: 21600
 
     steps:
