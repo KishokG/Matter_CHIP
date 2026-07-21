@@ -184,6 +184,10 @@ jobs:
     # since 'plan' resolves cron → SCHEDULE_PIPELINE and manual → the input).
     if: needs.plan.outputs.pipeline != 'test-only'
     timeout-minutes: 21600
+    outputs:
+      # Full SHA of the commit just built — run-tests passes it to
+      # prepare_rpi_tests.py to assert it downloaded THIS build's bundle.
+      commit: ${{ steps.buildcommit.outputs.commit }}
 
     steps:
       - name: Checkout repo
@@ -312,6 +316,19 @@ jobs:
           cp "${OUTPUT_DIR}/build_summary.md"  artifacts/ 2>/dev/null || true
           cp "${OUTPUT_DIR}/build-info.json"   artifacts/ 2>/dev/null || true
           ls -R artifacts/ || true
+
+      - name: Expose build commit
+        id: buildcommit
+        if: always()
+        run: |
+          # Full SHA the container recorded for this build → job output, so
+          # run-tests can assert the downloaded bundle matches THIS build.
+          COMMIT=""
+          if [[ -f artifacts/build-info.json ]]; then
+            COMMIT=$(python3 -c "import json;print(json.load(open('artifacts/build-info.json')).get('commit',''))" 2>/dev/null || echo "")
+          fi
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "Build commit: ${COMMIT:-<unknown>}"
 
       - name: Upload build summary and error logs
         if: always()
@@ -529,7 +546,7 @@ jobs:
     # uploaded first — otherwise the tests run against the PREVIOUS run's bundle
     # (wrong/old SDK commit). For test-only runs upload-artifacts is skipped (no
     # build), and we intentionally use the existing latest bundle on Drive.
-    needs: [fetch-tests, upload-artifacts]
+    needs: [build, fetch-tests, upload-artifacts]
     if: |
       always() &&
       needs.fetch-tests.result == 'success' &&
@@ -561,8 +578,11 @@ jobs:
           pip3 install google-auth google-api-python-client \
             --break-system-packages --quiet
 
+          # --expected-commit: assert the downloaded bundle is THIS run's build.
+          # Empty on test-only runs (build skipped) → no check, uses latest bundle.
           python3 Matter_CI/scripts/prepare_rpi_tests.py \
-            --config Matter_CI/config/build_config.yaml
+            --config Matter_CI/config/build_config.yaml \
+            --expected-commit "${{ needs.build.outputs.commit }}"
 
           rm -f "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
 

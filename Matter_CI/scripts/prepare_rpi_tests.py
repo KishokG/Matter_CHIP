@@ -357,6 +357,11 @@ def main():
     ap.add_argument("--config", default=str(PROJECT_ROOT / "config" / "build_config.yaml"))
     ap.add_argument("--workdir", default=str(PROJECT_ROOT / "logs" / "test_bundle"),
                     help="Where to download + extract the bundle")
+    ap.add_argument("--expected-commit", default="",
+                    help="If set, assert the downloaded bundle was built at this "
+                         "commit (from the build job) — fail loudly on mismatch so "
+                         "we never test a stale/wrong bundle. Empty = no check "
+                         "(e.g. test-only runs that use the existing latest bundle).")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
@@ -369,6 +374,24 @@ def main():
 
     bundle_dir = download_and_extract(cfg, Path(args.workdir))
     commit = read_commit(bundle_dir)
+
+    # Belt-and-suspenders: verify the downloaded bundle is the one THIS run built.
+    # The job dependency (run-tests needs upload-artifacts) already guarantees the
+    # fresh bundle is on Drive first; this catches any residual mismatch (e.g. a
+    # failed/partial upload leaving an older bundle newest) instead of silently
+    # testing the wrong SDK commit. Prefix-compare so short vs full SHA both work.
+    expected = (args.expected_commit or "").strip()
+    if expected:
+        if not commit:
+            die(f"Bundle has no commit in build-info.json, but this run built "
+                f"{expected[:9]} — refusing to test an unidentifiable bundle.")
+        if not (commit.startswith(expected) or expected.startswith(commit)):
+            die(f"Bundle commit mismatch — downloaded bundle was built at "
+                f"{commit[:9]}, but THIS run built {expected[:9]}. The Drive "
+                f"upload of the fresh bundle likely didn't complete before "
+                f"download. Refusing to test a stale/wrong SDK commit.")
+        log(f"✅ Bundle commit verified: {commit[:9]} matches the build.")
+
     checkout_sdk(sdk_dir, commit)
     place_binaries(cfg, sdk_dir, bundle_dir)
     install_wheels(cfg, sdk_dir, bundle_dir)
