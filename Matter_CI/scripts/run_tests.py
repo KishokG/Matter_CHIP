@@ -215,7 +215,17 @@ def parse_result(log_text: str, exit_code: int = 0,
         return status, step_counts, reason
 
     # ── Signal 2 — Commissioning / pairing failure ────────────────────────────
-    if re.search(
+    # The authoritative outcome is the mobly summary. Some tests (e.g. TC-CGEN-2.4)
+    # DELIBERATELY drive commissioning into failure states ("Failed to commission
+    # … UNSUPPORTED_ACCESS") as part of the procedure and still PASS — so only
+    # treat these log lines as a real failure when the run did NOT pass cleanly.
+    # Without this guard, such tests are mis-flagged ERROR on every attempt (and
+    # needlessly commissioning-retried) even though mobly reports Passed, Failed 0.
+    passed_cleanly = re.search(
+        r"Test results:\s*Error\s+0,\s*Executed\s+[1-9]\d*,\s*"
+        r"Failed\s+0,\s*Passed\s+[1-9]\d*",
+        log_text, re.IGNORECASE)
+    if not passed_cleanly and re.search(
             r"CommissioningError|Failed to commission|"
             r"Commissioning complete failed|"
             r"CHIP_ERROR_CONNECTION_ABORTED|"
@@ -655,6 +665,17 @@ class TestRunner:
         if ek and "--enable-key" not in dut_cmd:
             dut_cmd = set_cmd_flag(dut_cmd, "--enable-key", ek.group(1))
             print(f"  [DUT] +--enable-key (test event triggers) from CI header")
+        # 1b) python per-test timeout. Some tests (e.g. TC-CADMIN window-timing,
+        # long failsafe/OTA tests) monitor a full commissioning window and declare
+        # a --timeout in their CI header FAR larger than the framework default
+        # (90s). Without it the test is cancelled mid-run (asyncio TimeoutError →
+        # ERROR). Inject the header's value when the Sheet didn't set one. First
+        # match = run1's value (the primary run), which is the right one for the
+        # main test in a multi-run header.
+        tm = re.search(r"--timeout\s+(\d+)", hdr)
+        if tm and not re.search(r"--timeout\b", py_cmd):
+            py_cmd = f"{py_cmd.rstrip()} --timeout {tm.group(1)}"
+            print(f"  [CI-ARG] +--timeout {tm.group(1)}s (from CI header)")
         # 2) python typed args (bool/int/hex/string/float)-arg NAME:VAL. For each
         #    arg the SDK header declares, with its value resolved from ${...}:
         #      - Sheet has NAME:<placeholder>  → replace the placeholder value
