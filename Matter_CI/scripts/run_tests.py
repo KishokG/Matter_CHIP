@@ -1748,7 +1748,9 @@ def generate_report(results: list[dict], cfg: dict = None,
       position: relative; border-radius: 12px; padding: 15px 18px; cursor: pointer; border: 1px solid rgba(255,255,255,.05);
       transition: transform .12s ease, box-shadow .12s ease; user-select: none;
     }
-    .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16,24,40,.16); }
+    /* z-index lifts the hovered tile's stacking context (created by `transform`)
+       above the filter bar below, so its tooltip isn't painted behind the search box. */
+    .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16,24,40,.16); z-index: 80; }
     .tile.active { outline: 2px solid rgba(255,255,255,.55); outline-offset: 1px; }
     .tile .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 32px; font-weight: 700; line-height: 1; }
     .tile .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; margin-top: 8px; color: rgba(255,255,255,.55); font-weight: 600; }
