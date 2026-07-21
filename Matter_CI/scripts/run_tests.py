@@ -1656,7 +1656,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
         reason_cell = f'<span class="reason">{reason}</span>' if reason else ""
 
         rows_html += f"""
-        <tr class="tc-row {row_class}" data-cluster="{cluster}" data-status="{status}">
+        <tr class="tc-row {row_class}" data-cluster="{cluster}" data-status="{status}" data-time="{elapsed}" data-tcid="{tc_id}">
           <td><b>{tc_id}</b><br><small class="cluster-tag">{cluster}</small></td>
           <td>{badge(status)}</td>
           <td class="counts">{counts_str}</td>
@@ -1665,234 +1665,237 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
           <td class="reason-cell">{reason_cell}</td>
         </tr>"""
 
-    cluster_options = "".join(
-        f'<option value="{c}">{c}</option>' for c in clusters
+    # Cluster multi-select: one checkbox per cluster (all checked initially).
+    cluster_checkboxes = "".join(
+        f'<label class="ms-item"><input type="checkbox" class="cluster-cb" value="{c}" '
+        f'checked onchange="onClusterChange()"><span>{c}</span></label>'
+        for c in clusters
     )
+    pass_pct = round((passed + pass_warn) / total * 100) if total else 0
 
-    html = f"""<!DOCTYPE html>
+    _TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Matter CI — Test Report</title>
   <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{
-      font-family: 'Segoe UI', Arial, sans-serif;
-      background: #f0f2f5;
-      color: #2c3e50;
-      padding: 24px;
-    }}
-    .header {{
-      background: linear-gradient(135deg, #1a252f, #2c3e50);
-      color: white;
-      padding: 24px 32px;
-      border-radius: 12px;
-      margin-bottom: 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }}
-    .header h1 {{ font-size: 1.6em; font-weight: 600; }}
-    .header .meta {{ font-size: 0.85em; opacity: 0.8; margin-top: 4px; }}
+    :root {
+      --bg: #eef1f6; --panel: #ffffff; --ink: #1f2a37; --muted: #6b7280;
+      --line: #e6e9ef; --brand1: #1a252f; --brand2: #2c3e50; --accent: #2563eb;
+      --pass: #22a559; --passwarn: #1e8449; --fail: #e0392b; --rerun: #ea7317;
+      --err: #64748b; --cancel: #8b46b8;
+      --shadow: 0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.10);
+      --shadow-lg: 0 10px 24px rgba(16,24,40,.10);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background: var(--bg); color: var(--ink); padding: 22px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; }
 
-    .summary {{
-      display: grid;
-      grid-template-columns: repeat(7, minmax(0, 1fr));
-      gap: 8px;
-      margin-bottom: 24px;
-    }}
-    .card {{
-      flex: 1;
-      min-width: 100px;
-      padding: 16px 20px;
-      border-radius: 10px;
-      color: #fff;
-      text-align: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-    }}
-    .card {{ position: relative; transition: transform .15s; cursor: default; }}
-    .card:hover {{ transform: translateY(-2px); }}
-    .card .num {{ font-size: 2em; font-weight: 600; line-height: 1; }}
-    .card .lbl {{ font-size: 0.7em; font-weight: 600; letter-spacing: .8px; text-transform: uppercase; margin-top: 4px; opacity: .88; }}
-    .card .tip {{
-      position: absolute; bottom: calc(100% + 6px); left: 50%;
-      transform: translateX(-50%); background: #fff; color: #444;
-      border: 1px solid #ddd; border-radius: 6px; padding: 7px 10px;
-      font-size: 11px; line-height: 1.5; white-space: normal; text-align: left;
-      min-width: 160px; max-width: 220px; pointer-events: none;
-      opacity: 0; transition: opacity .2s; z-index: 99;
-    }}
-    .card:hover .tip {{ opacity: 1; }}
-    .c-total    {{ background: #2c3e50; }}
-    .c-pass     {{ background: #27ae60; }}
-    .c-passwarn {{ background: #1e8449; border: 2px solid #f39c12; }}
-    .c-fail     {{ background: #c0392b; }}
-    .c-rerun    {{ background: #d35400; }}
-    .c-err      {{ background: #7f8c8d; }}
-    .c-cancel   {{ background: #7d3c98; }}
+    /* ---- Header ---- */
+    .header {
+      background: linear-gradient(135deg, var(--brand1), var(--brand2));
+      color: #fff; padding: 22px 28px; border-radius: 14px; margin-bottom: 18px;
+      box-shadow: var(--shadow-lg);
+    }
+    .header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+    .header h1 { font-size: 1.45em; font-weight: 650; letter-spacing: -.2px; }
+    .header .meta { font-size: .82em; opacity: .78; margin-top: 5px; }
+    .rate { min-width: 230px; flex: 1; max-width: 340px; }
+    .rate-top { display: flex; justify-content: space-between; font-size: .78em; opacity: .85; margin-bottom: 6px; }
+    .rate-pct { font-weight: 700; font-size: 1.05em; opacity: 1; }
+    .rate-bar { height: 9px; border-radius: 20px; background: rgba(255,255,255,.18); overflow: hidden; display: flex; }
+    .rate-fill-pass { height: 100%; background: linear-gradient(90deg,#22a559,#34d17f); }
+    .rate-fill-warn { height: 100%; background: #f0b429; }
+    .rate-fill-fail { height: 100%; background: #e0392b; }
 
-    .filters {{
-      background: #fff;
-      border-radius: 10px;
-      padding: 16px 20px;
-      margin-bottom: 20px;
-      display: flex;
-      gap: 16px;
-      align-items: center;
-      flex-wrap: wrap;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-    }}
-    .filters label {{ font-size: 0.85em; font-weight: 600; color: #555; }}
-    .filters select, .filters input {{
-      padding: 6px 12px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      font-size: 0.88em;
-      background: #fafafa;
-      cursor: pointer;
-    }}
-    .filter-btn {{
-      padding: 6px 16px;
-      border: none;
-      border-radius: 6px;
-      font-size: 0.85em;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.2s;
-    }}
-    .filter-btn:hover {{ opacity: 0.8; }}
-    .btn-all  {{ background: #2c3e50; color: #fff; }}
-    .btn-fail {{ background: #e74c3c; color: #fff; }}
-    .btn-pass {{ background: #27ae60; color: #fff; }}
-    .btn-rerun{{ background: #e67e22; color: #fff; }}
+    /* ---- Summary cards ---- */
+    .summary { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 10px; margin-bottom: 18px; }
+    .card {
+      position: relative; padding: 15px 14px; border-radius: 12px; color: #fff;
+      text-align: center; box-shadow: var(--shadow); cursor: pointer;
+      transition: transform .14s ease, box-shadow .14s ease; border: 2px solid transparent;
+      user-select: none;
+    }
+    .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+    .card.active { border-color: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,.45), var(--shadow-lg); }
+    .card .num { font-size: 1.9em; font-weight: 700; line-height: 1; }
+    .card .lbl { font-size: .68em; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; margin-top: 5px; opacity: .9; }
+    .card .tip {
+      position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      background: #111827; color: #f3f4f6; border-radius: 8px; padding: 8px 11px;
+      font-size: 11px; line-height: 1.5; text-align: left; min-width: 170px; max-width: 230px;
+      pointer-events: none; opacity: 0; transition: opacity .18s; z-index: 99; font-weight: 400; box-shadow: var(--shadow-lg);
+    }
+    .card .tip::after { content:""; position:absolute; top:100%; left:50%; transform:translateX(-50%); border:5px solid transparent; border-top-color:#111827; }
+    .card:hover .tip { opacity: 1; }
+    .c-total { background: linear-gradient(135deg,#334155,#1f2a37); }
+    .c-pass  { background: linear-gradient(135deg,#22a559,#1e8f4e); }
+    .c-passwarn { background: linear-gradient(135deg,#1e8449,#166b3a); }
+    .c-fail  { background: linear-gradient(135deg,#e0392b,#c62b1f); }
+    .c-rerun { background: linear-gradient(135deg,#ea7317,#cf5f0c); }
+    .c-err   { background: linear-gradient(135deg,#64748b,#4b5563); }
+    .c-cancel{ background: linear-gradient(135deg,#8b46b8,#743a9c); }
 
-    .table-wrap {{
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-      overflow: hidden;
-    }}
-    table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
-    td {{ overflow-wrap: anywhere; word-break: break-word; }}
-    th {{
-      background: #2c3e50;
-      color: #fff;
-      padding: 12px 16px;
-      text-align: left;
-      font-size: 0.85em;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-    }}
-    td {{ padding: 10px 16px; font-size: 0.88em; border-bottom: 1px solid #f0f2f5; vertical-align: top; }}
-    tr.tc-row:hover {{ background: #f8fafc; }}
-    tr.tc-row {{ transition: background 0.15s; }}
+    /* ---- Filter toolbar ---- */
+    .filters {
+      background: var(--panel); border-radius: 12px; padding: 13px 16px; margin-bottom: 16px;
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap; box-shadow: var(--shadow);
+    }
+    .filters label.lbl { font-size: .8em; font-weight: 700; color: var(--muted); }
+    .filters select, .filters .search input {
+      padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: .86em;
+      background: #f9fafb; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s;
+    }
+    .filters select:focus, .filters .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.12); background:#fff; }
+    .search { position: relative; }
+    .search input { padding-right: 26px; width: 180px; }
+    .search .clr { position:absolute; right:8px; top:50%; transform:translateY(-50%); cursor:pointer; color:#9ca3af; font-size:14px; display:none; }
+    .search .clr.show { display:block; }
 
-    .badge {{
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 20px;
-      color: #fff;
-      font-size: 0.8em;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-    }}
-    .cluster-tag {{
-      background: #eaf0fb;
-      color: #2980b9;
-      padding: 1px 6px;
-      border-radius: 4px;
-      font-size: 0.75em;
-      margin-top: 3px;
-      display: inline-block;
-    }}
-    .counts {{ font-size: 0.82em; color: #555; white-space: nowrap; }}
+    /* multi-select cluster */
+    .ms { position: relative; }
+    .ms-toggle {
+      padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: .86em;
+      background: #f9fafb; color: var(--ink); cursor: pointer; min-width: 160px; text-align: left;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
+    .ms-toggle:hover { border-color: #cbd5e1; }
+    .ms-toggle .car { color: #9ca3af; font-size: 10px; }
+    .ms-panel {
+      position: absolute; top: calc(100% + 5px); left: 0; z-index: 50; background: #fff;
+      border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg);
+      padding: 8px; min-width: 240px; max-height: 320px; overflow: auto;
+    }
+    .ms-head { display:flex; justify-content:space-between; padding: 4px 8px 8px; border-bottom:1px solid var(--line); margin-bottom:6px; }
+    .ms-head button { background:none; border:none; color: var(--accent); font-size:.8em; font-weight:600; cursor:pointer; }
+    .ms-item, .ms-all { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; font-size:.85em; cursor:pointer; }
+    .ms-item:hover, .ms-all:hover { background:#f3f4f6; }
+    .ms-item input, .ms-all input { accent-color: var(--accent); width:15px; height:15px; }
+    .ms-all { font-weight:600; }
 
-    .log-link {{
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 5px;
-      font-size: 0.8em;
-      font-weight: 600;
-      text-decoration: none;
-      margin-right: 4px;
-      margin-bottom: 2px;
-    }}
-    .ctrl-log {{ background: #eaf0fb; color: #2980b9; border: 1px solid #aed6f1; }}
-    .ctrl-log:hover {{ background: #d6eaf8; }}
-    .dut-log  {{ background: #fef9e7; color: #d68910; border: 1px solid #f9e79f; }}
-    .dut-log:hover {{ background: #fdebd0; }}
+    .filter-btn {
+      padding: 7px 15px; border: none; border-radius: 8px; font-size: .83em; font-weight: 650;
+      cursor: pointer; transition: filter .15s, transform .1s; color:#fff;
+    }
+    .filter-btn:hover { filter: brightness(1.08); }
+    .filter-btn:active { transform: scale(.97); }
+    .btn-all  { background: #334155; }
+    .btn-fail { background: var(--fail); }
+    .btn-pass { background: var(--pass); }
+    .btn-rerun{ background: var(--rerun); }
+    .btn-clear { background:#fff; color:#374151; border:1px solid var(--line); }
+    .btn-clear:hover { background:#f3f4f6; }
+    #result-count { font-size: .82em; color: var(--muted); margin-left: auto; font-weight: 600; }
 
-    .reason {{ font-size: 0.82em; color: #666; line-height: 1.4; }}
-    tr.row-fail .reason {{ color: #c0392b; }}
-    tr.row-rerun .reason {{ color: #d35400; }}
-    tr.row-error .reason {{ color: #7f8c8d; }}
+    /* ---- Table ---- */
+    .table-wrap { background: var(--panel); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    thead th {
+      position: sticky; top: 0; z-index: 10; background: var(--brand2); color: #fff;
+      padding: 12px 16px; text-align: left; font-size: .82em; font-weight: 650; letter-spacing: .4px;
+    }
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { background: #34495e; }
+    th .arrow { opacity: .45; font-size: .85em; margin-left: 3px; }
+    th.sorted .arrow { opacity: 1; }
+    td { padding: 11px 16px; font-size: .87em; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+    tbody tr.tc-row:nth-child(even) { background: #fbfcfe; }
+    tbody tr.tc-row:hover { background: #eff4ff; }
+    tr.tc-row { transition: background .12s; }
 
-    .hidden {{ display: none; }}
+    .badge { display: inline-block; padding: 3px 11px; border-radius: 20px; color: #fff; font-size: .78em; font-weight: 700; letter-spacing: .4px; }
+    .cluster-tag { background: #eef2ff; color: #4f46e5; padding: 1px 7px; border-radius: 5px; font-size: .74em; margin-top: 4px; display: inline-block; }
+    .counts { font-size: .82em; color: #4b5563; white-space: nowrap; }
 
-    .no-results {{
-      text-align: center;
-      padding: 40px;
-      color: #aaa;
-      font-size: 1em;
-    }}
+    .log-link { display: inline-block; padding: 3px 9px; border-radius: 6px; font-size: .78em; font-weight: 600; text-decoration: none; margin-right: 4px; margin-bottom: 3px; transition: background .12s; }
+    .ctrl-log { background: #eaf0fb; color: #2563eb; border: 1px solid #c7dbfb; }
+    .ctrl-log:hover { background: #d9e6fc; }
+    .dut-log  { background: #fef7e6; color: #b45309; border: 1px solid #fbe6a8; }
+    .dut-log:hover { background: #fdeecb; }
 
-    #result-count {{
-      font-size: 0.85em;
-      color: #888;
-      margin-left: auto;
-    }}
+    .reason { font-size: .82em; color: #4b5563; line-height: 1.45; }
+    tr.row-fail .reason { color: var(--fail); }
+    tr.row-rerun .reason { color: var(--rerun); }
+    tr.row-error .reason { color: var(--err); }
+
+    .hidden { display: none; }
+    .no-results { text-align: center; padding: 44px; color: #9ca3af; font-size: 1em; }
+    @media (max-width: 860px) { .summary { grid-template-columns: repeat(3,1fr); } }
   </style>
 </head>
 <body>
+ <div class="wrap">
   <div class="header">
-    <div>
-      <h1>🔬 Matter CI — Test Report</h1>
-      <div class="meta">Generated: {run_time}{build_meta}</div>
+    <div class="header-top">
+      <div>
+        <h1>🔬 Matter CI — Test Report</h1>
+        <div class="meta">Generated: __RUN_META__</div>
+      </div>
+      <div class="rate">
+        <div class="rate-top"><span>Pass rate</span><span class="rate-pct">__PASS_PCT__%</span></div>
+        <div class="rate-bar">
+          <div class="rate-fill-pass" style="width: calc(__PASSED__ / __TOTALF__ * 100%)"></div>
+          <div class="rate-fill-warn" style="width: calc(__PASS_WARN__ / __TOTALF__ * 100%)"></div>
+          <div class="rate-fill-fail" style="width: calc((__FAILED__ + __ERRORS__ + __RERUN__ + __CANCELLED__) / __TOTALF__ * 100%)"></div>
+        </div>
+      </div>
     </div>
   </div>
 
   <div class="summary">
-    <div class="card c-total">
-      <div class="num">{total}</div><div class="lbl">Total</div>
-      <div class="tip">Total number of test cases in this run</div>
+    <div class="card c-total"   data-filter="ALL"   onclick="setStatus('ALL')">
+      <div class="num">__TOTAL__</div><div class="lbl">Total</div>
+      <div class="tip">Total test cases in this run. Click to clear the status filter.</div>
     </div>
-    <div class="card c-pass">
-      <div class="num">{passed}</div><div class="lbl">Passed</div>
-      <div class="tip">All steps executed and passed — clean result</div>
+    <div class="card c-pass"    data-filter="PASS"  onclick="setStatus('PASS')">
+      <div class="num">__PASSED__</div><div class="lbl">Passed</div>
+      <div class="tip">All steps executed and passed — clean result.</div>
     </div>
-    <div class="card c-passwarn">
-      <div class="num">{pass_warn}</div><div class="lbl">Pass*</div>
-      <div class="tip"><b>Partial execution</b> — some steps passed, others skipped. Skips may be PICS/feature-gated (if so, set pics_folder) or due to an unmet precondition — check the Ctrl Log for each reason.</div>
+    <div class="card c-passwarn" data-filter="PASS*" onclick="setStatus('PASS*')">
+      <div class="num">__PASS_WARN__</div><div class="lbl">Pass*</div>
+      <div class="tip"><b>Partial</b> — some steps skipped (PICS/feature-gated or unmet precondition) but enough passed. See the Ctrl Log.</div>
     </div>
-    <div class="card c-fail">
-      <div class="num">{failed}</div><div class="lbl">Failed</div>
-      <div class="tip">One or more test steps failed. Check Reason column and Ctrl Log for details.</div>
+    <div class="card c-fail"    data-filter="FAIL"  onclick="setStatus('FAIL')">
+      <div class="num">__FAILED__</div><div class="lbl">Failed</div>
+      <div class="tip">One or more steps failed. Check the Reason column and Ctrl Log.</div>
     </div>
-    <div class="card c-rerun">
-      <div class="num">{rerun}</div><div class="lbl">Rerun</div>
-      <div class="tip">All steps skipped — may be PICS/feature-gated, an unsupported feature, or another issue. Check the Ctrl Log for the skip reasons.</div>
+    <div class="card c-rerun"   data-filter="RERUN" onclick="setStatus('RERUN')">
+      <div class="num">__RERUN__</div><div class="lbl">Rerun</div>
+      <div class="tip">All steps skipped — PICS/feature-gated or another issue. Check the Ctrl Log.</div>
     </div>
-    <div class="card c-err">
-      <div class="num">{errors}</div><div class="lbl">Error</div>
-      <div class="tip">Script crashed, timed out, or commissioning failed before steps ran. Check Ctrl Log for traceback.</div>
+    <div class="card c-err"     data-filter="ERROR" onclick="setStatus('ERROR')">
+      <div class="num">__ERRORS__</div><div class="lbl">Error</div>
+      <div class="tip">Script crashed, timed out, or commissioning failed before steps ran.</div>
     </div>
-    <div class="card c-cancel">
-      <div class="num">{cancelled}</div><div class="lbl">Cancelled</div>
-      <div class="tip">Run was cancelled (SIGTERM / GitHub Actions cancel). These TCs were not executed.</div>
+    <div class="card c-cancel"  data-filter="CANCEL" onclick="setStatus('CANCEL')">
+      <div class="num">__CANCELLED__</div><div class="lbl">Cancelled</div>
+      <div class="tip">Run cancelled (SIGTERM / GitHub cancel). These TCs did not execute.</div>
     </div>
   </div>
 
   <div class="filters">
-    <label>Cluster:</label>
-    <select id="clusterFilter" onchange="applyFilters()">
-      <option value="ALL">All Clusters</option>
-      {cluster_options}
-    </select>
+    <label class="lbl">Cluster:</label>
+    <div class="ms" id="clusterMs">
+      <button type="button" class="ms-toggle" id="msToggle" onclick="toggleMs(event)">
+        <span id="msLabel">All clusters</span><span class="car">▼</span>
+      </button>
+      <div class="ms-panel hidden" id="msPanel">
+        <div class="ms-head">
+          <button type="button" onclick="setAllClusters(true)">Select all</button>
+          <button type="button" onclick="setAllClusters(false)">Clear</button>
+        </div>
+        __CLUSTER_CB__
+      </div>
+    </div>
 
-    <label>Status:</label>
+    <label class="lbl">Status:</label>
     <select id="statusFilter" onchange="applyFilters()">
-      <option value="ALL">All Statuses</option>
+      <option value="ALL">All statuses</option>
       <option value="PASS">PASS</option>
       <option value="PASS*">PASS* (partial)</option>
       <option value="FAIL">FAIL</option>
@@ -1901,13 +1904,16 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       <option value="CANCEL">CANCELLED</option>
     </select>
 
-    <label>Search:</label>
-    <input type="text" id="searchFilter" placeholder="TC ID..." oninput="applyFilters()">
+    <div class="search">
+      <input type="text" id="searchFilter" placeholder="Search TC ID / text…" oninput="applyFilters()">
+      <span class="clr" id="searchClr" onclick="clearSearch()">✕</span>
+    </div>
 
-    <button class="filter-btn btn-all"  onclick="setStatus('ALL')">All</button>
-    <button class="filter-btn btn-fail" onclick="setStatus('FAIL')">Failed</button>
-    <button class="filter-btn btn-pass" onclick="setStatus('PASS')">Passed</button>
+    <button class="filter-btn btn-all"   onclick="setStatus('ALL')">All</button>
+    <button class="filter-btn btn-fail"  onclick="setStatus('FAIL')">Failed</button>
+    <button class="filter-btn btn-pass"  onclick="setStatus('PASS')">Passed</button>
     <button class="filter-btn btn-rerun" onclick="setStatus('RERUN')">Rerun</button>
+    <button class="filter-btn btn-clear" onclick="clearFilters()">↺ Clear filters</button>
 
     <span id="result-count"></span>
   </div>
@@ -1915,70 +1921,135 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
   <div class="table-wrap">
     <table id="resultsTable">
       <colgroup>
-        <col style="width:16%">   <!-- TC ID -->
-        <col style="width:10%">   <!-- Status -->
-        <col style="width:12%">   <!-- Steps -->
-        <col style="width:8%">    <!-- Time -->
-        <col style="width:14%">   <!-- Logs -->
-        <col style="width:40%">   <!-- Reason / Notes -->
+        <col style="width:16%"><col style="width:10%"><col style="width:12%">
+        <col style="width:8%"><col style="width:14%"><col style="width:40%">
       </colgroup>
       <thead>
         <tr>
-          <th>TC ID</th>
-          <th>Status</th>
+          <th class="sortable" onclick="sortTable(0,'tcid')">TC ID <span class="arrow">⇅</span></th>
+          <th class="sortable" onclick="sortTable(1,'status')">Status <span class="arrow">⇅</span></th>
           <th>Steps</th>
-          <th>Time</th>
+          <th class="sortable" onclick="sortTable(3,'num')">Time <span class="arrow">⇅</span></th>
           <th>Logs</th>
           <th>Reason / Notes</th>
         </tr>
       </thead>
       <tbody id="tableBody">
-        {rows_html}
+        __ROWS__
       </tbody>
     </table>
     <div class="no-results hidden" id="noResults">No test cases match the current filters.</div>
   </div>
+ </div>
 
   <script>
-    function applyFilters() {{
-      const cluster = document.getElementById('clusterFilter').value;
-      const status  = document.getElementById('statusFilter').value;
-      const search  = document.getElementById('searchFilter').value.toLowerCase();
-      const rows    = document.querySelectorAll('.tc-row');
-      let visible   = 0;
+    var TOTAL = __TOTAL__;
+    var sortState = { col: -1, dir: 'asc' };
 
-      rows.forEach(row => {{
-        const rowCluster = row.dataset.cluster;
-        const rowStatus  = row.dataset.status;
-        const rowText    = row.textContent.toLowerCase();
+    function checkedClusters() {
+      return Array.from(document.querySelectorAll('.cluster-cb')).filter(c => c.checked).map(c => c.value);
+    }
+    function allClusterBoxes() { return Array.from(document.querySelectorAll('.cluster-cb')); }
 
-        const clusterOk = cluster === 'ALL' || rowCluster === cluster;
-        const statusOk  = status  === 'ALL' || rowStatus  === status;
-        const searchOk  = search  === ''    || rowText.includes(search);
+    function updateClusterLabel() {
+      var boxes = allClusterBoxes(), sel = checkedClusters();
+      var el = document.getElementById('msLabel');
+      if (sel.length === boxes.length) el.textContent = 'All clusters';
+      else if (sel.length === 0) el.textContent = 'None selected';
+      else el.textContent = sel.length + ' of ' + boxes.length + ' clusters';
+    }
+    function onClusterChange() { updateClusterLabel(); applyFilters(); }
+    function setAllClusters(v) { allClusterBoxes().forEach(c => c.checked = v); onClusterChange(); }
 
-        if (clusterOk && statusOk && searchOk) {{
-          row.classList.remove('hidden');
-          visible++;
-        }} else {{
-          row.classList.add('hidden');
-        }}
-      }});
+    function toggleMs(e) {
+      e.stopPropagation();
+      document.getElementById('msPanel').classList.toggle('hidden');
+    }
+    document.addEventListener('click', function(e) {
+      var ms = document.getElementById('clusterMs');
+      if (ms && !ms.contains(e.target)) document.getElementById('msPanel').classList.add('hidden');
+    });
 
-      document.getElementById('result-count').textContent =
-        `Showing ${{visible}} of {total} test cases`;
+    function applyFilters() {
+      var status = document.getElementById('statusFilter').value;
+      var search = document.getElementById('searchFilter').value.toLowerCase();
+      var sel = checkedClusters();
+      var allClusters = sel.length === allClusterBoxes().length;
+      var selSet = {}; sel.forEach(c => selSet[c] = true);
+      var rows = document.querySelectorAll('.tc-row');
+      var visible = 0;
+
+      rows.forEach(function(row) {
+        var clusterOk = allClusters || selSet[row.dataset.cluster] === true;
+        var statusOk  = status === 'ALL' || row.dataset.status === status;
+        var searchOk  = search === '' || row.textContent.toLowerCase().indexOf(search) !== -1;
+        if (clusterOk && statusOk && searchOk) { row.classList.remove('hidden'); visible++; }
+        else { row.classList.add('hidden'); }
+      });
+
+      document.getElementById('result-count').textContent = 'Showing ' + visible + ' of ' + TOTAL + ' test cases';
       document.getElementById('noResults').classList.toggle('hidden', visible > 0);
-    }}
+      document.getElementById('searchClr').classList.toggle('show', search !== '');
+      document.querySelectorAll('.card').forEach(function(c) {
+        c.classList.toggle('active', c.dataset.filter === status && status !== 'ALL');
+      });
+    }
 
-    function setStatus(s) {{
-      document.getElementById('statusFilter').value = s;
+    function setStatus(s) { document.getElementById('statusFilter').value = s; applyFilters(); }
+    function clearSearch() { document.getElementById('searchFilter').value = ''; applyFilters(); }
+    function clearFilters() {
+      document.getElementById('statusFilter').value = 'ALL';
+      document.getElementById('searchFilter').value = '';
+      allClusterBoxes().forEach(c => c.checked = true);
+      updateClusterLabel();
       applyFilters();
-    }}
+    }
 
-    // Init count
-    document.getElementById('result-count').textContent = 'Showing {total} of {total} test cases';
+    function sortTable(col, type) {
+      var tbody = document.getElementById('tableBody');
+      var rows = Array.from(tbody.querySelectorAll('tr.tc-row'));
+      var dir = (sortState.col === col && sortState.dir === 'asc') ? 'desc' : 'asc';
+      sortState = { col: col, dir: dir };
+      var sev = { FAIL:0, ERROR:1, RERUN:2, 'PASS*':3, CANCEL:4, PASS:5 };
+      rows.sort(function(a, b) {
+        var av, bv;
+        if (type === 'num') { av = parseFloat(a.dataset.time) || 0; bv = parseFloat(b.dataset.time) || 0; }
+        else if (type === 'status') { av = sev[a.dataset.status] ?? 9; bv = sev[b.dataset.status] ?? 9; }
+        else { av = (a.dataset.tcid || '').toLowerCase(); bv = (b.dataset.tcid || '').toLowerCase(); }
+        if (av < bv) return dir === 'asc' ? -1 : 1;
+        if (av > bv) return dir === 'asc' ? 1 : -1;
+        return 0;
+      });
+      rows.forEach(function(r) { tbody.appendChild(r); });
+      document.querySelectorAll('th.sortable').forEach(function(th) {
+        th.classList.remove('sorted');
+        var a = th.querySelector('.arrow'); if (a) a.textContent = '⇅';
+      });
+      var ths = document.querySelectorAll('th');
+      if (ths[col]) {
+        ths[col].classList.add('sorted');
+        var ar = ths[col].querySelector('.arrow'); if (ar) ar.textContent = dir === 'asc' ? '▲' : '▼';
+      }
+    }
+
+    updateClusterLabel();
+    applyFilters();
   </script>
 </body>
 </html>"""
+    html = (_TEMPLATE
+            .replace("__RUN_META__", f"{run_time}{build_meta}")
+            .replace("__PASS_PCT__", str(pass_pct))
+            .replace("__TOTALF__", str(total if total else 1))
+            .replace("__TOTAL__", str(total))
+            .replace("__PASSED__", str(passed))
+            .replace("__PASS_WARN__", str(pass_warn))
+            .replace("__FAILED__", str(failed))
+            .replace("__RERUN__", str(rerun))
+            .replace("__ERRORS__", str(errors))
+            .replace("__CANCELLED__", str(cancelled))
+            .replace("__CLUSTER_CB__", cluster_checkboxes)
+            .replace("__ROWS__", rows_html))
 
     report_path.write_text(html)
     print(f"\n[REPORT] Written to: {report_path}")
