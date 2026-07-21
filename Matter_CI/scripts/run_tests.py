@@ -1563,54 +1563,68 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     # Collect unique clusters for filter dropdown
     clusters = sorted(set(extract_cluster(r["test_case_id"], r.get("cluster", "")) for r in results))
 
-    colour = {
-        PASS:      "#28a745",
-        PASS_WARN: "#5a9e3a",   # slightly muted green with warning indicator
-        FAIL:      "#dc3545",
-        RERUN:     "#fd7e14",
-        ERROR:     "#6c757d",
-        CANCEL:    "#8e44ad",
+    # ---- Status → pill CSS class ----
+    PILL_CLASS = {
+        PASS: "pill-pass", PASS_WARN: "pill-passw", FAIL: "pill-fail",
+        RERUN: "pill-rerun", ERROR: "pill-error", CANCEL: "pill-cancel",
     }
 
     def badge(status):
-        c = colour.get(status, "#000")
-        return (f'<span class="badge" style="background:{c}">{status}</span>')
+        return (f'<span class="pill {PILL_CLASS.get(status, "pill-error")}">'
+                f'<span class="dot"></span>{status}</span>')
+
+    # ---- Step-count SVG icons ----
+    CHECK = ('<svg class="ic" viewBox="0 0 24 24" width="13" height="13" fill="none" '
+             'stroke="#059669" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">'
+             '<polyline points="20 6 9 17 4 12"/></svg>')
+    XMARK = ('<svg class="ic" viewBox="0 0 24 24" width="12" height="12" fill="none" '
+             'stroke="#DC2626" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">'
+             '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>')
 
     def status_reason(r):
-        """
-        Returns reason string for display in report.
-        For FAIL/RERUN/ERROR: uses the reason from parse_result (stored in note).
-        """
+        """Reason string for the report. FAIL/RERUN/ERROR use parse_result's note."""
         status = r["status"]
         note   = r.get("note", "")
-
         if status == PASS:
-            return note   # empty for a clean pass; set when skips were tolerated
+            return note
         if status == PASS_WARN:
-            return note   # show the partial skip warning
+            return note
         if status == CANCEL:
             return "Cancelled by user before this test started"
-        # For all other statuses — reason is pre-populated by parse_result
-        # Fall back to generic messages only if note is empty
         if note:
             return note
         counts = r.get("counts", {})
         if status == FAIL:
-            f = counts.get("failed", 0)
-            e = counts.get("error", 0)
+            f = counts.get("failed", 0); e = counts.get("error", 0)
             parts = []
             if f: parts.append(f"{f} step(s) failed")
             if e: parts.append(f"{e} error(s)")
             return ", ".join(parts) if parts else "Test failed"
         if status == RERUN:
-            s = counts.get("skipped", 0)
-            ex = counts.get("executed", 0)
+            s = counts.get("skipped", 0); ex = counts.get("executed", 0)
             return f"All {s}/{ex} steps skipped — re-run to investigate"
         if status == ERROR:
             return "Test script did not produce a result — may have crashed or timed out"
         return ""
 
-    # Build rows
+    def steps_cell(counts, status):
+        st_total = counts.get("step_total", 0)
+        if st_total > 0:
+            st_skip = counts.get("step_skipped", 0)
+            st_fail = counts.get("step_failed", 1 if status == FAIL else 0)
+            st_pass = counts.get("step_passed", max(st_total - st_skip - st_fail, 0))
+            total_v = st_total
+        elif "executed" in counts:
+            st_pass = counts.get("passed", 0); st_fail = counts.get("failed", 0)
+            st_skip = counts.get("skipped", 0); total_v = counts.get("executed", 0)
+        else:
+            return ""
+        skip_html = (f'<span class="sg skip">⏭{st_skip}</span>' if st_skip else "")
+        return (f'<span class="steps mono"><span class="sg">{CHECK}{st_pass}</span>'
+                f'<span class="sg">{XMARK}{st_fail}</span>{skip_html}'
+                f'<span class="sg sig">Σ{total_v}</span></span>')
+
+    # ---- Build table rows ----
     rows_html = ""
     for r in results:
         tc_id   = r["test_case_id"]
@@ -1621,57 +1635,64 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
         log_file = Path(r.get("log_file", ""))
         dut_log  = log_file.parent / f"{tc_id}_dut.log" if log_file.name else None
 
-        # Steps column: prefer REAL step-level counts parsed from the log
-        # (deduped). If a TC's log has no "Test Step" markers, fall back to the
-        # mobly test-level counts (the earlier behaviour) so the cell isn't blank.
-        counts_str = ""
-        st_total = counts.get("step_total", 0)
-        if st_total > 0:
-            st_skip = counts.get("step_skipped", 0)
-            st_fail = counts.get("step_failed", 1 if status == FAIL else 0)
-            st_pass = counts.get("step_passed", max(st_total - st_skip - st_fail, 0))
-            counts_str = (f"✅{st_pass} "
-                          f"❌{st_fail} "
-                          f"⏭{st_skip} "
-                          f"Σ{st_total}")
-        elif "executed" in counts:
-            # mobly summary was parsed but no step markers → test-level counts
-            counts_str = (f"✅{counts.get('passed',0)} "
-                          f"❌{counts.get('failed',0)} "
-                          f"⏭{counts.get('skipped',0)} "
-                          f"⚠️{counts.get('error',0)}")
+        if log_file.name:
+            tcid_html = (f'<a class="tcid-link mono" href="test_runs/{log_file.name}" '
+                         f'target="_blank">{tc_id}</a>')
+        else:
+            tcid_html = f'<span class="tcid-link mono">{tc_id}</span>'
+
+        log_links = ""
+        if log_file.name:
+            log_links += (f'<a href="test_runs/{log_file.name}" target="_blank" '
+                          f'class="log-link ctrl-log">Ctrl Log</a>')
+        if dut_log and dut_log.name:
+            log_links += (f'<a href="test_runs/{dut_log.name}" target="_blank" '
+                          f'class="log-link dut-log">DUT Log</a>')
 
         reason = status_reason(r)
-
-        # Log links
-        log_links = ""
-        if log_file.exists() or log_file.name:
-            log_links += (f'<a href="test_runs/{log_file.name}" target="_blank" ')
-            log_links += f'class="log-link ctrl-log">📋 Ctrl Log</a> '
-        if dut_log and (dut_log.exists() or dut_log.name):
-            log_links += (f'<a href="test_runs/{dut_log.name}" target="_blank" ')
-            log_links += f'class="log-link dut-log">🖥 DUT Log</a>'
-
-        row_class = f"row-{status.lower()}"
         reason_cell = f'<span class="reason">{reason}</span>' if reason else ""
 
         rows_html += f"""
-        <tr class="tc-row {row_class}" data-cluster="{cluster}" data-status="{status}" data-time="{elapsed}" data-tcid="{tc_id}">
-          <td><b>{tc_id}</b><br><small class="cluster-tag">{cluster}</small></td>
+        <tr class="tc-row row-{status.lower()}" data-cluster="{cluster}" data-status="{status}" data-time="{elapsed}" data-tcid="{tc_id}">
+          <td>{tcid_html}<div class="cluster-sub">{cluster}</div></td>
           <td>{badge(status)}</td>
-          <td class="counts">{counts_str}</td>
-          <td>{elapsed}s</td>
+          <td>{steps_cell(counts, status)}</td>
+          <td class="mono time">{elapsed}s</td>
           <td class="log-cell">{log_links}</td>
           <td class="reason-cell">{reason_cell}</td>
         </tr>"""
 
-    # Cluster multi-select: one checkbox per cluster (all checked initially).
+    # ---- Stat tiles (single row of 7) ----
+    _TILES = [
+        ("t-total", "Total", total, "ALL"),
+        ("t-pass", "Passed", passed, "PASS"),
+        ("t-passw", "Pass*", pass_warn, "PASS*"),
+        ("t-fail", "Failed", failed, "FAIL"),
+        ("t-rerun", "Rerun", rerun, "RERUN"),
+        ("t-err", "Error", errors, "ERROR"),
+        ("t-cancel", "Cancelled", cancelled, "CANCEL"),
+    ]
+    stat_tiles = "".join(
+        f'<div class="tile {cls}" data-filter="{filt}" onclick="setStatus(\'{filt}\')">'
+        f'<div class="num mono">{val}</div><div class="lbl">{lbl}</div></div>'
+        for cls, lbl, val, filt in _TILES
+    )
+
+    # ---- Cluster multi-select checkboxes ----
     cluster_checkboxes = "".join(
         f'<label class="ms-item"><input type="checkbox" class="cluster-cb" value="{c}" '
         f'checked onchange="onClusterChange()"><span>{c}</span></label>'
         for c in clusters
     )
-    pass_pct = round((passed + pass_warn) / total * 100) if total else 0
+
+    # ---- Footer status ----
+    if failed == 0 and errors == 0 and rerun == 0 and cancelled == 0:
+        footer_status = "All tests passed"; foot_dot = "#22c55e"
+    elif failed == 0 and errors == 0:
+        footer_status = f"{passed + pass_warn}/{total} passed"; foot_dot = "#f59e0b"
+    else:
+        footer_status = f"{failed} failed · {errors} error(s)"; foot_dot = "#ef4444"
+    built_txt = bi_date if bi_date else "—"
 
     _TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
@@ -1679,229 +1700,177 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Matter CI — Test Report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg: #eef1f6; --panel: #ffffff; --ink: #1f2a37; --muted: #6b7280;
-      --line: #e6e9ef; --brand1: #1a252f; --brand2: #2c3e50; --accent: #2563eb;
-      --pass: #22a559; --passwarn: #1e8449; --fail: #e0392b; --rerun: #ea7317;
-      --err: #64748b; --cancel: #8b46b8;
-      --shadow: 0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.10);
-      --shadow-lg: 0 10px 24px rgba(16,24,40,.10);
-    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-      background: var(--bg); color: var(--ink); padding: 24px;
-      -webkit-font-smoothing: antialiased;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background: #F0F2F7; color: #1f2937; -webkit-font-smoothing: antialiased;
     }
-    .wrap { width: 100%; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
 
     /* ---- Header ---- */
     .header {
-      background: linear-gradient(135deg, var(--brand1), var(--brand2));
-      color: #fff; padding: 22px 28px; border-radius: 14px; margin-bottom: 18px;
-      box-shadow: var(--shadow-lg);
+      background: #0E1120; color: #fff; padding: 20px 32px;
+      display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap;
     }
-    .header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
-    .header h1 { font-size: 1.45em; font-weight: 650; letter-spacing: -.2px; }
-    .header .meta { font-size: .82em; opacity: .78; margin-top: 5px; }
+    .header-title { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 700; letter-spacing: -.2px; }
+    .header-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #9ba3b4; margin-top: 9px; }
+    .chip { font-family: 'JetBrains Mono', ui-monospace, monospace; background: #1b2030; border: 1px solid #2a3143; color: #c7cfdd; padding: 2px 9px; border-radius: 6px; font-size: 12px; }
+    .branch { background: rgba(34,197,94,.14); color: #4ade80; border: 1px solid rgba(74,222,128,.32); padding: 2px 11px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .header-meta .built { color: #6b7280; }
+    .header-right { text-align: right; }
+    .header-right .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: #6b7280; }
+    .header-right .val { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; color: #c7cfdd; margin-top: 3px; }
 
-    /* ---- Full-width pass-rate bar (below header) ---- */
-    .ratebar {
-      background: var(--panel); border-radius: 12px; padding: 16px 20px 18px;
-      margin-bottom: 18px; box-shadow: var(--shadow);
+    /* ---- Stat tiles (always one row of 7) ---- */
+    .tiles { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; padding: 20px 32px; }
+    .tile {
+      border-radius: 12px; padding: 15px 18px; cursor: pointer; border: 1px solid rgba(255,255,255,.05);
+      transition: transform .12s ease, box-shadow .12s ease; user-select: none;
     }
-    .ratebar-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-    .ratebar-title { font-size: .82em; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
-    .ratebar-pct { font-size: 1.5em; font-weight: 750; color: var(--ink); }
-    .ratebar-pct small { font-size: .5em; font-weight: 600; color: var(--muted); margin-left: 6px; letter-spacing: .3px; }
-    .ratebar-track {
-      height: 14px; border-radius: 20px; background: #eef1f6; overflow: hidden; display: flex;
-      box-shadow: inset 0 1px 2px rgba(16,24,40,.08);
-    }
-    .ratebar-track > div { height: 100%; transition: width .5s ease; }
-    .rf-pass { background: linear-gradient(90deg,#22a559,#34d17f); }
-    .rf-warn { background: linear-gradient(90deg,#e6a817,#f0b429); }
-    .rf-fail { background: linear-gradient(90deg,#e0392b,#f05545); }
-    .ratebar-legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 11px; font-size: .78em; color: var(--muted); }
-    .ratebar-legend span { display: inline-flex; align-items: center; gap: 6px; }
-    .ratebar-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+    .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16,24,40,.16); }
+    .tile.active { outline: 2px solid rgba(255,255,255,.55); outline-offset: 1px; }
+    .tile .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 32px; font-weight: 700; line-height: 1; }
+    .tile .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; margin-top: 8px; color: rgba(255,255,255,.55); font-weight: 600; }
+    .t-total  { background: #1B2131; } .t-total .num  { color: #CBD5E1; }
+    .t-pass   { background: #0F2A1D; } .t-pass .num   { color: #34D399; }
+    .t-passw  { background: #12291F; } .t-passw .num  { color: #6EE7B7; }
+    .t-fail   { background: #2B1517; } .t-fail .num   { color: #F87171; }
+    .t-rerun  { background: #2B1E0F; } .t-rerun .num  { color: #FBBF24; }
+    .t-err    { background: #1B222E; } .t-err .num    { color: #94A3B8; }
+    .t-cancel { background: #241531; } .t-cancel .num { color: #C084FC; }
 
-    /* ---- Summary cards ---- */
-    .summary { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 10px; margin-bottom: 18px; }
-    .card {
-      position: relative; padding: 15px 14px; border-radius: 12px; color: #fff;
-      text-align: center; box-shadow: var(--shadow); cursor: pointer;
-      transition: transform .14s ease, box-shadow .14s ease; border: 2px solid transparent;
-      user-select: none;
-    }
-    .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
-    .card.active { border-color: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,.45), var(--shadow-lg); }
-    .card .num { font-size: 1.9em; font-weight: 700; line-height: 1; }
-    .card .lbl { font-size: .68em; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; margin-top: 5px; opacity: .9; }
-    .card .tip {
-      position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-      background: #111827; color: #f3f4f6; border-radius: 8px; padding: 8px 11px;
-      font-size: 11px; line-height: 1.5; text-align: left; min-width: 170px; max-width: 230px;
-      pointer-events: none; opacity: 0; transition: opacity .18s; z-index: 99; font-weight: 400; box-shadow: var(--shadow-lg);
-    }
-    .card .tip::after { content:""; position:absolute; top:100%; left:50%; transform:translateX(-50%); border:5px solid transparent; border-top-color:#111827; }
-    .card:hover .tip { opacity: 1; }
-    .c-total { background: linear-gradient(135deg,#334155,#1f2a37); }
-    .c-pass  { background: linear-gradient(135deg,#22a559,#1e8f4e); }
-    .c-passwarn { background: linear-gradient(135deg,#1e8449,#166b3a); }
-    .c-fail  { background: linear-gradient(135deg,#e0392b,#c62b1f); }
-    .c-rerun { background: linear-gradient(135deg,#ea7317,#cf5f0c); }
-    .c-err   { background: linear-gradient(135deg,#64748b,#4b5563); }
-    .c-cancel{ background: linear-gradient(135deg,#8b46b8,#743a9c); }
-
-    /* ---- Filter toolbar ---- */
+    /* ---- Filters ---- */
     .filters {
-      background: var(--panel); border-radius: 12px; padding: 13px 16px; margin-bottom: 16px;
-      display: flex; gap: 12px; align-items: center; flex-wrap: wrap; box-shadow: var(--shadow);
+      background: #fff; border: .5px solid #DDE0EC; border-radius: 12px; margin: 0 32px 20px;
+      padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     }
-    .filters label.lbl { font-size: .8em; font-weight: 700; color: var(--muted); }
-    .filters select, .filters .search input {
-      padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: .86em;
-      background: #f9fafb; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s;
+    .filters .flabel { font-size: 12px; font-weight: 600; color: #6b7280; }
+    .filters select {
+      padding: 8px 12px; border: 1px solid #DDE0EC; border-radius: 8px; font-size: 13px;
+      background: #fff; color: #374151; outline: none; cursor: pointer;
     }
-    .filters select:focus, .filters .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.12); background:#fff; }
-    .search { position: relative; }
-    .search input { padding-right: 26px; width: 180px; }
-    .search .clr { position:absolute; right:8px; top:50%; transform:translateY(-50%); cursor:pointer; color:#9ca3af; font-size:14px; display:none; }
-    .search .clr.show { display:block; }
+    .filters select:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    .search { flex: 1; max-width: 280px; position: relative; }
+    .search input { width: 100%; padding: 8px 30px 8px 12px; border: 1px solid #DDE0EC; border-radius: 8px; font-size: 13px; outline: none; }
+    .search input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    .search .clr { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #9ca3af; font-size: 14px; display: none; }
+    .search .clr.show { display: block; }
+    .btn-clear { padding: 8px 14px; border: 1px solid #DDE0EC; border-radius: 8px; background: #fff; color: #374151; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .btn-clear:hover { background: #EEF2FF; border-color: #4f46e5; color: #4f46e5; }
+    .count { margin-left: auto; font-size: 12px; color: #6b7280; font-weight: 600; }
 
-    /* multi-select cluster */
+    /* cluster multi-select */
     .ms { position: relative; }
     .ms-toggle {
-      padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: .86em;
-      background: #f9fafb; color: var(--ink); cursor: pointer; min-width: 160px; text-align: left;
+      padding: 8px 12px; border: 1px solid #DDE0EC; border-radius: 8px; font-size: 13px;
+      background: #fff; color: #374151; cursor: pointer; min-width: 300px; text-align: left;
       display: flex; justify-content: space-between; align-items: center; gap: 8px;
     }
-    .ms-toggle:hover { border-color: #cbd5e1; }
+    .ms-toggle:hover { border-color: #c7cdda; }
     .ms-toggle .car { color: #9ca3af; font-size: 10px; }
     .ms-panel {
       position: absolute; top: calc(100% + 5px); left: 0; z-index: 50; background: #fff;
-      border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg);
-      padding: 8px; min-width: 240px; max-height: 320px; overflow: auto;
+      border: 1px solid #DDE0EC; border-radius: 10px; box-shadow: 0 10px 24px rgba(16,24,40,.14);
+      padding: 8px; min-width: 300px; max-height: 320px; overflow: auto;
     }
-    .ms-head { display:flex; justify-content:space-between; padding: 4px 8px 8px; border-bottom:1px solid var(--line); margin-bottom:6px; }
-    .ms-head button { background:none; border:none; color: var(--accent); font-size:.8em; font-weight:600; cursor:pointer; }
-    .ms-item, .ms-all { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; font-size:.85em; cursor:pointer; }
-    .ms-item:hover, .ms-all:hover { background:#f3f4f6; }
-    .ms-item input, .ms-all input { accent-color: var(--accent); width:15px; height:15px; }
-    .ms-all { font-weight:600; }
-
-    .filter-btn {
-      padding: 7px 15px; border: none; border-radius: 8px; font-size: .83em; font-weight: 650;
-      cursor: pointer; transition: filter .15s, transform .1s; color:#fff;
-    }
-    .filter-btn:hover { filter: brightness(1.08); }
-    .filter-btn:active { transform: scale(.97); }
-    .btn-all  { background: #334155; }
-    .btn-fail { background: var(--fail); }
-    .btn-pass { background: var(--pass); }
-    .btn-rerun{ background: var(--rerun); }
-    .btn-clear { background:#fff; color:#374151; border:1px solid #cbd5e1; }
-    .btn-clear:hover { background:#eef2ff; border-color: var(--accent); color: var(--accent); filter:none; }
-    #result-count { font-size: .82em; color: var(--muted); margin-left: auto; font-weight: 600; }
+    .ms-head { display: flex; justify-content: space-between; padding: 4px 8px 8px; border-bottom: 1px solid #eef0f6; margin-bottom: 6px; }
+    .ms-head button { background: none; border: none; color: #4f46e5; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .ms-item, .ms-all { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    .ms-item:hover { background: #f4f5fb; }
+    .ms-item input { accent-color: #4f46e5; width: 15px; height: 15px; }
 
     /* ---- Table ---- */
-    .table-wrap { background: var(--panel); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
-    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    .table-card { background: #fff; border: .5px solid #DDE0EC; border-radius: 12px; margin: 0 32px 20px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     thead th {
-      position: sticky; top: 0; z-index: 10; background: var(--brand2); color: #fff;
-      padding: 12px 16px; text-align: left; font-size: .82em; font-weight: 650; letter-spacing: .4px;
+      background: #0E1120; color: #8b93a7; text-transform: uppercase; font-size: 10px; letter-spacing: 1.1px;
+      font-weight: 600; padding: 12px 16px; text-align: left; white-space: nowrap;
     }
     th.sortable { cursor: pointer; user-select: none; }
-    th.sortable:hover { background: #34495e; }
-    th .arrow { opacity: .45; font-size: .85em; margin-left: 3px; }
-    th.sorted .arrow { opacity: 1; }
-    td { padding: 11px 16px; font-size: .87em; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
-    tbody tr.tc-row:nth-child(even) { background: #fbfcfe; }
-    tbody tr.tc-row:hover { background: #eff4ff; }
+    th.sortable:hover { color: #cbd5e1; }
+    th .arrow { opacity: .5; margin-left: 4px; }
+    td { padding: 12px 16px; border-bottom: .5px solid #EEF0F6; font-size: 13px; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr.tc-row:hover { background: #F7F8FC; }
     tr.tc-row { transition: background .12s; }
 
-    .badge { display: inline-block; padding: 3px 11px; border-radius: 20px; color: #fff; font-size: .78em; font-weight: 700; letter-spacing: .4px; }
-    .cluster-tag { background: #eef2ff; color: #4f46e5; padding: 1px 7px; border-radius: 5px; font-size: .74em; margin-top: 4px; display: inline-block; }
-    .counts { font-size: .82em; color: #4b5563; white-space: nowrap; }
+    .tcid-link { color: #4f46e5; font-weight: 600; text-decoration: none; font-size: 13px; }
+    .tcid-link:hover { text-decoration: underline; }
+    .cluster-sub { color: #9ca3af; font-size: 11px; margin-top: 4px; }
+    .time { color: #4b5563; }
 
-    .log-link { display: inline-block; padding: 3px 9px; border-radius: 6px; font-size: .78em; font-weight: 600; text-decoration: none; margin-right: 4px; margin-bottom: 3px; transition: background .12s; }
-    .ctrl-log { background: #eaf0fb; color: #2563eb; border: 1px solid #c7dbfb; }
-    .ctrl-log:hover { background: #d9e6fc; }
-    .dut-log  { background: #fef7e6; color: #b45309; border: 1px solid #fbe6a8; }
-    .dut-log:hover { background: #fdeecb; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid; white-space: nowrap; }
+    .pill .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .pill-pass   { background: #ECFDF5; color: #065F46; border-color: #A7F3D0; } .pill-pass .dot   { background: #10B981; }
+    .pill-passw  { background: #F0FDF4; color: #166534; border-color: #BBF7D0; } .pill-passw .dot  { background: #22C55E; }
+    .pill-fail   { background: #FEF2F2; color: #991B1B; border-color: #FECACA; } .pill-fail .dot   { background: #EF4444; }
+    .pill-rerun  { background: #FFF7ED; color: #C2410C; border-color: #FED7AA; } .pill-rerun .dot  { background: #F97316; }
+    .pill-error  { background: #F8FAFC; color: #334155; border-color: #E2E8F0; } .pill-error .dot  { background: #64748B; }
+    .pill-cancel { background: #FAF5FF; color: #6B21A8; border-color: #E9D5FF; } .pill-cancel .dot { background: #A855F7; }
 
-    .reason { font-size: .82em; color: #4b5563; line-height: 1.45; }
-    tr.row-fail .reason { color: var(--fail); }
-    tr.row-rerun .reason { color: var(--rerun); }
-    tr.row-error .reason { color: var(--err); }
+    .steps { display: inline-flex; align-items: center; gap: 11px; font-size: 12.5px; color: #374151; }
+    .sg { display: inline-flex; align-items: center; gap: 3px; }
+    .sg.sig { color: #6b7280; } .sg.skip { color: #9ca3af; }
+    .ic { flex-shrink: 0; }
+
+    .log-link { display: inline-flex; align-items: center; padding: 4px 11px; border-radius: 7px; font-size: 12px; font-weight: 600; text-decoration: none; margin-right: 6px; border: 1px solid; transition: filter .12s; }
+    .ctrl-log { background: #EFF6FF; color: #1D4ED8; border-color: #BFDBFE; }
+    .dut-log  { background: #FFF7ED; color: #C2410C; border-color: #FED7AA; }
+    .log-link:hover { filter: brightness(.96); }
+
+    .reason { font-size: 12.5px; color: #4b5563; line-height: 1.45; }
+    tr.row-fail .reason { color: #991B1B; }
+    tr.row-rerun .reason { color: #C2410C; }
+    tr.row-error .reason { color: #475569; }
 
     .hidden { display: none; }
-    .no-results { text-align: center; padding: 44px; color: #9ca3af; font-size: 1em; }
-    @media (max-width: 860px) { .summary { grid-template-columns: repeat(3,1fr); } }
+    .no-results { text-align: center; padding: 44px; color: #9ca3af; font-size: 14px; }
+
+    /* ---- Footer ---- */
+    .footer {
+      background: #fff; border-top: .5px solid #DDE0EC; padding: 16px 32px;
+      display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+      font-size: 12px; color: #6b7280;
+    }
+    .footer .foot-left { display: inline-flex; align-items: center; gap: 8px; }
+    .footer .foot-dot { width: 8px; height: 8px; border-radius: 50%; background: __FOOT_DOT__; display: inline-block; }
+
+    @media (max-width: 900px) {
+      .tiles { grid-template-columns: repeat(7, minmax(90px, 1fr)); overflow-x: auto; }
+    }
   </style>
 </head>
 <body>
- <div class="wrap">
-  <div class="header">
-    <h1>🔬 Matter CI — Test Report</h1>
-    <div class="meta">Generated: __RUN_META__</div>
-  </div>
+  <header class="header">
+    <div class="header-left">
+      <div class="header-title">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#34d17f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 3h6"/><path d="M10 3v6l-5.2 9.4A1.5 1.5 0 0 0 6.1 21h11.8a1.5 1.5 0 0 0 1.3-2.6L14 9V3"/><path d="M7.5 14h9"/>
+        </svg>
+        Matter CI — Test Report
+      </div>
+      <div class="header-meta">
+        <span class="chip">__COMMIT__</span>
+        <span class="branch">__BRANCH__</span>
+        <span class="built">built __BUILT__</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="lbl">Generated</div>
+      <div class="val">__RUN_TIME__</div>
+    </div>
+  </header>
 
-  <div class="ratebar">
-    <div class="ratebar-top">
-      <span class="ratebar-title">Pass rate</span>
-      <span class="ratebar-pct">__PASS_PCT__%<small>__PASSTOTAL__ of __TOTAL__ passed</small></span>
-    </div>
-    <div class="ratebar-track">
-      <div class="rf-pass" style="width: calc(__PASSED__ / __TOTALF__ * 100%)"></div>
-      <div class="rf-warn" style="width: calc(__PASS_WARN__ / __TOTALF__ * 100%)"></div>
-      <div class="rf-fail" style="width: calc((__FAILED__ + __ERRORS__ + __RERUN__ + __CANCELLED__) / __TOTALF__ * 100%)"></div>
-    </div>
-    <div class="ratebar-legend">
-      <span><i style="background:#22a559"></i>Passed __PASSED__</span>
-      <span><i style="background:#1e8449"></i>Pass* __PASS_WARN__</span>
-      <span><i style="background:#e0392b"></i>Failed __FAILED__</span>
-      <span><i style="background:#ea7317"></i>Rerun __RERUN__</span>
-      <span><i style="background:#64748b"></i>Error __ERRORS__</span>
-      <span><i style="background:#8b46b8"></i>Cancelled __CANCELLED__</span>
-    </div>
-  </div>
+  <section class="tiles">
+    __TILES__
+  </section>
 
-  <div class="summary">
-    <div class="card c-total"   data-filter="ALL"   onclick="setStatus('ALL')">
-      <div class="num">__TOTAL__</div><div class="lbl">Total</div>
-      <div class="tip">Total test cases in this run. Click to clear the status filter.</div>
-    </div>
-    <div class="card c-pass"    data-filter="PASS"  onclick="setStatus('PASS')">
-      <div class="num">__PASSED__</div><div class="lbl">Passed</div>
-      <div class="tip">All steps executed and passed — clean result.</div>
-    </div>
-    <div class="card c-passwarn" data-filter="PASS*" onclick="setStatus('PASS*')">
-      <div class="num">__PASS_WARN__</div><div class="lbl">Pass*</div>
-      <div class="tip"><b>Partial</b> — some steps skipped (PICS/feature-gated or unmet precondition) but enough passed. See the Ctrl Log.</div>
-    </div>
-    <div class="card c-fail"    data-filter="FAIL"  onclick="setStatus('FAIL')">
-      <div class="num">__FAILED__</div><div class="lbl">Failed</div>
-      <div class="tip">One or more steps failed. Check the Reason column and Ctrl Log.</div>
-    </div>
-    <div class="card c-rerun"   data-filter="RERUN" onclick="setStatus('RERUN')">
-      <div class="num">__RERUN__</div><div class="lbl">Rerun</div>
-      <div class="tip">All steps skipped — PICS/feature-gated or another issue. Check the Ctrl Log.</div>
-    </div>
-    <div class="card c-err"     data-filter="ERROR" onclick="setStatus('ERROR')">
-      <div class="num">__ERRORS__</div><div class="lbl">Error</div>
-      <div class="tip">Script crashed, timed out, or commissioning failed before steps ran.</div>
-    </div>
-    <div class="card c-cancel"  data-filter="CANCEL" onclick="setStatus('CANCEL')">
-      <div class="num">__CANCELLED__</div><div class="lbl">Cancelled</div>
-      <div class="tip">Run cancelled (SIGTERM / GitHub cancel). These TCs did not execute.</div>
-    </div>
-  </div>
-
-  <div class="filters">
-    <label class="lbl">Cluster:</label>
+  <section class="filters">
+    <span class="flabel">Cluster:</span>
     <div class="ms" id="clusterMs">
       <button type="button" class="ms-toggle" id="msToggle" onclick="toggleMs(event)">
         <span id="msLabel">All clusters</span><span class="car">▼</span>
@@ -1915,7 +1884,7 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       </div>
     </div>
 
-    <label class="lbl">Status:</label>
+    <span class="flabel">Status:</span>
     <select id="statusFilter" onchange="applyFilters()">
       <option value="ALL">All statuses</option>
       <option value="PASS">PASS</option>
@@ -1931,16 +1900,15 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       <span class="clr" id="searchClr" onclick="clearSearch()">✕</span>
     </div>
 
-    <button class="filter-btn btn-clear" onclick="clearFilters()">↺ Clear filters</button>
+    <button class="btn-clear" onclick="clearFilters()">↺ Clear filters</button>
+    <span class="count" id="result-count"></span>
+  </section>
 
-    <span id="result-count"></span>
-  </div>
-
-  <div class="table-wrap">
+  <section class="table-card">
     <table id="resultsTable">
       <colgroup>
-        <col style="width:16%"><col style="width:10%"><col style="width:12%">
-        <col style="width:8%"><col style="width:14%"><col style="width:40%">
+        <col style="width:18%"><col style="width:10%"><col style="width:14%">
+        <col style="width:8%"><col style="width:15%"><col style="width:35%">
       </colgroup>
       <thead>
         <tr>
@@ -1957,32 +1925,28 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       </tbody>
     </table>
     <div class="no-results hidden" id="noResults">No test cases match the current filters.</div>
-  </div>
- </div>
+  </section>
+
+  <footer class="footer">
+    <span class="foot-left"><span class="foot-dot"></span>Matter CI · Test execution report · __FOOTER_STATUS__</span>
+    <span class="mono">__COMMIT__</span>
+  </footer>
 
   <script>
     var TOTAL = __TOTAL__;
     var sortState = { col: -1, dir: 'asc' };
 
-    function checkedClusters() {
-      return Array.from(document.querySelectorAll('.cluster-cb')).filter(c => c.checked).map(c => c.value);
-    }
     function allClusterBoxes() { return Array.from(document.querySelectorAll('.cluster-cb')); }
-
+    function checkedClusters() { return allClusterBoxes().filter(c => c.checked).map(c => c.value); }
     function updateClusterLabel() {
-      var boxes = allClusterBoxes(), sel = checkedClusters();
-      var el = document.getElementById('msLabel');
+      var boxes = allClusterBoxes(), sel = checkedClusters(), el = document.getElementById('msLabel');
       if (sel.length === boxes.length) el.textContent = 'All clusters';
       else if (sel.length === 0) el.textContent = 'None selected';
       else el.textContent = sel.length + ' of ' + boxes.length + ' clusters';
     }
     function onClusterChange() { updateClusterLabel(); applyFilters(); }
     function setAllClusters(v) { allClusterBoxes().forEach(c => c.checked = v); onClusterChange(); }
-
-    function toggleMs(e) {
-      e.stopPropagation();
-      document.getElementById('msPanel').classList.toggle('hidden');
-    }
+    function toggleMs(e) { e.stopPropagation(); document.getElementById('msPanel').classList.toggle('hidden'); }
     document.addEventListener('click', function(e) {
       var ms = document.getElementById('clusterMs');
       if (ms && !ms.contains(e.target)) document.getElementById('msPanel').classList.add('hidden');
@@ -1991,36 +1955,30 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
     function applyFilters() {
       var status = document.getElementById('statusFilter').value;
       var search = document.getElementById('searchFilter').value.toLowerCase();
-      var sel = checkedClusters();
-      var allClusters = sel.length === allClusterBoxes().length;
+      var sel = checkedClusters(), allC = sel.length === allClusterBoxes().length;
       var selSet = {}; sel.forEach(c => selSet[c] = true);
-      var rows = document.querySelectorAll('.tc-row');
       var visible = 0;
-
-      rows.forEach(function(row) {
-        var clusterOk = allClusters || selSet[row.dataset.cluster] === true;
-        var statusOk  = status === 'ALL' || row.dataset.status === status;
-        var searchOk  = search === '' || row.textContent.toLowerCase().indexOf(search) !== -1;
-        if (clusterOk && statusOk && searchOk) { row.classList.remove('hidden'); visible++; }
-        else { row.classList.add('hidden'); }
+      document.querySelectorAll('.tc-row').forEach(function(row) {
+        var ok = (allC || selSet[row.dataset.cluster] === true)
+              && (status === 'ALL' || row.dataset.status === status)
+              && (search === '' || row.textContent.toLowerCase().indexOf(search) !== -1);
+        row.classList.toggle('hidden', !ok);
+        if (ok) visible++;
       });
-
       document.getElementById('result-count').textContent = 'Showing ' + visible + ' of ' + TOTAL + ' test cases';
       document.getElementById('noResults').classList.toggle('hidden', visible > 0);
       document.getElementById('searchClr').classList.toggle('show', search !== '');
-      document.querySelectorAll('.card').forEach(function(c) {
-        c.classList.toggle('active', c.dataset.filter === status && status !== 'ALL');
+      document.querySelectorAll('.tile').forEach(function(t) {
+        t.classList.toggle('active', t.dataset.filter === status && status !== 'ALL');
       });
     }
-
     function setStatus(s) { document.getElementById('statusFilter').value = s; applyFilters(); }
     function clearSearch() { document.getElementById('searchFilter').value = ''; applyFilters(); }
     function clearFilters() {
       document.getElementById('statusFilter').value = 'ALL';
       document.getElementById('searchFilter').value = '';
       allClusterBoxes().forEach(c => c.checked = true);
-      updateClusterLabel();
-      applyFilters();
+      updateClusterLabel(); applyFilters();
     }
 
     function sortTable(col, type) {
@@ -2040,14 +1998,10 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
       });
       rows.forEach(function(r) { tbody.appendChild(r); });
       document.querySelectorAll('th.sortable').forEach(function(th) {
-        th.classList.remove('sorted');
         var a = th.querySelector('.arrow'); if (a) a.textContent = '⇅';
       });
       var ths = document.querySelectorAll('th');
-      if (ths[col]) {
-        ths[col].classList.add('sorted');
-        var ar = ths[col].querySelector('.arrow'); if (ar) ar.textContent = dir === 'asc' ? '▲' : '▼';
-      }
+      if (ths[col]) { var ar = ths[col].querySelector('.arrow'); if (ar) ar.textContent = dir === 'asc' ? '▲' : '▼'; }
     }
 
     updateClusterLabel();
@@ -2056,18 +2010,15 @@ def generate_report(results: list[dict], cfg: dict) -> Path:
 </body>
 </html>"""
     html = (_TEMPLATE
-            .replace("__RUN_META__", f"{run_time}{build_meta}")
-            .replace("__PASS_PCT__", str(pass_pct))
-            .replace("__PASSTOTAL__", str(passed + pass_warn))
-            .replace("__TOTALF__", str(total if total else 1))
-            .replace("__TOTAL__", str(total))
-            .replace("__PASSED__", str(passed))
-            .replace("__PASS_WARN__", str(pass_warn))
-            .replace("__FAILED__", str(failed))
-            .replace("__RERUN__", str(rerun))
-            .replace("__ERRORS__", str(errors))
-            .replace("__CANCELLED__", str(cancelled))
+            .replace("__FOOT_DOT__", foot_dot)
+            .replace("__COMMIT__", str(bi_commit))
+            .replace("__BRANCH__", str(bi_branch))
+            .replace("__BUILT__", str(built_txt))
+            .replace("__RUN_TIME__", str(run_time))
+            .replace("__FOOTER_STATUS__", footer_status)
+            .replace("__TILES__", stat_tiles)
             .replace("__CLUSTER_CB__", cluster_checkboxes)
+            .replace("__TOTAL__", str(total))
             .replace("__ROWS__", rows_html))
 
     report_path.write_text(html)
