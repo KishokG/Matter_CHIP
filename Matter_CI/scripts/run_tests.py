@@ -392,6 +392,25 @@ def is_controller_app(cmd: str) -> bool:
     return bool(re.search(r"\bchip-camera-controller\b|\bcamera-controller\b", cmd))
 
 
+def ensure_camera_controller_server_args(cmd: str) -> str:
+    """chip-camera-controller (WEBRTCR/WEBRTCP) MUST run as 'interactive server' —
+    that starts the WebSocket server (ws://localhost:9002) the test drives, and
+    the process STAYS alive. 'interactive start' is a readline REPL that hits EOF
+    in CI (no TTY) and exits immediately (rc=0) → "DUT process exited immediately".
+    Its CI header authoritatively declares `app-args: interactive server`, so
+    normalize whatever the Sheet has to that — no Sheet edit needed.
+    """
+    if not is_controller_app(cmd):
+        return cmd
+    if re.search(r"\binteractive\s+server\b", cmd):
+        return cmd                                   # already correct
+    if re.search(r"\binteractive\s+\w+", cmd):       # e.g. 'interactive start'
+        return re.sub(r"\binteractive\s+\w+", "interactive server", cmd, count=1)
+    if re.search(r"\binteractive\b", cmd):           # bare 'interactive'
+        return re.sub(r"\binteractive\b", "interactive server", cmd, count=1)
+    return f"{cmd.rstrip()} interactive server"      # no mode at all → append
+
+
 def set_cmd_flag(cmd: str, flag: str, value: str) -> str:
     """Replace-or-append `flag value` in a command string (e.g. --app-pipe)."""
     pat = re.compile(rf"{re.escape(flag)}(?:\s+|=)\S+")
@@ -505,8 +524,13 @@ class DUTManager:
         # --discriminator.
         disc = self.cfg["test_execution"].get("discriminator", "")
         if is_controller_app(dut_cmd):
+            before = dut_cmd
+            dut_cmd = ensure_camera_controller_server_args(dut_cmd)
             print("  [DUT] Controller app (chip-camera-controller) — "
                   "not injecting --discriminator (not a commissionable device)")
+            if dut_cmd != before:
+                print("  [DUT] Normalized to 'interactive server' (WebSocket server "
+                      "mode) — required so it stays alive for the test")
         else:
             dut_cmd = apply_discriminator(dut_cmd, disc)
             if disc not in (None, ""):
