@@ -436,6 +436,9 @@ class DUTManager:
         self._app_name = None
         self.last_straggler_count = 0   # leftover DUTs seen before the last launch
         self.last_full_cmd = ""         # the exact DUT shell command last launched
+        self._fsa_thread = None         # Fabric-Sync: stdin-fifo forwarder thread
+        self._fsa_stop   = None
+        self._fsa_pipe   = None
 
     def _find_binary(self, dut_cmd: str) -> tuple[Path | None, str]:
         """
@@ -593,8 +596,94 @@ class DUTManager:
         print(f"  [DUT] ✅ Running (PID {self._proc.pid})")
         return True, ""
 
+    def launch_scripted(self, cmd: str, log_path: Path, stdin_pipe: str = None) -> tuple[bool, str]:
+        """Launch a PYTHON-SCRIPT DUT (Fabric-Sync: fabric-sync-app.py, which itself
+        spawns fabric-admin + fabric-bridge). Optionally feed the app's stdin from a
+        named pipe (dut_fsa_stdin_pipe) that the test writes commands to — mirrors
+        the SDK run_python_test.py forward_fifo. Returns (True, "") / (False, err)."""
+        global _ACTIVE_DUT
+        _ACTIVE_DUT = self
+        # Kill leftover fabric apps from a prior fabric-sync test before launching.
+        subprocess.run("pkill -f 'fabric-sync-app.py|/fabric-admin|/fabric-bridge' "
+                       "2>/dev/null || true", shell=True)
+        time.sleep(self.cfg["test_execution"].get("dut_settle_wait", 2))
+
+        self.last_full_cmd = cmd
+        print(f"  [DUT] Launching (fabric-sync): {cmd}")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._log_file = open(log_path, "w")
+
+        self._fsa_pipe = stdin_pipe
+        if stdin_pipe:
+            try:
+                if os.path.exists(stdin_pipe):
+                    os.remove(stdin_pipe)
+                os.mkfifo(stdin_pipe)
+            except OSError as e:
+                print(f"  [DUT] ⚠️  Could not create stdin fifo {stdin_pipe}: {e}")
+        stdin_arg = subprocess.PIPE if stdin_pipe else subprocess.DEVNULL
+
+        try:
+            self._proc = subprocess.Popen(
+                shlex.split(cmd),
+                stdout=self._log_file, stderr=subprocess.STDOUT, stdin=stdin_arg,
+                preexec_fn=os.setsid, cwd=str(self.sdk_dir),
+            )
+        except (OSError, ValueError) as e:
+            return False, f"Failed to launch fabric-sync DUT: {e}"
+
+        # Forward the fifo → app stdin in a background thread (so the app's stdin
+        # never blocks and the test can send commands whenever it opens the fifo).
+        if stdin_pipe:
+            self._fsa_stop = threading.Event()
+
+            def _forward():
+                while not self._fsa_stop.is_set():
+                    try:
+                        with open(stdin_pipe, "rb") as fifo:
+                            for chunk in iter(lambda: fifo.readline(), b""):
+                                if self._fsa_stop.is_set():
+                                    return
+                                if self._proc and self._proc.poll() is None and self._proc.stdin:
+                                    try:
+                                        self._proc.stdin.write(chunk)
+                                        self._proc.stdin.flush()
+                                    except (BrokenPipeError, OSError):
+                                        return
+                    except OSError:
+                        return
+                    if self._fsa_stop.is_set():
+                        return
+
+            self._fsa_thread = threading.Thread(target=_forward, daemon=True)
+            self._fsa_thread.start()
+
+        wait = self.cfg["test_execution"].get("fabric_sync_startup_wait",
+                                              self.cfg["test_execution"].get("dut_startup_wait", 5) + 5)
+        print(f"  [DUT] Waiting {wait}s for fabric-sync startup (admin+bridge)...")
+        time.sleep(wait)
+        if self._proc.poll() is not None:
+            rc = self._proc.returncode
+            print(f"  [DUT] ❌ Fabric-sync app exited immediately (rc={rc})")
+            return False, f"Fabric-sync DUT exited immediately (rc={rc})."
+        print(f"  [DUT] ✅ Running (fabric-sync PID {self._proc.pid})")
+        return True, ""
+
     def stop(self):
         global _ACTIVE_DUT
+        # Tear down the Fabric-Sync stdin forwarder + fifo first.
+        if self._fsa_stop is not None:
+            self._fsa_stop.set()
+        if self._fsa_thread is not None:
+            self._fsa_thread.join(timeout=3)
+            self._fsa_thread = None
+        if self._fsa_pipe and os.path.exists(self._fsa_pipe):
+            try:
+                os.remove(self._fsa_pipe)
+            except OSError:
+                pass
+        self._fsa_stop = None
+        self._fsa_pipe = None
         if self._proc and self._proc.poll() is None:
             try:
                 os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
@@ -696,6 +785,42 @@ class TestRunner:
                 pass
             self._ci_header_cache[script_name] = text
         return self._ci_header_cache[script_name]
+
+    def _fabric_sync_dut(self, py_cmd: str, safe: str) -> tuple:
+        """Fabric-Sync tests (CCTRL/MCORE.FS/ECOINFO/BRBINFO) can't be run from the
+        Sheet's two-terminal fabric-admin+bridge form. Their SDK CI header launches
+        a single wrapper — examples/fabric-admin/scripts/fabric-sync-app.py — which
+        spawns fabric-admin + fabric-bridge together. Build THAT DUT command from
+        the header (resolving ${FABRIC_ADMIN_APP}/${FABRIC_BRIDGE_APP} and forcing
+        our discriminator), plus the stdin-pipe path the test drives it through.
+        Returns (dut_cmd, stdin_pipe) or (None, None) if not a Fabric-Sync test.
+        """
+        m = re.search(r"\b(TC_\w+\.py)\b", py_cmd)
+        if not m:
+            return None, None
+        hdr = self._ci_header(m.group(1))
+        if not hdr or "fabric-sync-app.py" not in hdr:
+            return None, None
+        am = re.search(r"\bapp:\s*(\S*fabric-sync-app\.py)", hdr)
+        if not am:
+            return None, None
+        app_path = am.group(1).strip()
+        if not os.path.isabs(app_path):
+            app_path = str(self.sdk_dir / app_path)
+        aa = re.search(r"\bapp-args:\s*(.+)", hdr)
+        app_args = self._resolve_sdk_placeholders(aa.group(1).strip()) if aa else ""
+        # Force our discriminator so the DUT-FSA and the test agree.
+        if self.discriminator not in (None, ""):
+            if re.search(r"--discriminator[=\s]\S+", app_args):
+                app_args = re.sub(r"--discriminator[=\s]\S+",
+                                  f"--discriminator={self.discriminator}", app_args)
+            else:
+                app_args += f" --discriminator={self.discriminator}"
+        dut_cmd = f"python3 {app_path} {app_args}".strip()
+        stdin_pipe = (f"/tmp/matterci_fsa_{safe}"
+                      if ("dut_fsa_stdin_pipe" in hdr or "dut_fsa_stdin_pipe" in py_cmd)
+                      else None)
+        return dut_cmd, stdin_pipe
 
     def _apply_ci_test_args(self, dut_cmd: str, py_cmd: str) -> tuple[str, str]:
         """Inject the test's declared CI args so operator/CI-sim tests run
@@ -1199,6 +1324,22 @@ class TestRunner:
                   f"discovery); cleared stale jf apps/storage, settling {settle}s.")
             time.sleep(settle)
 
+        # Fabric-Sync (CCTRL/MCORE.FS/ECOINFO/BRBINFO): build the DUT from the CI
+        # header (fabric-sync-app.py wrapper launching fabric-admin + fabric-bridge)
+        # since the Sheet's two-terminal form can't be launched as one ./app. This
+        # DUT is launched via dut.launch_scripted() below (python script + optional
+        # stdin fifo the test drives). Overrides has_dut_app (not a ./app).
+        fsa_cmd, fsa_pipe = self._fabric_sync_dut(py_cmd, safe)
+        if fsa_cmd:
+            has_dut_app = False
+            if fsa_pipe:
+                if re.search(r"dut_fsa_stdin_pipe:\S+", py_cmd):
+                    py_cmd = re.sub(r"dut_fsa_stdin_pipe:\S+",
+                                    f"dut_fsa_stdin_pipe:{fsa_pipe}", py_cmd)
+                elif "dut_fsa_stdin_pipe" not in py_cmd:
+                    py_cmd = f"{py_cmd.rstrip()} --string-arg dut_fsa_stdin_pipe:{fsa_pipe}"
+            print(f"  [FSA] Fabric-Sync test — DUT built from CI header: {fsa_cmd}")
+
         # App-pipe: for tests that drive DUT state via write_to_app_pipe, inject a
         # MATCHING --app-pipe into BOTH the DUT app and the python command (SDK CI
         # pattern), and ensure --PICS so PICS_SDK_CI_ONLY makes the test take the
@@ -1231,7 +1372,14 @@ class TestRunner:
         self._clean_storage()
         start = time.time()
 
-        if not has_dut_app:
+        if fsa_cmd:
+            # Fabric-Sync DUT: launch the python wrapper (spawns fabric-admin +
+            # fabric-bridge) with its stdin fed from the test's dut_fsa_stdin_pipe.
+            launched, launch_err = dut.launch_scripted(fsa_cmd, dut_log, stdin_pipe=fsa_pipe)
+            if not launched:
+                elapsed = round(time.time() - start, 2)
+                return ERROR, {}, launch_err, elapsed
+        elif not has_dut_app:
             # No DUT to launch — the test manages its own apps. Just clear stale
             # chip state so those apps start fresh.
             print("  [DUT] No DUT app in command — self-orchestrating test; "
@@ -1279,7 +1427,8 @@ class TestRunner:
         # The FINAL commands actually executed (after discriminator / app-pipe /
         # PICS / --enable-key / CI-arg injection) — logged in full and saved to
         # the result, since these differ from the raw Sheet commands.
-        executed_dut = dut.last_full_cmd if has_dut_app else f"(no DUT app) {dut_cmd}"
+        executed_dut = (dut.last_full_cmd if (has_dut_app or fsa_cmd)
+                        else f"(no DUT app) {dut_cmd}")
         executed_py  = " ".join(str(p) for p in cmd_parts)
         print(f"  [TEST] Running (full): {executed_py}")
 

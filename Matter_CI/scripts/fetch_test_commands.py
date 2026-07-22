@@ -78,6 +78,8 @@ def _cut_multi_command(cmd: str) -> str:
             cuts.append(idxs[1])                     # start of the 2nd command
     for pat in (r'\bwhen\s+(?:the\s+)?(?:test|executed|run|it\b)',
                 r'\buse\s+the\s+below\b', r'\bnote\s*:',
+                r'\bfor\s+(?:pre-?condition|step)\b',   # SDK green notes
+                r'\bafter\s+advert', r'\bin\s+step\b',
                 r'\bon\s+(?:real\s+dut|sample\s+app)\b'):
         m = re.search(pat, cmd, re.IGNORECASE)
         if m:
@@ -86,91 +88,96 @@ def _cut_multi_command(cmd: str) -> str:
 
 
 def parse_dut_command(raw: str) -> str:
+    """Extract the DUT launch command from a Sheet cell that may contain prose,
+    Notes, or multiple 'Terminal N:' blocks.
+
+    Returns "" when there is NO server app to launch — either an explicit
+    "Not Required to launch the server app", or a cell that only commissions via
+    chip-tool / launches multiple apps (e.g. Fabric-Sync fabric-admin+bridge).
+    An empty result is NOT an error: the test is self-orchestrating (it launches
+    its own apps via --string-arg app paths), or the runner builds the DUT from
+    the SDK CI header (Fabric-Sync). The caller no longer treats "" as a failure.
+    """
     if not raw:
         return ""
 
-    # Remove everything before and including "DUT terminal:" if present
     raw = re.sub(r'.*?DUT terminal\s*[:\-]\s*', '', raw, flags=re.IGNORECASE | re.DOTALL)
+    text = raw.replace('\\n', '\n')
 
-    # Split into lines
-    lines = re.split(r'\n|\\n', raw)
-
-    SENTENCE_STARTERS = re.compile(
-        r'^(Note|While|Please|In the|Commission|The |This |For |If |When |After |Before |'
-        r'During |Also |Additionally|Furthermore|However|Make sure|Ensure|Important)',
-        re.IGNORECASE
-    )
-
-    cmd_lines = []
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Stop at note lines or lines starting with "- Capital"
-        if re.match(r'^(note\s*:|-\s+[A-Z])', stripped, re.IGNORECASE):
-            break
-        # Stop at bold markers
-        if stripped.startswith('**') or stripped.startswith('__'):
-            break
-        # Stop at known sentence starters
-        if SENTENCE_STARTERS.match(stripped):
-            break
-        # Stop if line is a pure sentence (Capital Word Capital Word, not a shell cmd)
-        if (re.match(r'^[A-Z][a-z]+\s+[A-Z]', stripped) and
-                not re.match(r'^(rm|--)', stripped)):
-            break
-        cmd_lines.append(stripped)
-
-    cmd = ' '.join(cmd_lines).strip()
-
-    # Extract from "rm -rf" onwards
-    match = re.search(r'(rm\s+-rf\s+/tmp/chip[_/*].*)', cmd, re.IGNORECASE)
-    if not match:
+    # Explicit "no server app" → self-orchestrating (nothing to launch).
+    if re.search(r'not\s+required\s+to\s+launch', text, re.IGNORECASE):
         return ""
-    cmd = match.group(1).strip()
 
-    # Keep only the FIRST command variant (defensive — same multi-command cell
-    # pattern can appear on the DUT side too).
+    # Multi-terminal Fabric-Sync setups (fabric-admin + fabric-bridge-app across
+    # two terminals) can't be expressed as one './app' launch — the runner builds
+    # the DUT from the SDK CI header (fabric-sync-app.py) instead. Signal no-DUT.
+    if re.search(r'\bfabric-bridge-app\b', text, re.IGNORECASE) and \
+       re.search(r'\bfabric-admin\b', text, re.IGNORECASE):
+        return ""
+
+    # Find the FIRST launchable command: optional `rm -rf …chip… &&` then `./app`.
+    # Scan line by line, stripping a leading 'Terminal N:' / label so the command
+    # after it is still seen. Skip pure prose/Note lines.
+    launch_re = re.compile(r'((?:rm\s+-rf\s+\S*chip\S*\s*&&\s*)?\./\S+.*)', re.IGNORECASE)
+    cmd = ""
+    for line in re.split(r'\n', text):
+        s = re.sub(r'^\s*terminal\s*\d*\s*[:\-]?\s*', '', line.strip(), flags=re.IGNORECASE)
+        if not s or re.match(r'^(note\b|command\b|once\b|-\s|\*\*)', s, re.IGNORECASE):
+            continue
+        m = launch_re.search(s)
+        if m:
+            c = m.group(1).strip()
+            # chip-tool is a COMMISSIONER action (e.g. `chip-tool pairing …`), not
+            # a DUT server to launch. Such tests self-launch their real DUT via a
+            # --string-arg app_path (e.g. TC-DA-1.9) → treat as no-DUT.
+            if re.search(r'\./(?:[\w\-]+/)*chip-tool\b', c, re.IGNORECASE):
+                continue
+            cmd = c
+            break
+    if not cmd:
+        return ""   # no launchable ./app → self-orchestrating (not an error)
+
     cmd = _cut_multi_command(cmd)
-
-    # Strip path prefix: ./apps/chip-all-clusters-app → ./chip-all-clusters-app
-    cmd = re.sub(r'\./(?:[\w\-]+/)+', './', cmd)
-
-    # Remove trailing sentence fragments after last valid shell token
+    cmd = re.sub(r'\./(?:[\w\-]+/)+', './', cmd)   # ./apps/chip-x → ./chip-x
+    # Trim a trailing prose fragment (two+ Capitalised words) after the command.
     cmd = re.sub(r'\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+).*$', '', cmd).strip()
-
-    # Fix 3: Remove extra trailing quote if quotes are unbalanced (odd count)
-    # This happens when the Google Sheet cell wraps the command in quotes
-    # and the closing cell-quote gets captured as part of the command
     if cmd.count('"') % 2 != 0 and cmd.endswith('"'):
         cmd = cmd[:-1].strip()
-
     return cmd
 
 def parse_python_command(raw: str) -> str:
     if not raw:
         return ""
 
-    # Split on newline or literal \n
-    lines = re.split(r'\n|\\n', raw)
+    text = raw.replace('\\n', '\n')
+    lines = text.split('\n')
 
-    result_lines = []
-    for line in lines:
-        stripped = line.strip()
-        # Stop at Note: line
-        if re.match(r'^note\s*:', stripped, re.IGNORECASE):
+    # Find the line where the `python3 …TC_*.py` command starts — IGNORING any
+    # leading prose/Note lines (some cells put a "Note: …" line BEFORE the command,
+    # e.g. TC-BRBINFO-4.1). Then collect that line + continuation arg-lines, and
+    # STOP at the first prose/Note line that follows (trailing notes).
+    start = next((i for i, l in enumerate(lines)
+                  if re.search(r'python3\s+\S+\.py\b', l, re.IGNORECASE)), None)
+    if start is None:
+        return ""
+    PROSE = re.compile(r'^(note\b|for\b|after\b|in\s+step\b|when\b|'
+                       r'use\s+the\b|on\s+(?:real|sample)\b)', re.IGNORECASE)
+    collected = []
+    for l in lines[start:]:
+        s = l.strip()
+        if collected and PROSE.match(s):
             break
-        if stripped:
-            result_lines.append(stripped)
+        if s:
+            collected.append(s)
+    cmd = ' '.join(collected).strip()
 
-    cmd = ' '.join(result_lines).strip()
-
-    # Extract from "python3" onwards
-    match = re.search(r'(python3\s+\S+\.py\s+.*)', cmd, re.IGNORECASE)
+    match = re.search(r'(python3\s+\S+\.py\b.*)', cmd, re.IGNORECASE)
     if not match:
         return ""
 
     cmd = match.group(1).strip()
+    # Drop a trailing standalone "Note …" that slipped onto the command line.
+    cmd = re.sub(r'\s+Note\b.*$', '', cmd, flags=re.IGNORECASE).strip()
 
     # Keep only the FIRST command variant (drop a second command + prose crammed
     # into the same cell — the common "real DUT / sample app" Sheet pattern).
@@ -353,12 +360,17 @@ def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str]) -> list[dict]:
         dut_cmd = parse_dut_command(raw_dut)
         py_cmd  = parse_python_command(raw_py)
 
-        if not dut_cmd:
-            errors.append(f"Row {i}: {tc_id} — could not parse DUT command")
-            continue
+        # An empty DUT command is NOT an error — the test is self-orchestrating
+        # (it launches its own apps via --string-arg app paths, e.g. SC-3.5,
+        # DA-1.9), or the runner builds the DUT from the SDK CI header
+        # (Fabric-Sync). The python command IS required.
         if not py_cmd:
-            errors.append(f"Row {i}: {tc_id} — could not parse Python command")
+            errors.append(f"Row {i}: {tc_id} — could not parse Python command "
+                          f"(cell had content but no 'python3 …TC_*.py' found)")
             continue
+        if not dut_cmd:
+            print(f"[INFO] {tc_id}: no DUT app in cell — self-orchestrating "
+                  f"(test launches its own apps / built from CI header).")
 
         # Skip if the required app failed to build
         if failed_apps:
