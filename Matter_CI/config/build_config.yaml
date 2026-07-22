@@ -201,6 +201,12 @@ test_execution:
   # Too short under RPi load leaves the Sheet's <placeholder> in place → the
   # test fails with "argparse: --manual-code invalid". 30s is a safe margin.
   pairing_code_wait: 30
+  # Joint-Fabric self-orchestrating tests (JFADMIN/JFDS): seconds to settle after
+  # killing stale jfa/jfc apps and clearing storage, before the test self-launches
+  # its own jfa+jfc. Lets prior JF apps die + their mDNS records age out so the
+  # test's `jfc pairing onnetwork` doesn't discover a stale/competing jfa (which
+  # caused intermittent "Anchor Administrator commissioned with success" timeouts).
+  jf_settle_wait: 6
   # Discriminator (12-bit, 0-4095) the DUT is advertised on AND the controller
   # commissions to. Overrides the SDK default (3840) in BOTH the DUT command and
   # the python command — pick a value unlikely to clash with others on the same

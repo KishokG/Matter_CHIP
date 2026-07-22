@@ -278,8 +278,22 @@ def install_wheels(cfg: dict, sdk_dir: Path, bundle_dir: Path):
 
     wheels = sorted((bundle_dir / "wheels").glob("*.whl"))
     if wheels:
+        wl = [str(w) for w in wheels]
         log(f"Installing {len(wheels)} wheel(s) into {venv} ...")
-        subprocess.run([str(py), "-m", "pip", "install", *[str(w) for w in wheels], "--quiet"], check=True)
+        # Pass 1: normal install — brings in each wheel's dependencies (covers a
+        # fresh venv).
+        subprocess.run([str(py), "-m", "pip", "install", *wl, "--quiet"], check=True)
+        # Pass 2: FORCE-reinstall the matter code. The matter wheels carry a STATIC
+        # dev version, so a plain `pip install` is a NO-OP when the version is
+        # unchanged and leaves a STALE matter package from a previous run — older
+        # than the src/python_testing checkout. That skew is exactly what causes
+        # "AttributeError: 'ChipDeviceController' object has no attribute
+        # 'RemoveGroupInfo'" / "'XmlAttribute' object has no attribute 'scene'".
+        # --force-reinstall replaces the code even when the version matches;
+        # --no-deps keeps it fast and avoids churning already-satisfied deps.
+        log("Force-reinstalling matter wheels so the package matches the SDK checkout ...")
+        subprocess.run([str(py), "-m", "pip", "install", "--force-reinstall",
+                        "--no-deps", *wl, "--quiet"], check=True)
     else:
         log("⚠️  No wheels found in bundle — python controller modules may be missing.")
 

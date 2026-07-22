@@ -1178,6 +1178,27 @@ class TestRunner:
         has_dut_app = bool(re.search(r"\./\S+", dut_cmd))
         safe = re.sub(r"[^A-Za-z0-9_]", "_", tc_id)
 
+        # Joint-Fabric self-orchestrating tests (they pass jfa_server_app /
+        # jfc_server_app and run in CI mode via PICS_SDK_CI_ONLY) launch their OWN
+        # jfa + jfc apps on random ports. Any external jfa DUT we'd otherwise
+        # launch is NOT commissioned (no --commissioning-method) yet keeps
+        # advertising as a commissionable node — so the test's `jfc pairing
+        # onnetwork` can discover THAT jfa instead of the test's own → PASE with
+        # the wrong passcode → intermittent "Anchor Administrator … commissioned
+        # with success" timeouts. So: don't launch the external DUT for JF tests,
+        # and hard-clean any stale jf apps / storage + settle so mDNS from prior
+        # JF tests can't add discovery contention either.
+        is_jf = bool(re.search(r"\bjf[ac]_server_app\b", py_cmd))
+        if is_jf and has_dut_app:
+            has_dut_app = False
+            subprocess.run("pkill -f 'jfa-app|jfc-app' 2>/dev/null || true", shell=True)
+            subprocess.run("rm -rf /tmp/TC_JF* /tmp/chip_* 2>/dev/null || true", shell=True)
+            settle = self.cfg["test_execution"].get("jf_settle_wait", 6)
+            print(f"  [JF] Self-orchestrating Joint-Fabric test — not launching the "
+                  f"external jfa DUT (it competes with the test's own in mDNS "
+                  f"discovery); cleared stale jf apps/storage, settling {settle}s.")
+            time.sleep(settle)
+
         # App-pipe: for tests that drive DUT state via write_to_app_pipe, inject a
         # MATCHING --app-pipe into BOTH the DUT app and the python command (SDK CI
         # pattern), and ensure --PICS so PICS_SDK_CI_ONLY makes the test take the
