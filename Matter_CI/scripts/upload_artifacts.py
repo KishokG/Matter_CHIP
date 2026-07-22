@@ -504,6 +504,63 @@ def make_public_link(service, file_id: str) -> str:
     ).execute()
     return f"https://drive.google.com/file/d/{file_id}/view?usp=sharing"
 
+
+def storage_free_bytes(service):
+    """Free bytes in the SERVICE ACCOUNT's Drive quota, or None if the quota is
+    pooled/unlimited (Shared Drive / Workspace — nothing to manage)."""
+    try:
+        q = service.about().get(fields="storageQuota").execute().get("storageQuota", {})
+    except Exception as e:  # noqa: BLE001 — treat as "unknown", skip management
+        print(f"[DRIVE] Could not read storage quota: {e}")
+        return None
+    if q.get("limit") is None:
+        return None
+    return max(int(q["limit"]) - int(q.get("usage", 0) or 0), 0)
+
+
+def ensure_space_for_upload(service, folder_id, needed_bytes, name_prefix, margin=0.10):
+    """Safety net run BEFORE an upload: guarantee room for `needed_bytes`.
+    1) if enough free → return; 2) empty the SA trash; 3) if still short, delete
+    OLDEST `name_prefix`*.tar.gz files (that kind ONLY — never other data) until it
+    fits. Frees are tracked locally (Drive quota usage updates lazily). No-op on a
+    pooled/unlimited (Shared Drive) quota."""
+    free = storage_free_bytes(service)
+    if free is None:
+        return
+    mb = 1_048_576
+    need = int(needed_bytes * (1 + margin))
+    if free >= need:
+        print(f"[DRIVE] Space OK: {free // mb} MB free ≥ {need // mb} MB needed.")
+        return
+    print(f"[DRIVE] ⚠️  Only {free // mb} MB free, need ~{need // mb} MB — reclaiming…")
+    try:
+        service.files().emptyTrash().execute()
+        print("[DRIVE] Emptied service-account trash.")
+    except Exception as e:  # noqa: BLE001
+        print(f"[DRIVE] emptyTrash failed (non-fatal): {e}")
+    free = storage_free_bytes(service) or 0
+    if free >= need:
+        print(f"[DRIVE] Trash cleared → {free // mb} MB free. OK.")
+        return
+    # Delete oldest same-kind archives until it fits (track freed locally).
+    resp = service.files().list(
+        q=(f"'{folder_id}' in parents and trashed=false and "
+           f"name contains '{name_prefix}'"),
+        fields="files(id,name,size,createdTime)", orderBy="createdTime").execute()
+    files = [f for f in resp.get("files", []) if f["name"].endswith(".tar.gz")]
+    freed = 0
+    for f in files:
+        if free + freed >= need:
+            break
+        delete_file(service, f["id"], f["name"])
+        freed += int(f.get("size", 0) or 0)
+    avail = free + freed
+    if avail >= need:
+        print(f"[DRIVE] Reclaimed {freed // mb} MB → ~{avail // mb} MB available.")
+    else:
+        print(f"[DRIVE] ⚠️  Still only ~{avail // mb} MB after cleanup (need "
+              f"{need // mb} MB) — quota may be filled by other data; upload may fail.")
+
 # =============================================================================
 # Upload to Google Drive
 # =============================================================================
@@ -563,6 +620,11 @@ def upload_to_drive(cfg: dict, tar_path: Path, commit: str = "", branch: str = "
             delete_file(service, f["id"], f["name"])
         print(f"[DRIVE] Pruned {len(old_bundles) - keep_before} old build(s) "
               f"before upload (keeping newest {keep_before} + this one = {keep_history})")
+
+    # ── Safety net: ensure the SA quota has room for this upload ──────────
+    # keep_history + prune-before should already keep us bounded, but guard
+    # against a full/shared quota (empty trash, then delete oldest matter-sdk-*).
+    ensure_space_for_upload(service, folder_id, tar_path.stat().st_size, "matter-sdk-")
 
     # ── Upload this build ONCE; its own ID is the permanent, emailed link ──
     file_id = upload_file(service, tar_path, folder_id)

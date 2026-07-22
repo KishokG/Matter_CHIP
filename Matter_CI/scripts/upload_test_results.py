@@ -36,6 +36,7 @@ from upload_artifacts import (
     make_public_link,
     list_files_in_folder,
     delete_file,
+    ensure_space_for_upload,
 )
 
 RESULTS_PREFIX = "matter-ci-results-"   # names we own → safe to prune
@@ -120,6 +121,10 @@ def upload_results_to_drive(cfg: dict, tar_path: Path, run_id: str) -> str:
             delete_file(service, f["id"], f["name"])
         print(f"[RESULTS] Pruned {len(old_results) - keep_before} old result set(s) "
               f"before upload (keeping newest {keep_before} + this one = {keep_history})")
+
+    # Safety net: ensure quota room before uploading (empty trash → delete oldest
+    # matter-ci-results-* if needed). Complements the count-based prune above.
+    ensure_space_for_upload(service, folder_id, tar_path.stat().st_size, RESULTS_PREFIX)
 
     file_id = upload_file(service, tar_path, folder_id)
     link = make_public_link(service, file_id)
