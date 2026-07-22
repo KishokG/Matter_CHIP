@@ -610,7 +610,8 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
         drive_block = (
             '<div style="padding:12px;border:1px dashed #E5E7EB;border-radius:10px;'
             'font-size:12px;color:#6B7280;text-align:center;margin-bottom:8px">'
-            'Results archive not uploaded (Drive folder not configured) — see GitHub artifacts.</div>')
+            'Results archive not on Drive for this run — download it from the run\'s '
+            'GitHub artifacts. (See the "Upload test results" step log for the reason.)</div>')
 
     gh_block = ""
     if run_url:

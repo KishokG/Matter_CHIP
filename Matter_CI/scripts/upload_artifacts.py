@@ -548,6 +548,22 @@ def upload_to_drive(cfg: dict, tar_path: Path, commit: str = "", branch: str = "
             delete_file(service, f["id"], f["name"])
     existing = [f for f in existing if f["name"] != tar_path.name]
 
+    # ── Prune BEFORE uploading so we free a slot first ────────────────────
+    # Pruning after the upload can't self-heal a full Drive: the upload throws
+    # (403 storageQuotaExceeded) before the prune ever runs. Deleting the oldest
+    # bundles down to (keep_history - 1) up front leaves room for the incoming
+    # one → keep_history total after. Scoped to matter-sdk-* so result archives
+    # (matter-ci-results-*) sharing this folder are never touched.
+    keep_before = max(keep_history - 1, 0)
+    old_bundles = [f for f in existing
+                   if f["name"].startswith("matter-sdk-")
+                   and f["name"].endswith(".tar.gz")]   # oldest-first (createdTime)
+    if len(old_bundles) > keep_before:
+        for f in old_bundles[:len(old_bundles) - keep_before]:
+            delete_file(service, f["id"], f["name"])
+        print(f"[DRIVE] Pruned {len(old_bundles) - keep_before} old build(s) "
+              f"before upload (keeping newest {keep_before} + this one = {keep_history})")
+
     # ── Upload this build ONCE; its own ID is the permanent, emailed link ──
     file_id = upload_file(service, tar_path, folder_id)
     link    = make_public_link(service, file_id)
@@ -579,17 +595,7 @@ def upload_to_drive(cfg: dict, tar_path: Path, commit: str = "", branch: str = "
         f"Download: pip3 install gdown --break-system-packages && gdown {file_id}\n"
     )
 
-    # ── Prune: keep only the newest N BUILD bundle tarballs ───────────────
-    # Scope to matter-sdk-* so test-result archives (matter-ci-results-*.tar.gz)
-    # that may share this folder are never counted or deleted by the build prune.
-    bundles = [f for f in list_files_in_folder(service, folder_id)
-               if f["name"].startswith("matter-sdk-")
-               and f["name"].endswith(".tar.gz")]   # oldest-first (createdTime)
-    if len(bundles) > keep_history:
-        for f in bundles[:len(bundles) - keep_history]:
-            delete_file(service, f["id"], f["name"])
-        print(f"[DRIVE] Pruned {len(bundles) - keep_history} old build(s) "
-              f"(keeping newest {keep_history})")
+    # (Pruning happens BEFORE the upload above — see the prune-before block.)
 
     print(f"\n[DRIVE] ✅ Upload complete!")
     print(f"[DRIVE]    Build  : {link}")

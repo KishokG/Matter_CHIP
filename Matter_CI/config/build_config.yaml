@@ -141,7 +141,7 @@ google_drive:
   # is a uniquely-named file whose own permanent ID is what the email link uses,
   # so a link stays valid until its bundle is pruned. keep_history = how many of
   # the newest bundles to keep = how long an emailed link stays downloadable.
-  keep_history: 10
+  keep_history: 5
   # Upload only on fully successful builds (all enabled targets built)
   # Set to true to upload even partial builds
   upload_on_partial: true

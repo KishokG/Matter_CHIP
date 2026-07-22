@@ -106,19 +106,24 @@ def upload_results_to_drive(cfg: dict, tar_path: Path, run_id: str) -> str:
     for f in existing:
         if f["name"] == tar_path.name:
             delete_file(service, f["id"], f["name"])
+    existing = [f for f in existing if f["name"] != tar_path.name]
+
+    # Prune BEFORE uploading so we free a slot first — pruning after can't
+    # self-heal a full Drive (the upload throws 403 storageQuotaExceeded before
+    # the prune runs). Keep the newest (keep_history - 1) so this run's archive
+    # makes keep_history total. Scoped to RESULTS_PREFIX (never build bundles).
+    keep_before = max(keep_history - 1, 0)
+    old_results = [f for f in existing
+                   if f["name"].startswith(RESULTS_PREFIX) and f["name"].endswith(".tar.gz")]
+    if len(old_results) > keep_before:
+        for f in old_results[:len(old_results) - keep_before]:   # oldest-first
+            delete_file(service, f["id"], f["name"])
+        print(f"[RESULTS] Pruned {len(old_results) - keep_before} old result set(s) "
+              f"before upload (keeping newest {keep_before} + this one = {keep_history})")
 
     file_id = upload_file(service, tar_path, folder_id)
     link = make_public_link(service, file_id)
     print(f"[RESULTS] 🔗 Results link (permanent): {link}")
-
-    # Prune: keep only the newest N RESULT archives (never touches build bundles).
-    results = [f for f in list_files_in_folder(service, folder_id)
-               if f["name"].startswith(RESULTS_PREFIX) and f["name"].endswith(".tar.gz")]
-    if len(results) > keep_history:
-        for f in results[:len(results) - keep_history]:   # oldest-first (createdTime)
-            delete_file(service, f["id"], f["name"])
-        print(f"[RESULTS] Pruned {len(results) - keep_history} old result set(s) "
-              f"(keeping newest {keep_history})")
 
     (PROJECT_ROOT / "logs" / "results_drive_link.txt").write_text(link)
     return link
