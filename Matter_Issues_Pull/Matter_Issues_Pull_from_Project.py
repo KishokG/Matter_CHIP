@@ -116,6 +116,11 @@ def fetch_project_issues(org, project_number):
                       login
                     }
                   }
+                  labels(first: 20) {
+                    nodes {
+                      name
+                    }
+                  }
                 }
                 ... on PullRequest {
                   number
@@ -129,6 +134,11 @@ def fetch_project_issues(org, project_number):
                   assignees(first: 10) {
                     nodes {
                       login
+                    }
+                  }
+                  labels(first: 20) {
+                    nodes {
+                      name
                     }
                   }
                 }
@@ -179,6 +189,10 @@ def fetch_project_issues(org, project_number):
             assignees_nodes = content.get("assignees", {}).get("nodes", [])
             assignees_str = ", ".join([a["login"] for a in assignees_nodes]) if assignees_nodes else ""
 
+            # Extract labels from content
+            label_nodes = content.get("labels", {}).get("nodes", [])
+            labels_str = ", ".join([l["name"] for l in label_nodes]) if label_nodes else ""
+
             project_items.append({
                 "repo": content["repository"]["nameWithOwner"],
                 "number": content["number"],
@@ -189,6 +203,7 @@ def fetch_project_issues(org, project_number):
                 "createdAt": content["createdAt"],
                 "updatedAt": content["updatedAt"],
                 "assignees": assignees_str,
+                "labels": labels_str,
                 "fields": field_dict
             })
 
@@ -245,6 +260,7 @@ def main():
             created_at.strftime("%Y-%m-%d %H:%M:%S"),
             item["updatedAt"],
             item["assignees"],              # ← Fixed: from content, not fields
+            item["labels"],
             fields.get("Status"),
             fields.get("Domain"),
             fields.get("Feature Area"),
@@ -274,7 +290,7 @@ def main():
 
     headers = [
         "Repo", "Number", "State", "Title", "Author",
-        "Created", "Updated", "Assignees", "Status", "Domain", "Feature Area",
+        "Created", "Updated", "Assignees", "Labels", "Status", "Domain", "Feature Area",
         "Found In", "Fix Required For", "PR",
         "Comments", "URL", "Fix Priority"
     ]
