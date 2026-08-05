@@ -183,7 +183,10 @@ jobs:
     # Build unless the resolved pipeline is test-only (covers schedule + manual,
     # since 'plan' resolves cron → SCHEDULE_PIPELINE and manual → the input).
     if: needs.plan.outputs.pipeline != 'test-only'
-    timeout-minutes: 21600
+    # Finite cap so a hung build auto-fails in hours, not days (was 21600 = 15d,
+    # which — combined with the old always() jobs — is why Cancel could hang > a
+    # day). A cold ARM64 Docker build is ~1–2h; 5h is a safe ceiling.
+    timeout-minutes: 300
     outputs:
       # Full SHA of the commit just built — run-tests passes it to
       # prepare_rpi_tests.py to assert it downloaded THIS build's bundle.
@@ -376,7 +379,7 @@ jobs:
     outputs:
       drive_link: ${{ steps.upload.outputs.drive_link }}
     if: |
-      always() &&
+      !cancelled() &&
       needs.build.result == 'success' &&
       needs.plan.outputs.pipeline != 'test-only'
     steps:
@@ -423,7 +426,7 @@ jobs:
     runs-on: [self-hosted, mac-mini]
     needs: [plan, build, upload-artifacts]
     if: |
-      always() &&
+      !cancelled() &&
       needs.plan.outputs.pipeline != 'test-only'
     steps:
       - name: Checkout repo
@@ -487,7 +490,7 @@ jobs:
     runs-on: [self-hosted, rpi]
     needs: [plan, validate, build]
     if: |
-      always() &&
+      !cancelled() &&
       (needs.plan.outputs.pipeline == 'test-only' ||
        needs.plan.outputs.pipeline == 'build-test') &&
       (needs.validate.result == 'success') &&
@@ -548,11 +551,13 @@ jobs:
     # build), and we intentionally use the existing latest bundle on Drive.
     needs: [build, fetch-tests, upload-artifacts]
     if: |
-      always() &&
+      !cancelled() &&
       needs.fetch-tests.result == 'success' &&
       (needs.upload-artifacts.result == 'success' ||
        needs.upload-artifacts.result == 'skipped')
-    timeout-minutes: 21600
+    # Finite cap so a hung test run auto-fails instead of holding the runner for
+    # days. Per-test timeouts keep TCs bounded; 12h covers a full 440-TC suite.
+    timeout-minutes: 720
 
     steps:
       - name: Checkout repo
