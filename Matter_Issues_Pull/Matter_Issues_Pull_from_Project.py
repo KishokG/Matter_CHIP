@@ -121,6 +121,13 @@ def fetch_project_issues(org, project_number):
                       name
                     }
                   }
+                  closedByPullRequestsReferences(first: 10, includeClosedPrs: true) {
+                    nodes {
+                      number
+                      url
+                      repository { nameWithOwner }
+                    }
+                  }
                 }
                 ... on PullRequest {
                   number
@@ -193,6 +200,12 @@ def fetch_project_issues(org, project_number):
             label_nodes = content.get("labels", {}).get("nodes", [])
             labels_str = ", ".join([l["name"] for l in label_nodes]) if label_nodes else ""
 
+            # Extract linked pull requests (Issues only; "Development" section)
+            linked_pr_nodes = content.get("closedByPullRequestsReferences", {}).get("nodes", [])
+            linked_prs_str = ", ".join(
+                [f'{pr["repository"]["nameWithOwner"].split("/")[-1]}#{pr["number"]}' for pr in linked_pr_nodes]
+            ) if linked_pr_nodes else ""
+
             project_items.append({
                 "repo": content["repository"]["nameWithOwner"],
                 "number": content["number"],
@@ -204,6 +217,7 @@ def fetch_project_issues(org, project_number):
                 "updatedAt": content["updatedAt"],
                 "assignees": assignees_str,
                 "labels": labels_str,
+                "linked_prs": linked_prs_str,
                 "fields": field_dict
             })
 
@@ -261,6 +275,7 @@ def main():
             item["updatedAt"],
             item["assignees"],              # ← Fixed: from content, not fields
             item["labels"],
+            item["linked_prs"],
             fields.get("Status"),
             fields.get("Domain"),
             fields.get("Feature Area"),
@@ -290,7 +305,7 @@ def main():
 
     headers = [
         "Repo", "Number", "State", "Title", "Author",
-        "Created", "Updated", "Assignees", "Labels", "Status", "Domain", "Feature Area",
+        "Created", "Updated", "Assignees", "Labels", "Linked PRs", "Status", "Domain", "Feature Area",
         "Found In", "Fix Required For", "PR",
         "Comments", "URL", "Fix Priority"
     ]
