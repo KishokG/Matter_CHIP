@@ -202,9 +202,14 @@ def fetch_project_issues(org, project_number):
 
             # Extract linked pull requests (Issues only; "Development" section)
             linked_pr_nodes = content.get("closedByPullRequestsReferences", {}).get("nodes", [])
-            linked_prs_str = ", ".join(
-                [f'{pr["repository"]["nameWithOwner"].split("/")[-1]}#{pr["number"]}' for pr in linked_pr_nodes]
-            ) if linked_pr_nodes else ""
+            linked_pr_items = [
+                {
+                    "label": f'{pr["repository"]["nameWithOwner"].split("/")[-1]}#{pr["number"]}',
+                    "url": pr["url"],
+                }
+                for pr in linked_pr_nodes
+            ]
+            linked_prs_str = ", ".join([p["label"] for p in linked_pr_items])
 
             project_items.append({
                 "repo": content["repository"]["nameWithOwner"],
@@ -218,6 +223,7 @@ def fetch_project_issues(org, project_number):
                 "assignees": assignees_str,
                 "labels": labels_str,
                 "linked_prs": linked_prs_str,
+                "linked_pr_items": linked_pr_items,
                 "fields": field_dict
             })
 
@@ -243,6 +249,56 @@ def update_sheet(sheet, headers, rows):
     if rows:
         sheet.update("A2", rows)
 
+
+def apply_linked_pr_links(spreadsheet, sheet, linked_items_per_row, col_index):
+    """Overlay clickable hyperlinks on the Linked PRs column using rich text.
+
+    A cell can hold several PRs (e.g. "connectedhomeip#72449, chip-test-plans#6184"),
+    so we build per-PR textFormatRuns instead of a single HYPERLINK formula
+    (which only supports one link per cell).
+    """
+
+    requests = []
+
+    for row_offset, pr_items in enumerate(linked_items_per_row):
+
+        if not pr_items:
+            continue
+
+        text = ", ".join([p["label"] for p in pr_items])
+
+        runs = []
+        idx = 0
+
+        for i, p in enumerate(pr_items):
+            # The label characters point to the PR.
+            runs.append({"startIndex": idx, "format": {"link": {"uri": p["url"]}}})
+            idx += len(p["label"])
+            # The ", " separator should not be a link.
+            if i != len(pr_items) - 1:
+                runs.append({"startIndex": idx, "format": {}})
+                idx += 2
+
+        requests.append({
+            "updateCells": {
+                "rows": [{
+                    "values": [{
+                        "userEnteredValue": {"stringValue": text},
+                        "textFormatRuns": runs
+                    }]
+                }],
+                "fields": "userEnteredValue,textFormatRuns",
+                "start": {
+                    "sheetId": sheet.id,
+                    "rowIndex": row_offset + 1,  # +1 to skip the header row
+                    "columnIndex": col_index
+                }
+            }
+        })
+
+    if requests:
+        spreadsheet.batch_update({"requests": requests})
+
 # -------------------------------
 # MAIN
 # -------------------------------
@@ -254,8 +310,10 @@ def main():
     project_items = fetch_project_issues(PROJECT_ORG, PROJECT_NUMBER)
 
     all_rows = []
+    all_linked = []
 
     filtered_rows = {sheet: [] for sheet in FILTER_CONFIG}
+    filtered_linked = {sheet: [] for sheet in FILTER_CONFIG}
 
     for item in project_items:
 
@@ -288,6 +346,7 @@ def main():
         ]
 
         all_rows.append(row)
+        all_linked.append(item["linked_pr_items"])
 
         for sheet_name, filter_rule in FILTER_CONFIG.items():
 
@@ -302,6 +361,7 @@ def main():
 
             if field_value == expected_value:
                 filtered_rows[sheet_name].append(row)
+                filtered_linked[sheet_name].append(item["linked_pr_items"])
 
     headers = [
         "Repo", "Number", "State", "Title", "Author",
@@ -310,6 +370,8 @@ def main():
         "Comments", "URL", "Fix Priority"
     ]
 
+    linked_col_index = headers.index("Linked PRs")
+
     # Main sheet
     try:
         main_sheet = client.worksheet(PROJECT_SHEET_NAME)
@@ -317,6 +379,7 @@ def main():
         main_sheet = client.add_worksheet(title=PROJECT_SHEET_NAME, rows="3000", cols="25")
 
     update_sheet(main_sheet, headers, all_rows)
+    apply_linked_pr_links(client, main_sheet, all_linked, linked_col_index)
 
     # Filtered sheets
     for sheet_name, rows in filtered_rows.items():
@@ -327,6 +390,7 @@ def main():
             sheet = client.add_worksheet(title=sheet_name, rows="3000", cols="25")
 
         update_sheet(sheet, headers, rows)
+        apply_linked_pr_links(client, sheet, filtered_linked[sheet_name], linked_col_index)
 
     print(f"Total Issues: {len(all_rows)}")
 
