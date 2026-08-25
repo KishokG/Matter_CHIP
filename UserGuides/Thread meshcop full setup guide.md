@@ -154,15 +154,46 @@ idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig_m5stack.defaults' build
 
 ### Flash & monitor
 
+Every session, activate both environments (esp-idf `export.sh` then Matter
+`scripts/activate.sh`) in the **same shell** before running `idf.py` — see step 5
+above. Skipping this is the most common cause of build/flash failures.
+
 ```bash
-idf.py -p /dev/ttyACM0 erase_flash
-idf.py -p /dev/ttyACM0 flash monitor
+idf.py -p /dev/ttyUSB0 erase-flash
+idf.py -p /dev/ttyUSB0 flash monitor
 ```
 Exit monitor: `Ctrl+]`
 
+> **Always erase-flash before a test run, not just re-flash.** A plain reflash does
+> not clear NVS, so a previously-commissioned board will boot with its old Matter
+> fabric and Thread dataset still intact and will not appear "factory-fresh" to the
+> test. Confirm the erase actually worked by checking the boot log does **not**
+> contain a line like `Fabric index 0x1 was retrieved from storage` — if it does,
+> the erase didn't take effect and needs to be re-run.
+
 ---
 
-## 6. Run Python Test
+## 6. Get the Pi's IPv6 Address (for `--thread-ba-host`)
+
+```bash
+ip -6 addr show wlan0
+```
+This lists several addresses. Use the one marked `mngtmpaddr` — this is the stable
+address. **Do not use** the one marked `temporary` — it rotates every ~30 minutes and
+will stop working mid-session.
+
+Example output:
+```
+inet6 fd24:add3:5350:49e1:xxxx:xxxx:xxxx:xxxx scope global temporary dynamic        <- do NOT use
+inet6 fd24:add3:5350:49e1:yyyy:yyyy:yyyy:yyyy scope global dynamic mngtmpaddr ...    <- use this one
+inet6 fe80::zzzz:zzzz:zzzz:zzzz scope link                                          <- link-local, skip
+```
+Use the `mngtmpaddr` address as `<pi-ip>` in the commands below. If your Pi is on
+Ethernet instead of Wi-Fi, run the same command against `eth0` instead of `wlan0`.
+
+---
+
+## 7. Run Python Test
 
 ```bash
 python3 TC_SC_TC_2_1.py \
@@ -177,7 +208,7 @@ python3 TC_SC_TC_2_1.py \
 
 ---
 
-## 7. Commissioning Commands
+## 8. Commissioning Commands
 
 ```bash
 # Thread MeshCoP
@@ -205,3 +236,6 @@ python3 TC_SC_TC_2_1.py \
 | ESP32 not flashing / not detected | Confirm correct `/dev/ttyACM0` or `/dev/ttyUSB0` port; hold BOOT button during flash if required by the board |
 | `chip-tool` "Invalid address" error on `--thread-ba-host` | Binary may be built with `chip_inet_config_enable_ipv4=false` — use an IPv6 address instead, or rebuild with IPv4 enabled |
 | Thread MeshCoP not working on ESP-IDF | Confirm you're on v5.5.5 or later, not v5.5.1 |
+| DUT jumps straight to `leader` / logs "Fabric index... retrieved from storage" on boot despite reflashing | Old NVS data survived — run `idf.py -p <port> erase-flash` (not just `flash`) before reflashing, and confirm it completes without errors before assuming the DUT is factory-fresh |
+| `idf.py erase-flash`/`build` fails with `ModuleNotFoundError: No module named 'python_path'` / CMake `chip_codegen.cmake` error | Matter environment not sourced in this shell — run `source esp-idf/export.sh` then `source connectedhomeip/scripts/activate.sh`, in that order, in the same terminal, before running `idf.py` |
+| `esptool`/`idf.py` fails with "device reports readiness to read but returned no data (device disconnected or multiple access on port?)" | Another process (commonly a leftover `minicom`/`screen` session) still has the serial port open — check with `sudo lsof /dev/ttyUSB0` and kill/close it, then retry |
