@@ -215,7 +215,23 @@ Ethernet instead of Wi-Fi, run the same command against `eth0` instead of `wlan0
 
 ---
 
-## 7. Run Python Test
+## 7. Get the Thread Border Agent Port (for `--thread-ba-port`)
+
+```bash
+sudo ot-ctl ba port
+```
+This returns the current MeshCoP Border Agent port (commonly `49154`, but not
+guaranteed — it can change across reboots/dataset changes, so always re-check
+rather than assuming).
+
+> Returns `0` if Thread hasn't formed/joined a network yet. Run `sudo ot-ctl state`
+> first — it should report `leader` (or `router`/`child`) before checking the port.
+> If it's still `0` after that, run `ifconfig up` and `thread start` (see Section 1,
+> Core commands) and check again.
+
+---
+
+## 8. Run Python Test
 
 ```bash
 python3 TC_SC_TC_2_1.py \
@@ -230,7 +246,7 @@ python3 TC_SC_TC_2_1.py \
 
 ---
 
-## 8. Commissioning Commands
+## 9. Commissioning Commands
 
 ```bash
 # Thread MeshCoP
