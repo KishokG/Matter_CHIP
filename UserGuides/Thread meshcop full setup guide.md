@@ -164,12 +164,34 @@ idf.py -p /dev/ttyUSB0 flash monitor
 ```
 Exit monitor: `Ctrl+]`
 
-> **Always erase-flash before a test run, not just re-flash.** A plain reflash does
-> not clear NVS, so a previously-commissioned board will boot with its old Matter
-> fabric and Thread dataset still intact and will not appear "factory-fresh" to the
-> test. Confirm the erase actually worked by checking the boot log does **not**
+> **Always factory-reset the device before a test run — a reboot or reset-button press
+> is not enough.** A hardware reset (or the board's `EN`/RESET button) only reboots
+> the CPU; it does not touch NVS, so a previously-commissioned board will boot with
+> its old Matter fabric and Thread dataset fully intact and will not appear
+> "factory-fresh" to the test. You have two ways to actually clear this state:
+>
+> **Option A — UART factory-reset command (fast, no reflash needed):**
+> ```bash
+> sudo minicom -D /dev/ttyUSB0 -b 115200
+> ```
+> Once connected to the device console, type:
+> ```
+> matter device factoryreset
+> ```
+> The device will clear its Matter fabric and Thread dataset and reboot on its own.
+> This is the quickest way to reset between repeated commissioning attempts on
+> firmware that's already flashed — use this by default.
+>
+> **Option B — Full erase-flash (use after building new firmware, or if Option A
+> is unavailable):**
+> ```bash
+> idf.py -p /dev/ttyUSB0 erase-flash
+> idf.py -p /dev/ttyUSB0 flash monitor
+> ```
+>
+> **Either way, confirm it actually worked** by checking the boot log does **not**
 > contain a line like `Fabric index 0x1 was retrieved from storage` — if it does,
-> the erase didn't take effect and needs to be re-run.
+> the reset didn't take effect and needs to be re-run.
 
 ---
 
@@ -236,6 +258,7 @@ python3 TC_SC_TC_2_1.py \
 | ESP32 not flashing / not detected | Confirm correct `/dev/ttyACM0` or `/dev/ttyUSB0` port; hold BOOT button during flash if required by the board |
 | `chip-tool` "Invalid address" error on `--thread-ba-host` | Binary may be built with `chip_inet_config_enable_ipv4=false` — use an IPv6 address instead, or rebuild with IPv4 enabled |
 | Thread MeshCoP not working on ESP-IDF | Confirm you're on v5.5.5 or later, not v5.5.1 |
-| DUT jumps straight to `leader` / logs "Fabric index... retrieved from storage" on boot despite reflashing | Old NVS data survived — run `idf.py -p <port> erase-flash` (not just `flash`) before reflashing, and confirm it completes without errors before assuming the DUT is factory-fresh |
+| DUT jumps straight to `leader`/`router` / logs "Fabric index... retrieved from storage" on boot despite reflashing | Device is still commissioned from a previous run — a reboot or reset-button press does NOT clear this. Run `matter device factoryreset` via UART (`sudo minicom -D /dev/ttyUSB0 -b 115200`), or do a full `idf.py -p <port> erase-flash` |
+| Pressing the board's reset/EN button doesn't un-commission the device | Expected — the reset button only reboots the CPU, it never touches NVS. Use `matter device factoryreset` via UART or `erase-flash` instead |
 | `idf.py erase-flash`/`build` fails with `ModuleNotFoundError: No module named 'python_path'` / CMake `chip_codegen.cmake` error | Matter environment not sourced in this shell — run `source esp-idf/export.sh` then `source connectedhomeip/scripts/activate.sh`, in that order, in the same terminal, before running `idf.py` |
 | `esptool`/`idf.py` fails with "device reports readiness to read but returned no data (device disconnected or multiple access on port?)" | Another process (commonly a leftover `minicom`/`screen` session) still has the serial port open — check with `sudo lsof /dev/ttyUSB0` and kill/close it, then retry |
