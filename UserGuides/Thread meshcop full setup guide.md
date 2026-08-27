@@ -1,5 +1,19 @@
 # Thread MeshCoP Commissioning — Complete Setup Guide
 
+## Contents
+
+1. [Native OTBR (Raspberry Pi)](#1-native-otbr-raspberry-pi)
+2. [Build Python Controller](#2-build-python-controller)
+3. [Build chip-tool](#3-build-chip-tool)
+4. [ESP-IDF Setup (One-Time)](#4-esp-idf-setup-one-time)
+5. [Build & Flash ESP32-H2 Firmware](#5-build--flash-esp32-h2-firmware)
+6. [Changing the Discriminator (12-bit vs 4-bit test cases)](#6-changing-the-discriminator-12-bit-vs-4-bit-test-cases)
+7. [Get the Pi's IPv6 Address](#7-get-the-pis-ipv6-address-for---thread-ba-host)
+8. [Get the Thread Border Agent Port](#8-get-the-thread-border-agent-port-for---thread-ba-port)
+9. [Run Python Test](#9-run-python-test)
+10. [Commissioning Commands](#10-commissioning-commands)
+11. [Troubleshooting](#troubleshooting)
+
 ---
 
 ## 1. Native OTBR (Raspberry Pi)
@@ -149,7 +163,7 @@ Clean rebuild if switching chip targets:
 ```bash
 rm -rf build sdkconfig managed_components dependencies.lock
 idf.py set-target esp32h2
-idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig_m5stack.defaults' build
+idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32h2.tc' build
 ```
 
 ### Flash & monitor
@@ -195,7 +209,49 @@ Exit monitor: `Ctrl+]`
 
 ---
 
-## 6. Get the Pi's IPv6 Address (for `--thread-ba-host`)
+## 6. Changing the Discriminator (12-bit vs 4-bit test cases)
+
+> Runtime UART config is **not supported** (confirmed by Espressif). Must be set at build time.
+
+**1. Create `main/CHIPProjectConfig.h`:**
+```bash
+cd ~/master/connectedhomeip/examples/all-clusters-app/esp32
+nano main/CHIPProjectConfig.h
+```
+Add:
+```c
+#pragma once
+#define CHIP_DEVICE_CONFIG_USE_TEST_SETUP_DISCRIMINATOR 0xF11
+```
+Save: `Ctrl+O`, Enter, then exit: `Ctrl+X`.
+
+`0xF11` = 12-bit test case, `0xA` = 4-bit test case.
+
+**2. Add this line to `sdkconfig.defaults.esp32h2.tc`** (one-time):
+```bash
+nano sdkconfig.defaults.esp32h2.tc
+```
+Go to the end of the file and add:
+```
+CONFIG_CHIP_PROJECT_CONFIG="main/CHIPProjectConfig.h"
+```
+Save: `Ctrl+O`, Enter, then exit: `Ctrl+X`.
+
+**3. Rebuild and reflash:**
+```bash
+idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32h2.tc' build
+idf.py -p /dev/ttyUSB0 erase-flash
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+**4. Confirm:** manual pairing code / QR code in boot log should differ from the
+default (`34970112332` / `MT:-24J0I9U40KA0648G00`).
+
+To switch discriminators, edit `CHIPProjectConfig.h` and repeat steps 1, 3, 4.
+
+---
+
+## 7. Get the Pi's IPv6 Address (for `--thread-ba-host`)
 
 ```bash
 ip -6 addr show wlan0
@@ -215,7 +271,7 @@ Ethernet instead of Wi-Fi, run the same command against `eth0` instead of `wlan0
 
 ---
 
-## 7. Get the Thread Border Agent Port (for `--thread-ba-port`)
+## 8. Get the Thread Border Agent Port (for `--thread-ba-port`)
 
 ```bash
 sudo ot-ctl ba port
@@ -231,7 +287,7 @@ rather than assuming).
 
 ---
 
-## 8. Run Python Test
+## 9. Run Python Test
 
 ```bash
 python3 TC_SC_TC_2_1.py \
@@ -246,7 +302,7 @@ python3 TC_SC_TC_2_1.py \
 
 ---
 
-## 9. Commissioning Commands
+## 10. Commissioning Commands
 
 ```bash
 # Thread MeshCoP
