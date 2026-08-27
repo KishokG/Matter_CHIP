@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - "UserGuides/Thread_meshcop_full_setup_guide.md"
+      - "UserGuides/guide-style.css"
   workflow_dispatch:
 
 permissions:
@@ -27,6 +28,7 @@ jobs:
           images_dir: images
           image_import: /
           build_html: false
+          css: UserGuides/guide-style.css
 
       # Option A — commit the PDF back into the repo so it's always
       # browsable/downloadable from the normal GitHub file view.
