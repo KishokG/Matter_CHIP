@@ -173,7 +173,7 @@ Every session, activate both environments (esp-idf `export.sh` then Matter
 above. Skipping this is the most common cause of build/flash failures.
 
 ```bash
-idf.py -p /dev/ttyUSB0 erase-flash
+idf.py -p /dev/ttyUSB0 erase_flash
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 Exit monitor: `Ctrl+]`
@@ -240,7 +240,7 @@ Save: `Ctrl+O`, Enter, then exit: `Ctrl+X`.
 **3. Rebuild and reflash:**
 ```bash
 idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32h2.tc' build
-idf.py -p /dev/ttyUSB0 erase-flash
+idf.py -p /dev/ttyUSB0 erase_flash
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
