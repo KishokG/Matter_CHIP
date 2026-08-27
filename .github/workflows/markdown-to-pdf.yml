@@ -52,13 +52,31 @@ jobs:
           git status
           git diff --stat
 
-      # Option A — commit the PDF back into the repo so it's always
-      # browsable/downloadable from the normal GitHub file view.
+      # Explicit git commands instead of a third-party commit action —
+      # gives us full visibility into exactly what's happening.
       - name: Commit PDF back to repo
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "docs: auto-update guide PDF"
-          file_pattern: "UserGuides/pdf/*.pdf"
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Files currently at UserGuides/pdf/:"
+          find UserGuides/pdf -type f
+
+          echo ""
+          echo "Explicitly adding the PDF path:"
+          git add -v UserGuides/pdf/Thread_meshcop_full_setup_guide.pdf
+
+          echo ""
+          echo "Git status after add:"
+          git status
+
+          if git diff --cached --quiet; then
+            echo "No staged changes — nothing to commit."
+          else
+            git commit -m "docs: auto-update guide PDF"
+            git push
+            echo "Committed and pushed."
+          fi
 
       # Option B — also attach it as a workflow artifact (downloadable
       # from the Actions run page, no repo commit needed). Keep both,
