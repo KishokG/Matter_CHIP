@@ -20,25 +20,24 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: DEBUG - confirm theme file exists before conversion
+      - name: Install pandoc and weasyprint
         run: |
-          echo "Contents of UserGuides/:"
-          ls -la UserGuides/
-          echo ""
-          echo "guide-style.css contents (first 5 lines):"
-          head -5 UserGuides/guide-style.css || echo "!!! guide-style.css NOT FOUND !!!"
+          sudo apt-get update
+          sudo apt-get install -y pandoc weasyprint
 
-      - name: Convert Markdown to PDF
-        uses: baileyjm02/markdown-to-pdf@v1
-        with:
-          input_dir: UserGuides
-          output_dir: UserGuides/pdf
-          images_dir: images
-          image_import: /
-          build_html: false
-          theme: UserGuides/guide-style.css
-          extend_default_theme: true
-          table_of_contents: false
+      - name: Convert Markdown to HTML
+        run: |
+          cd UserGuides
+          pandoc Thread_meshcop_full_setup_guide.md \
+            -f gfm -t html5 --standalone \
+            --css=guide-style.css \
+            --metadata title="Thread MeshCoP Commissioning Guide" \
+            -o guide.html
+
+      - name: Convert HTML to PDF
+        run: |
+          mkdir -p UserGuides/pdf
+          weasyprint UserGuides/guide.html UserGuides/pdf/Thread_meshcop_full_setup_guide.pdf
 
       - name: DEBUG - inspect generated PDF
         run: |
@@ -50,19 +49,13 @@ jobs:
           echo ""
           echo "Git status before commit step:"
           git status
-          git diff --stat
 
-      # Explicit git commands instead of a third-party commit action —
-      # gives us full visibility into exactly what's happening.
+      # Explicit git commands — full visibility into exactly what happens.
       - name: Commit PDF back to repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          echo "Files currently at UserGuides/pdf/:"
-          find UserGuides/pdf -type f
-
-          echo ""
           echo "Explicitly adding the PDF path:"
           git add -v UserGuides/pdf/Thread_meshcop_full_setup_guide.pdf
 
@@ -78,9 +71,6 @@ jobs:
             echo "Committed and pushed."
           fi
 
-      # Option B — also attach it as a workflow artifact (downloadable
-      # from the Actions run page, no repo commit needed). Keep both,
-      # or delete whichever option you don't want.
       - name: Upload PDF as workflow artifact
         uses: actions/upload-artifact@v4
         with:
