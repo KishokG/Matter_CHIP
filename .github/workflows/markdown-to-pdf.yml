@@ -28,7 +28,9 @@ jobs:
           images_dir: images
           image_import: /
           build_html: false
-          css: UserGuides/guide-style.css
+          theme: UserGuides/guide-style.css
+          extend_default_theme: true
+          table_of_contents: false
 
       # Option A — commit the PDF back into the repo so it's always
       # browsable/downloadable from the normal GitHub file view.
