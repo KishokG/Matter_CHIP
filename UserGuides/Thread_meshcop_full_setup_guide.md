@@ -6,7 +6,7 @@
 2. [Build Python Controller](#2-build-python-controller)
 3. [Build chip-tool](#3-build-chip-tool)
 4. [ESP-IDF Setup (One-Time)](#4-esp-idf-setup-one-time)
-5. [Build & Flash ESP32-H2 Firmware](#5-build--flash-esp32-h2-firmware)
+5. [Build and Flash ESP32-H2 Firmware](#5-build-and-flash-esp32-h2-firmware)
 6. [Changing the Discriminator (12-bit vs 4-bit test cases)](#6-changing-the-discriminator-12-bit-vs-4-bit-test-cases)
 7. [Get the Pi's IPv6 Address](#7-get-the-pis-ipv6-address-for---thread-ba-host)
 8. [Get the Thread Border Agent Port](#8-get-the-thread-border-agent-port-for---thread-ba-port)
@@ -133,7 +133,7 @@ source scripts/bootstrap.sh -p all,esp32
 
 ---
 
-## 5. Build & Flash ESP32-H2 Firmware
+## 5. Build and Flash ESP32-H2 Firmware
 
 Every session, activate both environments in this order:
 ```bash
@@ -332,5 +332,8 @@ python3 TC_SC_TC_2_1.py \
 | Thread MeshCoP not working on ESP-IDF | Confirm you're on v5.5.5 or later, not v5.5.1 |
 | DUT jumps straight to `leader`/`router` / logs "Fabric index... retrieved from storage" on boot despite reflashing | Device is still commissioned from a previous run — a reboot or reset-button press does NOT clear this. Run `matter device factoryreset` via UART (`sudo minicom -D /dev/ttyUSB0 -b 115200`), or do a full `idf.py -p <port> erase-flash` |
 | Pressing the board's reset/EN button doesn't un-commission the device | Expected — the reset button only reboots the CPU, it never touches NVS. Use `matter device factoryreset` via UART or `erase-flash` instead |
+| `config discriminator` via UART fails with `Error: <number>` (both get and set) | Not supported on this platform — confirmed by Espressif. Use the build-time `CHIPProjectConfig.h` method instead (Section 6) |
+| `CONFIG_CHIP_...` line added to `sdkconfig.defaults.*` has no effect | The discriminator macro is not a Kconfig symbol — it can't be set directly in a defaults file. It must go in `CHIPProjectConfig.h`; the defaults file only needs the one `CONFIG_CHIP_PROJECT_CONFIG="main/CHIPProjectConfig.h"` line pointing to it |
+| `idf.py menuconfig` arrow keys print `^[OB` / navigation doesn't work over SSH | Terminal escape-sequence mismatch — skip menuconfig, set values directly via `idf.py -D CONFIG_X=Y build`, or add the line manually to the sdkconfig defaults file with a text editor |
 | `idf.py erase-flash`/`build` fails with `ModuleNotFoundError: No module named 'python_path'` / CMake `chip_codegen.cmake` error | Matter environment not sourced in this shell — run `source esp-idf/export.sh` then `source connectedhomeip/scripts/activate.sh`, in that order, in the same terminal, before running `idf.py` |
 | `esptool`/`idf.py` fails with "device reports readiness to read but returned no data (device disconnected or multiple access on port?)" | Another process (commonly a leftover `minicom`/`screen` session) still has the serial port open — check with `sudo lsof /dev/ttyUSB0` and kill/close it, then retry |
