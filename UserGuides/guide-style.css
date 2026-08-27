@@ -9,13 +9,13 @@ body {
 }
 
 h1 {
-  font-size: 21pt;
+  font-size: 17pt;
   border-bottom: 3px solid #0969da;
   padding-bottom: 10px;
   margin-top: 0;
   margin-bottom: 24px;
   color: #0a3069;
-  white-space: nowrap;
+  text-align: center;
 }
 
 h2 {
