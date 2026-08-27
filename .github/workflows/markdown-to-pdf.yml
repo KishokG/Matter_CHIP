@@ -31,7 +31,6 @@ jobs:
           pandoc Thread_meshcop_full_setup_guide.md \
             -f gfm -t html5 --standalone \
             --css=guide-style.css \
-            --metadata title="Thread MeshCoP Commissioning Guide" \
             -o guide.html
 
       - name: Convert HTML to PDF
