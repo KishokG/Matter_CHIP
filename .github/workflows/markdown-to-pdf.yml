@@ -20,6 +20,14 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: DEBUG - confirm theme file exists before conversion
+        run: |
+          echo "Contents of UserGuides/:"
+          ls -la UserGuides/
+          echo ""
+          echo "guide-style.css contents (first 5 lines):"
+          head -5 UserGuides/guide-style.css || echo "!!! guide-style.css NOT FOUND !!!"
+
       - name: Convert Markdown to PDF
         uses: baileyjm02/markdown-to-pdf@v1
         with:
@@ -31,6 +39,18 @@ jobs:
           theme: UserGuides/guide-style.css
           extend_default_theme: true
           table_of_contents: false
+
+      - name: DEBUG - inspect generated PDF
+        run: |
+          echo "Contents of UserGuides/pdf/ after conversion:"
+          ls -la UserGuides/pdf/
+          echo ""
+          echo "SHA256 of generated PDF:"
+          sha256sum UserGuides/pdf/*.pdf
+          echo ""
+          echo "Git status before commit step:"
+          git status
+          git diff --stat
 
       # Option A — commit the PDF back into the repo so it's always
       # browsable/downloadable from the normal GitHub file view.
