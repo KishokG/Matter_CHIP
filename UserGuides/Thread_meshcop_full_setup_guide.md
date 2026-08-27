@@ -1,7 +1,4 @@
-
 # Thread MeshCoP Commissioning — Complete Setup Guide
-
-This is a visible test line - TEST EDIT 2.
 
 ## Contents
 
