@@ -1,0 +1,46 @@
+name: Convert Guide to PDF
+
+# Runs automatically whenever the guide changes, and can also be triggered
+# manually from the Actions tab ("Run workflow" button).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "UserGuides/Thread_meshcop_full_setup_guide.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Convert Markdown to PDF
+        uses: baileyjm02/markdown-to-pdf@v1
+        with:
+          input_dir: UserGuides
+          output_dir: UserGuides/pdf
+          images_dir: images
+          image_import: /
+          build_html: false
+
+      # Option A — commit the PDF back into the repo so it's always
+      # browsable/downloadable from the normal GitHub file view.
+      - name: Commit PDF back to repo
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: auto-update guide PDF"
+          file_pattern: "UserGuides/pdf/*.pdf"
+
+      # Option B — also attach it as a workflow artifact (downloadable
+      # from the Actions run page, no repo commit needed). Keep both,
+      # or delete whichever option you don't want.
+      - name: Upload PDF as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thread-meshcop-setup-guide-pdf
+          path: UserGuides/pdf/*.pdf
