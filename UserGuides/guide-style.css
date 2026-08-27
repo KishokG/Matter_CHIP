@@ -22,13 +22,9 @@ h2 {
   color: #0969da;
   border-bottom: 1px solid #d0d7de;
   padding-bottom: 6px;
-  margin-top: 36px;
-  page-break-before: always;
-}
-
-/* Don't force a page break before the very first section */
-h1 + h2, h1 + p + h2 {
-  page-break-before: avoid;
+  margin-top: 32px;
+  margin-bottom: 4px;
+  page-break-after: avoid;
 }
 
 h3 {
@@ -47,7 +43,6 @@ a {
 }
 
 /* Table of contents styling */
-h2#contents { page-break-before: avoid; }
 ol {
   background: #f6f8fa;
   border: 1px solid #d0d7de;
