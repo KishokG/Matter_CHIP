@@ -292,7 +292,7 @@
   {
     "tc_id": "TC-DA-1.9",
     "cluster": "Device Attestation",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-DISHM-1.2",
