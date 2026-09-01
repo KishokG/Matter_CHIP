@@ -823,6 +823,100 @@ class TestRunner:
                       else None)
         return dut_cmd, stdin_pipe
 
+    # One `--string-arg` can carry SEVERAL name:value pairs, e.g. TC_MCORE_FS_1_4:
+    #   --string-arg th_fsa_app_path:examples/... th_fsa_admin_path:${FABRIC_ADMIN_APP}
+    #                th_fsa_bridge_path:${FABRIC_BRIDGE_APP}
+    #                th_server_no_uid_app_path:${LIGHTING_APP_NO_UNIQUE_ID}
+    #                dut_fsa_stdin_pipe:dut-fsa-stdin
+    # A per-flag regex only ever saw the FIRST pair, so every later one was
+    # invisible — which is why 1.4's th_server_no_uid_app_path was never resolved.
+    # `[\w.]+` can't match a leading '-', so the run stops cleanly at the next flag.
+    _CI_TYPED_ARG_RE = re.compile(
+        r"--(bool|int|hex|string|float)-arg\s+((?:[\w.]+:\S+(?:\s+|$))+)")
+
+    @classmethod
+    def _iter_ci_typed_args(cls, hdr: str):
+        """Yield (type, name, value) for EVERY name:value pair in the CI header."""
+        for m in cls._CI_TYPED_ARG_RE.finditer(hdr):
+            typ = m.group(1)
+            for pair in m.group(2).split():
+                name, sep, val = pair.partition(":")
+                if sep and name and val:
+                    yield typ, name, val
+
+    @staticmethod
+    def _looks_like_path(val: str) -> bool:
+        """A value that is meant to be a filesystem path (not a flag/number/bool)."""
+        return "/" in val and not val.startswith(("${", "<"))
+
+    @staticmethod
+    def _path_exists(p) -> bool:
+        """Path.exists() that can't raise.
+
+        The values we probe come from the SDK's CI container and point at places
+        like /root/chip-all-clusters-app. On the RPi we run as `ubuntu` and /root
+        is 0700, so a plain Path.exists() raises PermissionError (it only swallows
+        ENOENT/ENOTDIR-class errors) and would take the whole runner down. For our
+        purposes "can't even look at it" is the same as "not usable".
+        """
+        try:
+            return Path(p).exists()
+        except OSError:
+            return False
+
+    def _repair_path_arg(self, py_cmd: str, name: str, header_val: str) -> str:
+        """
+        The Sheet already set `name:<something>`, but that something is a PATH that
+        does not exist on this machine — so it is not a usable value, it is a
+        leftover from wherever the Sheet was transcribed from. The SDK's own CI runs
+        in a container with the apps at /root/, so the Sheet is full of
+        `th_server_app_path:/root/chip-all-clusters-app`; on the RPi the app lives at
+        <sdk>/out/all-clusters/chip-all-clusters-app and the test dies in setup_class
+        with "The path /root/chip-all-clusters-app does not exist".
+
+        Repair order (first hit wins), all derived from THIS build, so it stays
+        correct as apps are added/renamed:
+          1. the CI header's own resolved value, if it exists
+          2. same basename under <sdk>/out/*/  (covers a renamed/relocated binary)
+          3. the value read as SDK-root-relative (covers header paths like
+             examples/fabric-admin/scripts/fabric-sync-app.py — the SDK CI runs from
+             the SDK root, we run from src/python_testing)
+        Leaves the value untouched (with a warning) when nothing resolves, and never
+        touches a value that already points at something real.
+        """
+        m = re.search(rf"\b{re.escape(name)}:(\S+)", py_cmd)
+        if not m:
+            return py_cmd
+        current = m.group(1).strip("'\"")
+        if not self._looks_like_path(current) or self._path_exists(current):
+            return py_cmd   # not a path, or already valid — the Sheet wins
+
+        candidates = []
+        if header_val and "${" not in header_val:
+            candidates.append(Path(header_val))
+            if not Path(header_val).is_absolute():
+                candidates.append(self.sdk_dir / header_val)
+        basename = Path(current).name
+        try:
+            candidates.extend(sorted((self.sdk_dir / "out").glob(f"*/{basename}")))
+        except OSError:
+            pass
+        candidates.append(self.sdk_dir / current.lstrip("/"))
+
+        for cand in candidates:
+            if self._path_exists(cand):
+                # lambda replacement: a literal path must never be re-scanned for
+                # backreferences (\1, \g<..>) by re.sub.
+                py_cmd = re.sub(rf"\b{re.escape(name)}:\S+",
+                                lambda _m: f"{name}:{cand}", py_cmd, count=1)
+                print(f"  [CI-ARG] repaired {name}: {current} → {cand} "
+                      f"(Sheet path does not exist here)")
+                return py_cmd
+
+        print(f"  [CI-ARG] ⚠️  {name}:{current} does not exist and could not be "
+              f"resolved from the SDK — the test will likely fail in setup.")
+        return py_cmd
+
     def _apply_ci_test_args(self, dut_cmd: str, py_cmd: str) -> tuple[str, str]:
         """Inject the test's declared CI args so operator/CI-sim tests run
         unattended — from the SDK CI header, so values are always correct and
@@ -855,7 +949,10 @@ class TestRunner:
         #    arg the SDK header declares, with its value resolved from ${...}:
         #      - Sheet has NAME:<placeholder>  → replace the placeholder value
         #        (e.g. jfc_server_app:</root/jfc-app> → real jfc-app path)
-        #      - Sheet has NAME:realvalue      → keep the Sheet's value
+        #      - Sheet has NAME:realvalue      → keep the Sheet's value, UNLESS it
+        #        is a path that does not exist here → repair it (see
+        #        _repair_path_arg; the Sheet is transcribed from the SDK's CI
+        #        container where apps live at /root/, which is not our layout)
         #      - Sheet lacks NAME              → inject it
         # Some header args belong to SDK-CI-only replay runs and must NEVER be
         # auto-injected into a live single-test run. test_from_file (e.g.
@@ -865,23 +962,26 @@ class TestRunner:
         # with multiple test-runner-runs mixes such args into one header, so we
         # blocklist them unless the Sheet explicitly asked for one.
         NO_AUTOINJECT_ARGS = {"test_from_file"}
-        for typ, name, val in re.findall(
-                r"--(bool|int|hex|string|float)-arg\s+([\w.]+):(\S+)", hdr):
+        for typ, name, val in self._iter_ci_typed_args(hdr):
             if name in NO_AUTOINJECT_ARGS and not re.search(
                     rf"-arg\s+{re.escape(name)}:", py_cmd):
                 print(f"  [CI-ARG] skip {name} (SDK-CI replay arg — not for live runs)")
                 continue
             val = self._resolve_sdk_placeholders(val)
-            if "${" in val:
-                print(f"  [CI-ARG] skip {name} (unresolved SDK placeholder {val})")
-                continue
             if re.search(rf"{re.escape(name)}:<[^>]*>", py_cmd):
+                if "${" in val:
+                    print(f"  [CI-ARG] skip {name} (unresolved SDK placeholder {val})")
+                    continue
                 py_cmd = re.sub(rf"{re.escape(name)}:<[^>]*>",
                                 lambda mm: f"{name}:{val}", py_cmd)
                 print(f"  [CI-ARG] resolved {name} → {val}")
-            elif re.search(rf"-arg\s+{re.escape(name)}:", py_cmd):
-                continue
+            elif re.search(rf"\b{re.escape(name)}:", py_cmd):
+                # Sheet already set it — keep it, but repair a dead path value.
+                py_cmd = self._repair_path_arg(py_cmd, name, val)
             else:
+                if "${" in val:
+                    print(f"  [CI-ARG] skip {name} (unresolved SDK placeholder {val})")
+                    continue
                 py_cmd = f"{py_cmd.rstrip()} --{typ}-arg {name}:{val}"
                 print(f"  [CI-ARG] +--{typ}-arg {name}:{val}")
 
@@ -1421,7 +1521,12 @@ class TestRunner:
         # For in-test commissioning (--qr-code / --manual-code), swap in the DUT's
         # ACTUAL pairing payload from its startup log (the Sheet value is stale /
         # invalidated by our discriminator override).
-        if has_dut_app:
+        # Fabric-Sync DUTs (fsa_cmd) need this just as much as a plain ./app: the
+        # fabric-sync wrapper's FS-BRIDGE prints its own SetupQRCode/Manual pairing
+        # code on OUR discriminator, so the Sheet's hardcoded payload is always
+        # wrong. Skipping them here is why TC-MCORE.FS-1.3/1.4 and TC-BRBINFO-4.1
+        # failed every attempt with "Commissioning failed — DUT could not be paired".
+        if has_dut_app or fsa_cmd:
             py_cmd = self._substitute_pairing_code(py_cmd, dut_log)
 
         cmd_parts = self._build_python_cmd(py_cmd)
