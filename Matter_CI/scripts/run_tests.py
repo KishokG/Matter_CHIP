@@ -884,7 +884,13 @@ class TestRunner:
         Leaves the value untouched (with a warning) when nothing resolves, and never
         touches a value that already points at something real.
         """
-        m = re.search(rf"\b{re.escape(name)}:(\S+)", py_cmd)
+        # Value stops at whitespace OR a quote — the Sheet often wraps the whole
+        # pair, e.g. `--string-arg "th_server_app_path:../tools/.../server.py"`.
+        # A greedy \S+ would swallow the closing " into the value and the rewrite
+        # would drop it, orphaning the opening " (which then eats the rest of the
+        # line → argparse "invalid str_named_arg"). Paths never contain a quote,
+        # so excluding "/' keeps the surrounding quotes balanced. (TC-PAVST/PAVSTI)
+        m = re.search(rf"""\b{re.escape(name)}:([^\s"']+)""", py_cmd)
         if not m:
             return py_cmd
         current = m.group(1).strip("'\"")
@@ -907,7 +913,7 @@ class TestRunner:
             if self._path_exists(cand):
                 # lambda replacement: a literal path must never be re-scanned for
                 # backreferences (\1, \g<..>) by re.sub.
-                py_cmd = re.sub(rf"\b{re.escape(name)}:\S+",
+                py_cmd = re.sub(rf"""\b{re.escape(name)}:[^\s"']+""",
                                 lambda _m: f"{name}:{cand}", py_cmd, count=1)
                 print(f"  [CI-ARG] repaired {name}: {current} → {cand} "
                       f"(Sheet path does not exist here)")
