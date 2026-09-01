@@ -572,6 +572,10 @@ jobs:
     # Finite cap so a hung test run auto-fails instead of holding the runner for
     # days. Per-test timeouts keep TCs bounded; 12h covers a full 440-TC suite.
     timeout-minutes: 720
+    # Expose the test-results Drive link so the separate notify-test job (which
+    # sends the execution email as its own graph box) can include it.
+    outputs:
+      drive_link: ${{ steps.upload-results.outputs.drive_link }}
 
     steps:
       - name: Checkout repo
@@ -646,6 +650,7 @@ jobs:
           path: |
             Matter_CI/logs/report.html
             Matter_CI/logs/test_results.json
+            Matter_CI/logs/build-info.json
             Matter_CI/logs/test_runs/
           retention-days: 30
 
@@ -777,8 +782,33 @@ jobs:
             echo "🔗 **Download:** ${LINK}" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Send Email Notification (Test)
-        if: always()
+  # ──────────────────────────────────────────────────────────
+  # Job 5: Send Email Notification (Test)
+  # Split out of run-tests so the execution email shows as its OWN box in the
+  # graph, next to "Send Email Notification (Build)". Runs on mac-mini (has SMTP
+  # + pyyaml) and pulls everything it needs from the test-results artifact the
+  # RPi produced, so it touches nothing in the RPi's working tree.
+  # ──────────────────────────────────────────────────────────
+  notify-test:
+    name: Send Email Notification (Test)
+    runs-on: [self-hosted, mac-mini]
+    needs: [run-tests]
+    # Send the report whenever tests actually ran (pass OR fail). Skip only when
+    # run-tests was itself skipped (e.g. fetch-tests failed) or the run cancelled.
+    if: |
+      !cancelled() &&
+      needs.run-tests.result != 'skipped'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results-${{ github.run_number }}
+          path: Matter_CI/logs/
+
+      - name: Send execution email
         env:
           GMAIL_SENDER:        ${{ secrets.GMAIL_SENDER }}
           GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -786,7 +816,7 @@ jobs:
         run: |
           pip3 install pyyaml --break-system-packages --quiet
 
-          # Commit/branch under test — from the build-info bundled with the run,
+          # Commit/branch under test — from the build-info bundled in the artifact,
           # so the execution email matches exactly what was tested.
           COMMIT=""; BRANCH=""
           if [[ -f Matter_CI/logs/build-info.json ]]; then
@@ -799,7 +829,7 @@ jobs:
             --mode       execution \
             --config     Matter_CI/config/build_config.yaml \
             --results    Matter_CI/logs/test_results.json \
-            --drive-link "${{ steps.upload-results.outputs.drive_link }}" \
+            --drive-link "${{ needs.run-tests.outputs.drive_link }}" \
             --run-id     "${{ github.run_number }}" \
             --run-url    "${RUN_URL}" \
             --commit     "${COMMIT}" \
