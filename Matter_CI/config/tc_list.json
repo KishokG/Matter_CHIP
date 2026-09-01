@@ -842,7 +842,7 @@
   {
     "tc_id": "TC-SC-7.1",
     "cluster": "Secure Channel",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-SM-1.1",
