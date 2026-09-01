@@ -9,12 +9,13 @@ body {
 }
 
 h1 {
-  font-size: 26pt;
+  font-size: 17pt;
   border-bottom: 3px solid #0969da;
   padding-bottom: 10px;
   margin-top: 0;
   margin-bottom: 24px;
   color: #0a3069;
+  text-align: center;
 }
 
 h2 {
@@ -77,6 +78,16 @@ pre code {
   background: none;
   padding: 0;
   color: #24292f;
+}
+
+/* Neutralize pandoc's built-in print hanging-indent rule — WeasyPrint
+   doesn't apply the compensating negative text-indent correctly,
+   which otherwise leaves a large blank gap before every code line. */
+@media print {
+  pre > code.sourceCode > span {
+    text-indent: 0 !important;
+    padding-left: 0 !important;
+  }
 }
 
 blockquote {
