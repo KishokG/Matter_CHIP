@@ -519,6 +519,20 @@ jobs:
           pip3 install google-auth google-auth-httplib2 google-api-python-client \
             --break-system-packages --quiet
 
+      # The build runs on the Mac mini, so build_status.json only reaches this RPi
+      # job as the build job's artifact. Without it fetch_test_commands.py can't
+      # see which apps failed, and TCs for a failed app are queued anyway (they
+      # then error per-TC with "binary not built"). Skipped on test-only runs
+      # (build didn't run) and never fatal — a missing artifact just means "assume
+      # everything built".
+      - name: Download build status from build job
+        if: needs.build.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: build-summary-${{ github.run_number }}
+          path: Matter_CI/logs/
+
       - name: Fetch test commands from Google Sheet
         run: |
           export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
@@ -605,10 +619,22 @@ jobs:
       - name: Save results to permanent location on RPi
         if: always()
         run: |
+          # Copy ONLY the result artifacts — never `logs/*`. logs/ also holds
+          # logs/test_bundle/extracted/, i.e. the whole downloaded build bundle
+          # (every app binary + chip-tool, multiple GB). Copying that in meant
+          # each kept run pinned a full copy of the binaries on the RPi's flash;
+          # with keep-runs=10 that alone filled the disk. The binaries are already
+          # on Drive and are re-downloaded per run — they are not a result.
           RESULTS_DIR="/home/ubuntu/matter-ci-results/run-${{ github.run_number }}"
           mkdir -p "${RESULTS_DIR}"
-          cp -r Matter_CI/logs/* "${RESULTS_DIR}/" 2>/dev/null || true
-          echo "Results saved to: ${RESULTS_DIR}"
+          for item in report.html test_results.json test_commands.json \
+                      preflight.json build-info.json results_drive_link.txt \
+                      test_runs; do
+            if [[ -e "Matter_CI/logs/${item}" ]]; then
+              cp -r "Matter_CI/logs/${item}" "${RESULTS_DIR}/"
+            fi
+          done
+          echo "Results saved to: ${RESULTS_DIR} ($(du -sh "${RESULTS_DIR}" | cut -f1))"
           echo "Files:"
           ls -la "${RESULTS_DIR}/"
 
