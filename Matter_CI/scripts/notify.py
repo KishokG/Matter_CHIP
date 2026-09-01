@@ -741,10 +741,49 @@ def build_test_plain(commit: str, branch: str, drive_link: str,
     return "\n".join(lines)
 
 
+def load_recipients() -> list[str]:
+    """Resolve the email recipient list.
+
+    Recipients now live in config/notify_emails.json (committed), so adding one is
+    a one-line edit + commit — no need to retype the whole GitHub secret. The old
+    NOTIFY_EMAILS env var is still honoured and MERGED in (de-duplicated), so the
+    move is non-breaking: anything left in the secret keeps working until you
+    delete it. Order-preserving, JSON list first.
+    """
+    recipients: list[str] = []
+
+    def _add(raw: str):
+        for e in raw.replace("\n", ",").replace("\r", "").replace(" ", "").split(","):
+            e = e.strip()
+            if e and e not in recipients:
+                recipients.append(e)
+
+    emails_file = PROJECT_ROOT / "config" / "notify_emails.json"
+    if emails_file.exists():
+        try:
+            data = json.loads(emails_file.read_text())
+            entries = data.get("recipients", []) if isinstance(data, dict) else data
+            for e in (entries or []):
+                _add(str(e))
+            print(f"[NOTIFY] {len(recipients)} recipient(s) from {emails_file.name}")
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[NOTIFY] ⚠️  Could not read {emails_file}: {e}")
+
+    env = os.environ.get("NOTIFY_EMAILS", "")
+    if env:
+        before = len(recipients)
+        _add(env)
+        added = len(recipients) - before
+        if added:
+            print(f"[NOTIFY] +{added} recipient(s) from NOTIFY_EMAILS env (merged)")
+
+    return recipients
+
+
 def send_email(cfg: dict, subject: str, html_body: str, plain_body: str):
     sender   = os.environ.get("GMAIL_SENDER", "")
     password = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
-    emails   = os.environ.get("NOTIFY_EMAILS", "")
+    recipients = load_recipients()
 
     if not sender:
         print("[NOTIFY] ⚠️  GMAIL_SENDER not set — skipping email")
@@ -752,13 +791,11 @@ def send_email(cfg: dict, subject: str, html_body: str, plain_body: str):
     if not password:
         print("[NOTIFY] ⚠️  GMAIL_APP_PASSWORD not set — skipping email")
         return
-    if not emails:
-        print("[NOTIFY] ⚠️  NOTIFY_EMAILS not set — skipping email")
+    if not recipients:
+        print("[NOTIFY] ⚠️  No recipients (config/notify_emails.json empty and "
+              "NOTIFY_EMAILS unset) — skipping email")
         return
 
-    # Clean emails — remove spaces, newlines, carriage returns
-    emails = emails.replace("\n", ",").replace("\r", "").replace(" ", "")
-    recipients = [e.strip() for e in emails.split(",") if e.strip()]
     print(f"[NOTIFY] Sending email to {len(recipients)} recipient(s)...")
 
     msg = MIMEMultipart("alternative")

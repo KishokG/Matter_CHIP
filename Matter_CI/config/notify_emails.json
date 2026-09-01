@@ -1,0 +1,15 @@
+{
+  "_comment": "Recipients for Matter CI build + test emails. To add someone, add their address to the list below and commit — no need to touch the GitHub secret. Credentials (GMAIL_SENDER / GMAIL_APP_PASSWORD) stay as secrets; only this recipient list is config. Any addresses still in the NOTIFY_EMAILS secret are merged in on top of these (de-duplicated), so you can migrate gradually.",
+  "recipients": [
+    "vpavansai2004@gmail.com",
+    "kishokdme1998@gmail.com",
+    "ashwinipgrl19@gmail.com",
+    "pradeepvetri0204@gmail.com",
+    "dasarisaisumith@gmail.com",
+    "R.Sankarselvam@gmail.com",
+    "dineshthambi5@gmail.com",
+    "Smartsaravana002@gmail.com",
+    "bhatsuhail1913@gmail.com",
+    "HarshithYadav96@gmail.com"
+  ]
+}
