@@ -81,7 +81,18 @@ log "Disk usage: ${DISK_USED}GB used / ${DISK_TOTAL}GB total / ${DISK_FREE}GB fr
 HOME_DIR="${HOME}"
 SDK_DIR="${HOME_DIR}/connectedhomeip"
 RESULTS_DIR="${HOME_DIR}/matter-ci-results"
-CI_LOGS_DIR="${HOME_DIR}/Matter_CHIP/Matter_CI/logs"
+# Resolve the CI logs dir from THIS script's own location, not from $HOME. Under
+# GitHub Actions the checkout lives at ~/actions-runner/_work/<repo>/<repo>/,
+# never ~/Matter_CHIP/ — the old hardcoded path existed nowhere in CI, so steps 4
+# and 6 below silently cleaned nothing on every run.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CI_LOGS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/logs"
+# Every logs/ dir to sweep: the real one, plus the legacy manual-checkout
+# location when it is a DIFFERENT directory (running from ~/Matter_CHIP makes
+# them identical — don't sweep the same path twice).
+LOG_DIRS=("${CI_LOGS_DIR}")
+LEGACY_LOGS_DIR="${HOME_DIR}/Matter_CHIP/Matter_CI/logs"
+[[ "${LEGACY_LOGS_DIR}" != "${CI_LOGS_DIR}" ]] && LOG_DIRS+=("${LEGACY_LOGS_DIR}")
 
 echo ""
 log "Directory breakdown:"
@@ -142,15 +153,37 @@ fi
 echo ""
 log "Cleaning leftover bundle archives..."
 
-BUNDLE_DIR="${CI_LOGS_DIR}/bundle"
-if [[ -d "${BUNDLE_DIR}" ]]; then
-    safe_rm "${BUNDLE_DIR}" "bundle staging dir"
-fi
+for logs_dir in "${LOG_DIRS[@]}"; do
+    [[ -d "${logs_dir}" ]] || continue
 
-# Also clean any .tar.gz directly in logs/
-for tgz in "${CI_LOGS_DIR}"/matter-sdk-*.tar.gz; do
-    [[ -f "${tgz}" ]] && safe_rm "${tgz}" "$(basename ${tgz})"
+    # upload_artifacts.py staging dir (Mac mini) — safe to drop any time.
+    if [[ -d "${logs_dir}/bundle" ]]; then
+        safe_rm "${logs_dir}/bundle" "bundle staging dir (${logs_dir})"
+    fi
+
+    # prepare_rpi_tests.py download/extract dir — a full copy of the build
+    # bundle's binaries. Re-downloaded per run, so nothing here is worth keeping
+    # between runs.
+    if [[ -d "${logs_dir}/test_bundle" ]]; then
+        safe_rm "${logs_dir}/test_bundle" "downloaded test bundle (${logs_dir})"
+    fi
+
+    # Any build/result .tar.gz left directly in logs/
+    for tgz in "${logs_dir}"/matter-sdk-*.tar.gz "${logs_dir}"/matter-ci-results-*.tar.gz; do
+        [[ -f "${tgz}" ]] && safe_rm "${tgz}" "$(basename "${tgz}")"
+    done
 done
+
+# Reclaim bundle copies that earlier runs wrote into the SAVED results dirs.
+# The workflow used to `cp -r Matter_CI/logs/*` there, which dragged
+# logs/test_bundle/ (every app binary) into each kept run. That copy is fixed at
+# the source now; this removes what the old behaviour already left behind.
+if [[ -d "${RESULTS_DIR}" ]]; then
+    log "Reclaiming stale bundle copies inside saved runs..."
+    while IFS= read -r stale; do
+        safe_rm "${stale}" "stale bundle copy in $(basename "$(dirname "${stale}")")"
+    done < <(find "${RESULTS_DIR}" -mindepth 2 -maxdepth 2 -type d -name test_bundle 2>/dev/null)
+fi
 
 # =============================================================================
 # Step 5 — Clean /tmp/matter_testing (mobly logs)
@@ -173,14 +206,15 @@ fi
 echo ""
 log "Cleaning CI workspace build logs (keeping last ${KEEP_BUILD_LOGS})..."
 
-BUILD_LOGS_DIR="${CI_LOGS_DIR}/build_logs"
-if [[ -d "${BUILD_LOGS_DIR}" ]]; then
+for logs_dir in "${LOG_DIRS[@]}"; do
+    BUILD_LOGS_DIR="${logs_dir}/build_logs"
+    [[ -d "${BUILD_LOGS_DIR}" ]] || continue
     # Remove individual app error logs older than 7 days
     find "${BUILD_LOGS_DIR}" -name "*_build_error.log" -mtime +7 | while read -r old_log; do
-        safe_rm "${old_log}" "$(basename ${old_log})"
+        safe_rm "${old_log}" "$(basename "${old_log}")"
     done
-    ok "  Removed build error logs older than 7 days"
-fi
+    ok "  Removed build error logs older than 7 days (${BUILD_LOGS_DIR})"
+done
 
 # =============================================================================
 # Step 7 — Final disk report

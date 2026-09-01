@@ -21,6 +21,12 @@ patch
 pkg-config
 cmake
 ninja-build
+# ccache: compiler cache. The container is `docker run --rm`, so out/ never
+# survives a run and every build would otherwise compile cold. The workflow
+# mounts a persistent host dir at /root/.ccache; build_inside_container.sh turns
+# it on via gn's pw_command_launcher. REQUIRES an image rebuild to take effect
+# (apt-packages.txt is baked in, not mounted): ./docker/build_image.sh master
+ccache
 protobuf-compiler
 
 # ── Python ────────────────────────────────────────────────────────────────────

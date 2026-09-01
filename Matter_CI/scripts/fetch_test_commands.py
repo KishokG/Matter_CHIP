@@ -204,14 +204,20 @@ def parse_python_command(raw: str) -> str:
 # Load TC list from JSON
 # Returns: dict of {tc_id: cluster_name} for enabled TCs only
 # =============================================================================
-def load_tc_list(path: Path) -> dict[str, str]:
+def load_tc_list(path: Path) -> dict[str, str] | None:
     """
     Loads tc_list.json — returns {tc_id: cluster_name} for enabled entries.
-    If file not found, returns empty dict (run all rows from sheet).
+    If file not found, returns None (= NO selection list → run all rows from sheet).
+
+    None and {} mean DIFFERENT things and callers must not conflate them:
+      None → "no TC list at all"     → run every row in the sheet
+      {}   → "selection is empty"    → run NOTHING (e.g. a filter matched no TC)
+    Treating {} as "run all" is how a single mistyped tc_filter used to launch the
+    entire 450-TC suite instead of stopping.
     """
     if not path.exists():
         print(f"[WARN] tc_list.json not found at {path} — will fetch ALL rows from sheet.")
-        return {}
+        return None
 
     with open(path) as f:
         entries = json.load(f)
@@ -272,18 +278,36 @@ def fetch_sheet(cfg: dict) -> list[list[str]]:
 # Load build status — to skip TCs for apps that failed to build
 # =============================================================================
 def load_build_status(cfg: dict) -> set[str]:
-    """Returns set of app names that FAILED to build."""
-    log_dir = PROJECT_ROOT / cfg.get("test_execution", {}).get("log_dir", "logs/test_runs")
-    build_status_file = log_dir.parent / "build_logs" / "build_status.json"
+    """Returns set of app names that FAILED to build.
 
-    if not build_status_file.exists():
+    The build now runs on the Mac mini in Docker, so build_status.json reaches
+    this RPi job as the `build-summary-<run>` GitHub artifact, which the workflow
+    downloads into Matter_CI/logs/ before calling us. The legacy path
+    (logs/build_logs/) is kept for single-machine / local runs.
+    """
+    log_dir = PROJECT_ROOT / cfg.get("test_execution", {}).get("log_dir", "logs/test_runs")
+    logs_root = log_dir.parent
+    candidates = [
+        logs_root / "build_status.json",                # downloaded build artifact
+        logs_root / "build_logs" / "build_status.json", # legacy native-RPi build
+    ]
+    build_status_file = next((p for p in candidates if p.exists()), None)
+
+    if build_status_file is None:
         print("[INFO] No build_status.json found — assuming all apps built successfully.")
         return set()
 
-    with open(build_status_file) as f:
-        status = json.load(f)
+    try:
+        with open(build_status_file) as f:
+            status = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[WARN] Could not read {build_status_file}: {e} — "
+              f"assuming all apps built successfully.")
+        return set()
 
     failed = {app for app, result in status.items() if result == "FAIL"}
+    print(f"[INFO] Build status read from {build_status_file} "
+          f"({len(status)} target(s), {len(failed)} failed).")
     if failed:
         print(f"[WARN] Failed builds detected — TCs for these apps will be skipped: {failed}")
     return failed
@@ -318,9 +342,11 @@ def is_app_failed(binary_name: str, failed_apps: set[str], apps: list[dict]) -> 
 # =============================================================================
 # Parse rows into test command records
 # =============================================================================
-def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str]) -> list[dict]:
+def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str] | None) -> list[dict]:
     """
-    tc_map: {tc_id: cluster_name} for enabled TCs (from tc_list.json)
+    tc_map: {tc_id: cluster_name} for enabled TCs (from tc_list.json), or None
+    when there is no TC list at all (→ take every row from the sheet).
+    An EMPTY dict is a real, empty selection → no rows are taken.
     """
     gs      = cfg["google_sheets"]
     cols    = gs["columns"]
@@ -350,8 +376,10 @@ def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str]) -> list[dict]:
         if not tc_id:
             continue
 
-        # Filter by tc_map if provided (only run enabled TCs)
-        if tc_map and tc_id not in tc_map:
+        # Filter by tc_map when there IS one (only run selected TCs). `is not
+        # None` — NOT truthiness: an empty selection must select nothing, not
+        # everything.
+        if tc_map is not None and tc_id not in tc_map:
             continue
 
         raw_dut = cell(row, col_dut)
@@ -381,7 +409,7 @@ def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str]) -> list[dict]:
                 continue
 
         # Get cluster name from tc_map, fallback to extracting from TC ID
-        cluster = tc_map.get(tc_id, "") if tc_map else ""
+        cluster = tc_map.get(tc_id, "") if tc_map else ""   # None/{} → derive below
         if not cluster:
             # Auto-extract from TC ID e.g. TC-ACE-1.2 → Access Control Enforcement
             parts = tc_id.split("-")
@@ -425,10 +453,15 @@ def save(commands: list, cfg: dict):
 # =============================================================================
 # Main
 # =============================================================================
-def apply_runtime_filters(tc_map: dict, cluster_filter: str, tc_filter: str) -> dict:
+def apply_runtime_filters(tc_map: dict | None, cluster_filter: str,
+                          tc_filter: str) -> dict | None:
     """
-    Apply runtime filters from workflow inputs (Issue 5).
-    Priority: tc_filter > cluster_filter > tc_map (all enabled)
+    Apply runtime filters from workflow inputs (cluster_filter / tc_filter).
+    Priority: tc_filter > cluster_filter > tc_map (all enabled).
+
+    Returns a possibly-EMPTY dict when a filter was given and matched nothing.
+    The caller MUST treat that as "run nothing" and abort — never as "run all".
+    Returns None only when there was no TC list AND no filter (= run everything).
     """
     if not cluster_filter and not tc_filter:
         return tc_map   # no runtime filter — use tc_list.json as-is
@@ -436,6 +469,11 @@ def apply_runtime_filters(tc_map: dict, cluster_filter: str, tc_filter: str) -> 
     # TC filter — specific TC IDs override everything
     if tc_filter:
         tc_ids = [t.strip() for t in tc_filter.split(",") if t.strip()]
+        if tc_map is None:
+            # No tc_list.json to validate against — take the IDs at face value.
+            print(f"[INFO] TC filter applied (no tc_list.json to validate against): "
+                  f"{len(tc_ids)} TC(s)")
+            return {tc_id: "Unknown" for tc_id in tc_ids}
         filtered = {tc_id: tc_map.get(tc_id, "Unknown")
                     for tc_id in tc_ids
                     if tc_id in tc_map}
@@ -447,6 +485,10 @@ def apply_runtime_filters(tc_map: dict, cluster_filter: str, tc_filter: str) -> 
 
     # Cluster filter — filter by cluster name(s)
     if cluster_filter:
+        if tc_map is None:
+            print("[ERROR] cluster_filter needs tc_list.json (cluster names come "
+                  "from it), but no TC list was found — cannot filter by cluster.")
+            return {}
         clusters = [c.strip() for c in cluster_filter.split(",") if c.strip()]
         filtered = {tc_id: cluster
                     for tc_id, cluster in tc_map.items()
@@ -481,12 +523,30 @@ def main():
 
     tc_map = apply_runtime_filters(tc_map, cluster_filter, tc_filter)
 
-    if tc_map:
+    # An empty selection is a HARD STOP. Previously this only warned and then
+    # passed {} to parse_rows, whose truthiness check read it as "no filter" and
+    # ran EVERY row in the sheet — so one mistyped TC ID launched the whole suite.
+    if tc_map is not None and not tc_map:
+        tc_list_file = cfg["test_execution"]["tc_list_file"]
+        if tc_filter or cluster_filter:
+            print("[ERROR] The requested filter selected 0 test cases — nothing to run.")
+            if tc_filter:
+                print(f"[ERROR]   tc_filter      = '{tc_filter}'")
+            if cluster_filter:
+                print(f"[ERROR]   cluster_filter = '{cluster_filter}'")
+            print(f"[ERROR] Check the TC IDs / cluster names against {tc_list_file} "
+                  f"(entries must also be enabled).")
+        else:
+            print(f"[ERROR] {tc_list_file} has no ENABLED test cases — nothing to run.")
+        print("[ERROR] Refusing to fall back to running the full suite.")
+        sys.exit(1)
+
+    if tc_map is None:
+        print("[INFO] No TC list and no filter — running every row in the sheet.")
+    else:
         print(f"[INFO] Running {len(tc_map)} test cases")
         clusters = sorted(set(tc_map.values()))
         print(f"[INFO] Clusters: {clusters}")
-    else:
-        print("[WARN] No TCs to run after filtering!")
 
     rows     = fetch_sheet(cfg)
     commands = parse_rows(rows, cfg, tc_map)

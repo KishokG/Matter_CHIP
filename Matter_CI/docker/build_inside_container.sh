@@ -22,7 +22,16 @@
 # Writes:            /output  (→ ~/matter-output on the Mac mini host)
 #
 # Resilient: one app failing does NOT stop others. chip-tool and the python
-# controller ARE fatal (tests need them). Exit code reflects overall status.
+# controller ARE fatal (tests need them).
+#
+# EXIT CODE — deliberately tolerant of PARTIAL builds, because
+# google_drive.upload_on_partial=true wants the apps that DID build to ship, and
+# the workflow only uploads when this job succeeds:
+#   0  every app built, OR some apps failed but at least one binary was produced
+#   1  chip-tool / python controller failed (fatal, exits early), OR apps were
+#      enabled and NOT ONE produced a binary — an empty bundle is never useful,
+#      and reporting that as success is how a no-app bundle used to reach the RPi
+#      and make every TC fail with "binary not built".
 # =============================================================================
 
 set -o pipefail   # no -e / -u — activate.sh has unbound vars; app failures are non-fatal
@@ -90,6 +99,9 @@ declare -A BUILD_ERROR
 declare -A BUILD_SECONDS   # name -> integer build seconds
 declare -A BUILD_SIZE      # name -> human binary size (e.g. 179M)
 PASSED_APPS=(); FAILED_APPS=()
+APPS_EXPECTED=0            # reference apps we attempted (set by build_apps)
+APPS_COPIED=0              # binaries actually staged into /output/apps (collect_output)
+CCACHE_GN_ARG=""           # 'pw_command_launcher="ccache"' when ccache is usable
 
 # ── Error conclusion helper ──────────────────────────────────────────────────
 # Analyses a failed build's log and returns a human-readable conclusion. Covers
@@ -300,6 +312,62 @@ activate_env() {
 }
 
 # =============================================================================
+# STEP 2b — Compiler cache
+# =============================================================================
+# The workflow mounts a persistent host dir (~/matter-ccache) at /root/.ccache,
+# but mounting it alone did nothing: ccache was neither installed in the image
+# nor wired into the build, so every nightly compiled cold. Pigweed's
+# pw_command_launcher is the SDK's supported hook — it prefixes every compile
+# command, so ccache sees them all. Cache hits survive `clean_builds` (which only
+# removes out/ and .environment/) and survive the --rm container.
+setup_ccache() {
+    banner "Step 2b — Compiler cache (ccache)"
+    if ! command -v ccache >/dev/null 2>&1; then
+        warn "ccache not installed in this image — building WITHOUT a compiler cache."
+        warn "Add 'ccache' to apt-packages.txt and rebuild the image:"
+        warn "  ./Matter_CI/docker/build_image.sh <branch>"
+        CCACHE_GN_ARG=""
+        return
+    fi
+    export CCACHE_DIR="${CCACHE_DIR:-/root/.ccache}"
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-20G}"
+    # Compiler paths come from the pigweed env and change between bootstraps;
+    # hashing content instead of mtime/path keeps hits across a re-bootstrap.
+    export CCACHE_COMPILERCHECK="${CCACHE_COMPILERCHECK:-content}"
+    export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-time_macros,include_file_mtime,include_file_ctime}"
+    mkdir -p "${CCACHE_DIR}"
+    if ! mkdir -p "${CCACHE_DIR}/tmp" 2>/dev/null; then
+        warn "${CCACHE_DIR} is not writable — is the host dir mounted? Disabling ccache."
+        CCACHE_GN_ARG=""
+        return
+    fi
+    # Only pass the gn arg if this SDK/pigweed actually DECLARES it. gn treats an
+    # unknown build arg as a hard error ("Build argument has no effect"), which
+    # would fail EVERY app instead of just skipping the cache — never worth it.
+    if ! grep -rqs --include='*.gni' --include='*.gn' \
+            'declare_args' "${SDK_DIR}/third_party/pigweed" 2>/dev/null || \
+       ! grep -rqs --include='*.gni' --include='*.gn' \
+            'pw_command_launcher' "${SDK_DIR}/third_party/pigweed" "${SDK_DIR}/build" 2>/dev/null; then
+        warn "This SDK checkout does not declare pw_command_launcher — skipping the"
+        warn "ccache gn arg (an undeclared gn arg is a hard build error)."
+        CCACHE_GN_ARG=""
+        return
+    fi
+    ccache --max-size="${CCACHE_MAXSIZE}" >/dev/null 2>&1 || true
+    ccache --zero-stats >/dev/null 2>&1 || true   # per-run stats, printed at the end
+    CCACHE_GN_ARG='pw_command_launcher="ccache"'
+    ok "ccache enabled: dir=${CCACHE_DIR} max=${CCACHE_MAXSIZE} ($(ccache --version 2>/dev/null | head -1))"
+    log "gn arg: ${CCACHE_GN_ARG}"
+}
+
+# Print this run's hit/miss stats so the cache's value is visible in the CI log.
+report_ccache() {
+    [[ -n "${CCACHE_GN_ARG}" ]] || return 0
+    banner "ccache statistics (this build)"
+    ccache --show-stats 2>/dev/null || true
+}
+
+# =============================================================================
 # STEP 3 — Resolve enabled apps (dynamic discovery)
 # =============================================================================
 discover_apps() {
@@ -349,6 +417,8 @@ build_apps() {
     while IFS=$'\t' read -r name src bdir bin bbin gnargs; do
         [[ -z "${name}" ]] && continue
         count=$((count+1))
+        # Append the ccache launcher (empty string when ccache is unavailable).
+        gnargs="${gnargs}${CCACHE_GN_ARG:+ ${CCACHE_GN_ARG}}"
         log "┌─ Building : ${name}"
         log "│  source   : ${src}"
         log "│  output   : ${bdir}"
@@ -366,6 +436,7 @@ build_apps() {
         do_build "${name}" 0 "${SDK_DIR}/${bdir}/${bbin}" -- scripts/examples/gn_build_example.sh "${src}" "${bdir}" ${gnargs}
         echo ""
     done < <(apps_tsv)
+    APPS_EXPECTED="${count}"
     (( count == 0 )) && warn "No reference apps enabled — nothing built."
 }
 
@@ -379,6 +450,7 @@ build_chip_tool() {
     local src bdir bin gnargs
     src=$(cfg_get chip_tool source_dir); bdir=$(cfg_get chip_tool build_dir)
     bin=$(cfg_get chip_tool binary_name); gnargs=$(cfg_get chip_tool extra_gn_args)
+    gnargs="${gnargs}${CCACHE_GN_ARG:+ ${CCACHE_GN_ARG}}"
     [[ -d "${src}" ]] || fail "❌ chip-tool source_dir '${src}' does not exist in SDK"
     log "command : cd ${SDK_DIR} && scripts/examples/gn_build_example.sh ${src} ${bdir} ${gnargs}"
     # shellcheck disable=SC2086
@@ -428,6 +500,7 @@ collect_output() {
             warn "app  ${bin} not found at ${path} — skipping (build likely failed)"
         fi
     done < <(apps_tsv)
+    APPS_COPIED="${copied}"
     log "Copied ${copied} app binary(ies) → ${OUTPUT}/apps/"
 
     # 7b. chip-tool
@@ -586,12 +659,30 @@ main() {
     esac
 
     activate_env
+    setup_ccache
     discover_apps
     build_apps
     build_chip_tool
     build_python_controller
+    report_ccache
     collect_output
     print_summary
+
+    # Exit status (see the EXIT CODE note in the header). A partial build stays
+    # green so upload_on_partial can ship what did build; a build that produced
+    # NO app binaries at all is a hard failure — an empty bundle would otherwise
+    # be uploaded and every TC on the RPi would fail with "binary not built".
+    if (( APPS_EXPECTED > 0 && APPS_COPIED == 0 )); then
+        echo -e "\n${RED}${BOLD}[FAIL ]${NC} ${APPS_EXPECTED} reference app(s) were enabled but NOT ONE"
+        echo -e "        produced a binary — refusing to report this build as successful."
+        echo -e "        Nothing would be testable in the resulting bundle."
+        echo -e "        See the per-app errors above and ${LOG_DIR}/*_build_error.log"
+        return 1
+    fi
+    if (( ${#FAILED_APPS[@]} > 0 )); then
+        warn "Partial build: ${#FAILED_APPS[@]} app(s) failed, ${APPS_COPIED} binary(ies) staged."
+        warn "Continuing (exit 0) so the apps that built are still uploaded."
+    fi
 
     ok "Container build finished."
 }

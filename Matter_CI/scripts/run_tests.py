@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import json
+import html
 import signal
 import shlex
 import shutil
@@ -1721,9 +1722,14 @@ def generate_report(results: list[dict], cfg: dict = None,
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
     bi          = build_info if build_info is not None else read_build_info()
-    bi_commit   = bi.get("commit_short") or bi.get("commit") or "unknown"
-    bi_branch   = bi.get("branch", "unknown")
-    bi_date     = bi.get("date", "")
+    # Everything below is interpolated into HTML, and much of it originates in
+    # test logs / the Google Sheet (argparse errors, CHIP messages, TC ids). Escape
+    # at every interpolation point — an unescaped '<' or '&' silently mangles the
+    # report (e.g. an argparse "unrecognized arguments: <PICS path>" reason ate the
+    # rest of the row).
+    bi_commit   = html.escape(str(bi.get("commit_short") or bi.get("commit") or "unknown"))
+    bi_branch   = html.escape(str(bi.get("branch", "unknown")))
+    bi_date     = html.escape(str(bi.get("date", "")))
     build_meta  = (f" · SDK commit <b>{bi_commit}</b> (branch <b>{bi_branch}</b>"
                    + (f", built {bi_date}" if bi_date else "") + ")")
 
@@ -1811,26 +1817,34 @@ def generate_report(results: list[dict], cfg: dict = None,
         log_file = Path(r.get("log_file", ""))
         dut_log  = log_file.parent / f"{tc_id}_dut.log" if log_file.name else None
 
+        # HTML-safe copies for interpolation (tc_id/cluster come from the Sheet,
+        # reason from raw test output — all untrusted for HTML purposes).
+        e_tc_id   = html.escape(str(tc_id))
+        e_cluster = html.escape(str(cluster))
+        e_status  = html.escape(str(status))
+        e_ctrl    = html.escape(log_file.name)
+        e_dut     = html.escape(dut_log.name) if dut_log else ""
+
         if log_file.name:
-            tcid_html = (f'<a class="tcid-link mono" href="test_runs/{log_file.name}" '
-                         f'target="_blank">{tc_id}</a>')
+            tcid_html = (f'<a class="tcid-link mono" href="test_runs/{e_ctrl}" '
+                         f'target="_blank">{e_tc_id}</a>')
         else:
-            tcid_html = f'<span class="tcid-link mono">{tc_id}</span>'
+            tcid_html = f'<span class="tcid-link mono">{e_tc_id}</span>'
 
         log_links = ""
         if log_file.name:
-            log_links += (f'<a href="test_runs/{log_file.name}" target="_blank" '
+            log_links += (f'<a href="test_runs/{e_ctrl}" target="_blank" '
                           f'class="log-link ctrl-log">Ctrl Log</a>')
         if dut_log and dut_log.name:
-            log_links += (f'<a href="test_runs/{dut_log.name}" target="_blank" '
+            log_links += (f'<a href="test_runs/{e_dut}" target="_blank" '
                           f'class="log-link dut-log">DUT Log</a>')
 
-        reason = status_reason(r)
+        reason = html.escape(status_reason(r))
         reason_cell = f'<span class="reason">{reason}</span>' if reason else ""
 
         rows_html += f"""
-        <tr class="tc-row row-{status.lower()}" data-cluster="{cluster}" data-status="{status}" data-time="{elapsed}" data-tcid="{tc_id}">
-          <td>{tcid_html}<div class="cluster-sub">{cluster}</div></td>
+        <tr class="tc-row row-{e_status.lower()}" data-cluster="{e_cluster}" data-status="{e_status}" data-time="{elapsed}" data-tcid="{e_tc_id}">
+          <td>{tcid_html}<div class="cluster-sub">{e_cluster}</div></td>
           <td>{badge(status)}</td>
           <td>{steps_cell(counts, status)}</td>
           <td class="mono time">{elapsed}s</td>
@@ -1869,7 +1883,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     cluster_checkboxes = "".join(
         f'<label class="ms-item"><input type="checkbox" class="cluster-cb" value="{c}" '
         f'checked onchange="onClusterChange()"><span>{c}</span></label>'
-        for c in clusters
+        for c in (html.escape(str(x)) for x in clusters)
     )
 
     # ---- Footer status ----
@@ -2207,19 +2221,22 @@ def generate_report(results: list[dict], cfg: dict = None,
   </script>
 </body>
 </html>"""
-    html = (_TEMPLATE
-            .replace("__FOOT_DOT__", foot_dot)
-            .replace("__COMMIT__", str(bi_commit))
-            .replace("__BRANCH__", str(bi_branch))
-            .replace("__BUILT__", str(built_txt))
-            .replace("__RUN_TIME__", str(run_time))
-            .replace("__FOOTER_STATUS__", footer_status)
-            .replace("__TILES__", stat_tiles)
-            .replace("__CLUSTER_CB__", cluster_checkboxes)
-            .replace("__TOTAL__", str(total))
-            .replace("__ROWS__", rows_html))
+    # NOTE: named html_out, NOT html — a local named `html` would shadow the
+    # `html` module for the WHOLE function (Python scoping), breaking every
+    # html.escape() call above with UnboundLocalError.
+    html_out = (_TEMPLATE
+                .replace("__FOOT_DOT__", foot_dot)
+                .replace("__COMMIT__", str(bi_commit))
+                .replace("__BRANCH__", str(bi_branch))
+                .replace("__BUILT__", str(built_txt))
+                .replace("__RUN_TIME__", str(run_time))
+                .replace("__FOOTER_STATUS__", footer_status)
+                .replace("__TILES__", stat_tiles)
+                .replace("__CLUSTER_CB__", cluster_checkboxes)
+                .replace("__TOTAL__", str(total))
+                .replace("__ROWS__", rows_html))
 
-    report_path.write_text(html)
+    report_path.write_text(html_out)
     print(f"\n[REPORT] Written to: {report_path}")
     return report_path
 
