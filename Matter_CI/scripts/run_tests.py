@@ -884,13 +884,17 @@ class TestRunner:
         Leaves the value untouched (with a warning) when nothing resolves, and never
         touches a value that already points at something real.
         """
-        # Value stops at whitespace OR a quote — the Sheet often wraps the whole
-        # pair, e.g. `--string-arg "th_server_app_path:../tools/.../server.py"`.
-        # A greedy \S+ would swallow the closing " into the value and the rewrite
-        # would drop it, orphaning the opening " (which then eats the rest of the
-        # line → argparse "invalid str_named_arg"). Paths never contain a quote,
-        # so excluding "/' keeps the surrounding quotes balanced. (TC-PAVST/PAVSTI)
-        m = re.search(rf"""\b{re.escape(name)}:([^\s"']+)""", py_cmd)
+        # The Sheet quotes paths two different ways, and BOTH must round-trip so we
+        # never drop a quote (an orphaned quote eats the rest of the line → argparse
+        # "invalid str_named_arg"):
+        #   pair-quoted : --string-arg "th_server_app_path:../tools/.../server.py"
+        #                 → the char after ':' is the path itself      (TC-PAVST/PAVSTI)
+        #   value-quoted: th_server_no_uid_app_path:"/root/....-app"
+        #                 → the char after ':' is a quote, then path   (TC-MCORE.FS-1.3)
+        # So: skip an OPTIONAL quote right after ':', then take the path up to the
+        # next whitespace/quote (paths never contain a quote). The closing quote,
+        # if any, is left untouched in the string so it stays balanced.
+        m = re.search(rf"""\b{re.escape(name)}:["']?([^\s"']+)""", py_cmd)
         if not m:
             return py_cmd
         current = m.group(1).strip("'\"")
@@ -913,8 +917,11 @@ class TestRunner:
             if self._path_exists(cand):
                 # lambda replacement: a literal path must never be re-scanned for
                 # backreferences (\1, \g<..>) by re.sub.
-                py_cmd = re.sub(rf"""\b{re.escape(name)}:[^\s"']+""",
-                                lambda _m: f"{name}:{cand}", py_cmd, count=1)
+                # Preserve an opening quote that sat right after ':' (value-quoted
+                # form) — group(1) is that optional quote (empty otherwise); the
+                # closing quote is outside the match, so it stays put and balanced.
+                py_cmd = re.sub(rf"""\b{re.escape(name)}:(["']?)[^\s"']+""",
+                                lambda _m: f"{name}:{_m.group(1)}{cand}", py_cmd, count=1)
                 print(f"  [CI-ARG] repaired {name}: {current} → {cand} "
                       f"(Sheet path does not exist here)")
                 return py_cmd
