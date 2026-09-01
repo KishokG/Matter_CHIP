@@ -310,7 +310,7 @@ def build_bundle(cfg: dict, output_dir: Path) -> tuple[Path, str]:
         f"    → This bundle was built for Ubuntu {ubuntu_ver} ARM64\n"
         f"    → Ensure your RPi runs the same Ubuntu version\n"
         f"\n"
-        f"Built by Matter CI Pipeline — Granite River Labs (GRL)\n"
+        f"Built by Matter CI Pipeline — GRLPS\n"
         f"For issues contact the Matter GRLPS team.\n"
     )
     print(f"[BUNDLE]   ✅ README.txt written")

@@ -323,7 +323,7 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
         <span style="display:block;font-size:10px;font-weight:600;
                      color:rgba(255,255,255,0.6);letter-spacing:1.8px;
                      text-transform:uppercase;margin-bottom:14px">
-          Granite River Labs &nbsp;&mdash;&nbsp; Matter CI Pipeline
+          GRLPS &nbsp;&mdash;&nbsp; Matter CI Pipeline
         </span>
         <p class="hdr-title"
            style="font-size:22px;font-weight:700;color:#FFFFFF;
@@ -431,7 +431,7 @@ def build_html(status: str, cfg: dict, commit: str, branch: str,
           This is an automated notification from Matter CI Pipeline.
         </div>
         <div style="font-size:12px;color:#9CA3AF">
-          Granite River Labs &mdash; GRLPS Matter Team
+          GRLPS &mdash; Matter CI Pipeline
         </div>
       </td>
     </tr>
@@ -455,7 +455,7 @@ def build_plain_text(status: str, commit: str, branch: str,
 
     lines = [
         "=" * 60,
-        "  Matter SDK Nightly Build — Granite River Labs",
+        "  Matter SDK Nightly Build — GRLPS",
         f"  {date_str}",
         "=" * 60,
         f"  Status : {status.upper()}",
@@ -498,7 +498,7 @@ def build_plain_text(status: str, commit: str, branch: str,
 
     lines += ["", "=" * 60,
               "Automated notification — Matter CI Pipeline",
-              "Granite River Labs — GRLPS Matter Team"]
+              "GRLPS — Matter CI Pipeline"]
 
     return "\n".join(lines)
 
@@ -659,7 +659,7 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
         style="background-color:#0F2752;background-image:linear-gradient(135deg,#0F2752 0%,#1a5fa8 55%,#0e7dc2 100%);padding:28px 28px 22px">
       <span style="display:block;font-size:10px;font-weight:600;color:rgba(255,255,255,0.6);
                    letter-spacing:1.8px;text-transform:uppercase;margin-bottom:14px">
-        Granite River Labs &nbsp;&mdash;&nbsp; Matter CI Pipeline</span>
+        GRLPS &nbsp;&mdash;&nbsp; Matter CI Pipeline</span>
       <p style="font-size:22px;font-weight:700;color:#fff;margin:0 0 8px;line-height:1.2">
         Test execution results</p>
       <p style="font-size:12px;color:rgba(255,255,255,0.6);margin:0">
