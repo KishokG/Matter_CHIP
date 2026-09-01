@@ -422,7 +422,7 @@ jobs:
   # Job 4: Send Email Notification
   # ──────────────────────────────────────────────────────────
   notify:
-    name: Send Email Notification
+    name: Send Email Notification (Build)
     runs-on: [self-hosted, mac-mini]
     needs: [plan, build, upload-artifacts]
     if: |
@@ -777,7 +777,7 @@ jobs:
             echo "🔗 **Download:** ${LINK}" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Send test execution email
+      - name: Send Email Notification (Test)
         if: always()
         env:
           GMAIL_SENDER:        ${{ secrets.GMAIL_SENDER }}

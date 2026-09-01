@@ -961,7 +961,18 @@ class TestRunner:
         # exclusive with live commissioning (--manual-code/--qr-code). A test
         # with multiple test-runner-runs mixes such args into one header, so we
         # blocklist them unless the Sheet explicitly asked for one.
-        NO_AUTOINJECT_ARGS = {"test_from_file"}
+        # unified_fabric_sync_app: the Fabric-Sync tests (TC_MCORE_FS_1_*, TC_ECOINFO_2_*,
+        # TC_BRBINFO_4_1) declare TWO runs — run1 launches the fabric-sync-app.py wrapper
+        # (separate fabric-admin + fabric-bridge; the admin CLI understands
+        # `pairing onnetwork`), run2 launches the unified ${FABRIC_SYNC_APP} binary
+        # (understands `app pair-device`). unified_fabric_sync_app:true lives ONLY in run2
+        # and flips the test to write `app pair-device <QR>` to dut_fsa_stdin_pipe. We
+        # launch the run1 wrapper (see _fabric_sync_dut), so injecting run2's flag made the
+        # test send a command the fabric-admin CLI can't parse — it printed its help menu
+        # and synced nothing → "0 != 1 Expected one new endpoint". Never auto-inject it:
+        # absent → the test's else-branch sends `pairing onnetwork`, which is exactly what
+        # our wrapper's admin speaks.
+        NO_AUTOINJECT_ARGS = {"test_from_file", "unified_fabric_sync_app"}
         for typ, name, val in self._iter_ci_typed_args(hdr):
             if name in NO_AUTOINJECT_ARGS and not re.search(
                     rf"-arg\s+{re.escape(name)}:", py_cmd):
