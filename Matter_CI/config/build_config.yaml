@@ -96,7 +96,16 @@ chip_tool:
   source_dir: "examples/chip-tool"
   build_dir:  "out/chip-tool"
   binary_name: "chip-tool"
-  extra_gn_args: 'chip_mdns="platform" chip_inet_config_enable_ipv4=false chip_enable_nfc_based_commissioning=true chip_device_config_enable_thread_meshcop=true'
+  # chip_mdns="minimal" (NOT "platform"/Avahi): the YAML certification tests run
+  # chip-tool inside an isolated network namespace (run_test_suite.py) where no
+  # Avahi daemon exists — platform mDNS makes chip-tool's `interactive server`
+  # die at startup (avahi_client_new → CHIP_ERROR_OPEN_FAILED), so the websocket
+  # never opens and every YAML test fails at pairing. Minimal mDNS is self-
+  # contained and works BOTH in the namespace and on the real network (it's what
+  # the SDK's own CI uses, and what the DUT apps already advertise with). The
+  # Python tests commission via the python controller (still platform/Avahi),
+  # so this only changes chip-tool.
+  extra_gn_args: 'chip_mdns="minimal" chip_inet_config_enable_ipv4=false chip_enable_nfc_based_commissioning=true chip_device_config_enable_thread_meshcop=true'
 
 # ============================================================
 # Python Controller
