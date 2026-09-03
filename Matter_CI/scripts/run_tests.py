@@ -1889,10 +1889,23 @@ class TestRunner:
         # from the --app-path set we supply. Runner defaults to chip_tool_python
         # — exactly what we want — so we leave --runner unset.
         cmethod = str(yt.get("commissioning_method", "on-network")).strip()
+        # Log verbosity — these are GLOBAL options (before `run`). run_test_suite
+        # only dumps the full app/tool/step output on FAILURE at the default
+        # 'info' level; --log-level-tests raises the test-execution verbosity so a
+        # PASS captures the per-step detail too (parity with the Python logs).
+        # 'info' setup + 'debug' during the test keeps namespace-setup noise out.
+        loglevel       = str(yt.get("log_level", "")).strip()
+        loglevel_tests = str(yt.get("log_level_tests", "debug")).strip()
+        globals_ = ["--target", target,
+                    "--find-path", str(self.sdk_dir / "scripts" / "tests")]
+        if loglevel:
+            globals_ += ["--log-level", loglevel]
+        if loglevel_tests:
+            globals_ += ["--log-level-tests", loglevel_tests]
+
         cmd = [
             str(self.venv_python), str(rts),
-            "--target", target,
-            "--find-path", str(self.sdk_dir / "scripts" / "tests"),
+            *globals_,
             "run",
             "--iterations", str(yt.get("iterations", 1)),
             "--test-timeout-seconds", str(yt.get("test_timeout_seconds", 120)),

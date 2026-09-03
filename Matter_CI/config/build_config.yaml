@@ -274,6 +274,12 @@ yaml_tests:
   commissioning_method: "on-network"              # how run_test_suite commissions the DUT
   test_timeout_seconds: 120                       # per-YAML-test cap
   iterations: 1
+  # Log verbosity for run_test_suite.py. It only dumps the full app/tool/step
+  # output on FAILURE at the default 'info'; log_level_tests raises test-execution
+  # verbosity so a PASS captures per-step detail too. Levels: debug/info/warning/
+  # error. Leave log_level empty to keep setup at info (less namespace-setup noise).
+  log_level: ""                                   # overall (empty = run_test_suite default 'info')
+  log_level_tests: "debug"                        # during test execution (per-step detail)
   # Extra literal PICS forced on top of the converted XML (name: 0|1). The YAML
   # cert tests are real-DUT runs, so the SDK-CI-only simulation gate is OFF.
   pics_overrides:
