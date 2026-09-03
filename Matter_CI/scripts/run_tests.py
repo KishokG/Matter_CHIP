@@ -1927,6 +1927,11 @@ class TestRunner:
             str(self.sdk_dir / "scripts" / "py_matter_yamltests"),
             env.get("PYTHONPATH", ""),
         ] if p)
+        # run_test_suite.py spawns the pairing / test steps as plain `python3`
+        # subprocesses. Prepend our venv's bin so that `python3` resolves to the
+        # venv interpreter (with matter, python-path, coloredlogs, … installed) —
+        # NOT the system python3, which can't see the venv's site-packages.
+        env["PATH"] = str(self.venv_python.parent) + os.pathsep + env.get("PATH", "")
 
         if summary.exists():
             try:

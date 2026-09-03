@@ -64,7 +64,10 @@ TEST_PIP_DEPS = ["mobly", "click", "colorama", "pyserial"]
 YAML_RUNNER_PIP_DEPS = [
     "alive_progress", "click", "colorama", "coloredlogs", "diskcache",
     "tabulate", "aenum", "construct", "dacite", "deprecation", "ecdsa",
-    "rich", "websockets",
+    "rich", "websockets", "pyyaml",
+    # chiptest/runner.py does `import python_path` (the SDK ships it only inside
+    # the pigweed build venv, which we don't have on the test side).
+    "python-path",
 ]
 
 
