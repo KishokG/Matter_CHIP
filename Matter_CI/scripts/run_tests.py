@@ -1888,6 +1888,7 @@ class TestRunner:
         # subcommand. It reads which app the YAML needs (its CI block) and picks
         # from the --app-path set we supply. Runner defaults to chip_tool_python
         # — exactly what we want — so we leave --runner unset.
+        cmethod = str(yt.get("commissioning_method", "on-network")).strip()
         cmd = [
             str(self.venv_python), str(rts),
             "--target", target,
@@ -1898,9 +1899,15 @@ class TestRunner:
             *app_paths,
             "--tool-path", f"chip-tool:{tool_bin}",
             "--tool-path", f"chip-tool-with-python:{chiptool}",
-            "--commissioning-method", str(yt.get("commissioning_method", "on-network")),
             "--summary-file", str(summary),
         ]
+        # on-network is run_test_suite.py's DEFAULT commissioning method. A newer
+        # click validates the --commissioning-method Choice by enum NAME
+        # (ON_NETWORK) and rejects the value "on-network", so for on-network we
+        # simply omit the flag and let the default apply. Only pass it for a
+        # non-default method.
+        if cmethod and cmethod != "on-network":
+            cmd += ["--commissioning-method", cmethod]
         if pics_file:
             cmd += ["--pics-file", str(pics_file)]
 
