@@ -489,6 +489,25 @@ def _load_sdk_yaml_test_sets(sdk_dir: Path) -> tuple[set, set]:
     return flat("ciTests.json"), flat("manualTests.json")
 
 
+def filter_yaml_by_runtime(yaml_cmds: list[dict], cluster_filter: str,
+                           tc_filter: str) -> list[dict]:
+    """Apply the workflow's tc_filter / cluster_filter to YAML tests too (they
+    were previously only applied to the Sheet's Python tests). tc_filter wins over
+    cluster_filter, matching the Python behaviour. Both compare against the same
+    fields shown in the report: test_case_id (e.g. TC-ACE-1.1) and cluster."""
+    if not cluster_filter and not tc_filter:
+        return yaml_cmds
+    if tc_filter:
+        wanted = {t.strip().upper() for t in tc_filter.split(",") if t.strip()}
+        kept = [c for c in yaml_cmds if c["test_case_id"].upper() in wanted]
+        print(f"[INFO] YAML tc_filter: {len(kept)}/{len(yaml_cmds)} match {sorted(wanted)}")
+        return kept
+    wanted = {c.strip().lower() for c in cluster_filter.split(",") if c.strip()}
+    kept = [c for c in yaml_cmds if c["cluster"].strip().lower() in wanted]
+    print(f"[INFO] YAML cluster_filter: {len(kept)}/{len(yaml_cmds)} match {sorted(wanted)}")
+    return kept
+
+
 def load_yaml_tests(cfg: dict) -> list[dict]:
     """Build YAML test records from config/yaml_tests.json, validated against the
     SDK's automated set. Returns [] when YAML testing is disabled or nothing is
@@ -639,6 +658,8 @@ def main():
     # tests), validated against the SDK's ciTests.json. Loaded first so an empty
     # Python selection can still proceed on a YAML-only run.
     yaml_cmds = load_yaml_tests(cfg) if test_type in ("both", "yaml") else []
+    # The tc_filter / cluster_filter workflow inputs apply to YAML tests too.
+    yaml_cmds = filter_yaml_by_runtime(yaml_cmds, cluster_filter, tc_filter)
 
     # An empty Python selection is a HARD STOP — UNLESS there are YAML tests to
     # run. test_type=yaml forces the Python side empty (Sheet is skipped entirely).

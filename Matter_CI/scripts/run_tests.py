@@ -1964,10 +1964,16 @@ class TestRunner:
         step). Missing summary = the app/commissioning failed before any test ran."""
         if not summary_file.exists():
             reason = "YAML run produced no summary (setup/commissioning likely failed)."
-            m = re.search(r"(?:CHIP Error 0x[0-9A-Fa-f]+[^\n]*|Traceback[^\n]*|Error[^\n]*)",
-                          log_text[-4000:] if log_text else "")
+            # Surface the most useful line: namespace/privilege failures first
+            # (run_test_suite.py needs unprivileged user namespaces), then CHIP
+            # errors / tracebacks.
+            m = re.search(
+                r"(?:unshare:[^\n]*|[^\n]*Operation not permitted[^\n]*|"
+                r"[^\n]*Permission denied[^\n]*|CHIP Error 0x[0-9A-Fa-f]+[^\n]*|"
+                r"Traceback[^\n]*|[Ee]rror[^\n]*)",
+                log_text[-6000:] if log_text else "")
             if m:
-                reason = m.group(0)[:200]
+                reason = m.group(0).strip()[:200]
             return ERROR, {}, reason
         try:
             data = json.loads(summary_file.read_text())
