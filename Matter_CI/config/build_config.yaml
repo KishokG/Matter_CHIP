@@ -247,3 +247,25 @@ test_execution:
   # PICS file path — used when python command contains --PICS parameter
   # Set to empty string "" to skip PICS injection
   pics_folder: "/home/ubuntu/Matter_1_6_Final_PICS_XML_For_RPI"    # e.g. "config/pics/all-clusters.yaml"
+
+# ============================================================
+# YAML certification tests (NEW — additive to the Python suite)
+# ============================================================
+# The Google Sheet lists only Python tests. YAML tests are curated in
+# config/yaml_tests.json and executed via the SDK's own scripts/tests/
+# run_test_suite.py (Option A): it launches the DUT app + chip-tool
+# interactive-server + commissions node 0x12344321 + replays the YAML steps.
+# run_tests.py branches on the record's "type": python (Sheet) vs yaml (here).
+yaml_tests:
+  enabled: true                                   # master switch for YAML runs
+  list_file: "config/yaml_tests.json"             # curated tests (validated vs ciTests.json)
+  # PICS XML → flat CODE=1/0 is generated at runtime (yaml_pics.py) from the SAME
+  # source as the Python suite: test_execution.pics_folder (above). A per-test
+  # "pics" field in yaml_tests.json can override it for a specific test.
+  commissioning_method: "on-network"              # how run_test_suite commissions the DUT
+  test_timeout_seconds: 120                       # per-YAML-test cap
+  iterations: 1
+  # Extra literal PICS forced on top of the converted XML (name: 0|1). The YAML
+  # cert tests are real-DUT runs, so the SDK-CI-only simulation gate is OFF.
+  pics_overrides:
+    PICS_SDK_CI_ONLY: 0

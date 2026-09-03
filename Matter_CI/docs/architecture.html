@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>*{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Matter CI Pipeline</title>
+<meta name="description" content="Architecture overview of the Matter certification CI pipeline: build on Mac mini, test on Raspberry Pi.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#EDF0F3; --surface:#FFFFFF; --surface-2:#F6F8FA; --surface-3:#EFF3F6;
+    --border:#D9E0E6; --border-strong:#C3CDD5;
+    --ink:#12171C; --ink-2:#47535E; --ink-3:#6E7A85;
+    --accent:#33475A;
+    --build:#B15C2E; --build-bg:#F7EADF; --build-line:#E4C5AC;
+    --test:#0E7C78; --test-bg:#DCEFED; --test-line:#A9D8D4;
+    --github:#556472; --github-bg:#E7ECF1; --github-line:#C9D3DC;
+    --good:#2E8B4E; --warn:#B6862B; --bad:#C24438;
+    --shadow:0 1px 2px rgba(20,30,40,.04),0 4px 16px rgba(20,30,40,.06);
+    --shadow-lift:0 2px 6px rgba(20,30,40,.08),0 12px 30px rgba(20,30,40,.10);
+    --r:14px; --r-sm:9px;
+    --maxw:1080px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0D1116; --surface:#161C23; --surface-2:#1B222A; --surface-3:#212A33;
+      --border:#28323C; --border-strong:#36434F;
+      --ink:#E8EDF2; --ink-2:#A7B3BE; --ink-3:#78848F;
+      --accent:#9FB2C4;
+      --build:#DB8B58; --build-bg:#2A2019; --build-line:#4A3626;
+      --test:#40B7AF; --test-bg:#12262A; --test-line:#274A48;
+      --github:#8B99A7; --github-bg:#1E2831; --github-line:#33414D;
+      --good:#54B771; --warn:#D6A948; --bad:#E36B5F;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.35);
+      --shadow-lift:0 2px 6px rgba(0,0,0,.4),0 14px 34px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0D1116; --surface:#161C23; --surface-2:#1B222A; --surface-3:#212A33;
+    --border:#28323C; --border-strong:#36434F;
+    --ink:#E8EDF2; --ink-2:#A7B3BE; --ink-3:#78848F;
+    --accent:#9FB2C4;
+    --build:#DB8B58; --build-bg:#2A2019; --build-line:#4A3626;
+    --test:#40B7AF; --test-bg:#12262A; --test-line:#274A48;
+    --github:#8B99A7; --github-bg:#1E2831; --github-line:#33414D;
+    --good:#54B771; --warn:#D6A948; --bad:#E36B5F;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.35);
+    --shadow-lift:0 2px 6px rgba(0,0,0,.4),0 14px 34px rgba(0,0,0,.5);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    font-size:16px; line-height:1.6; letter-spacing:.005em;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 22px}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  code{
+    font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.86em;
+    background:var(--surface-3); border:1px solid var(--border);
+    padding:.06em .4em; border-radius:6px; color:var(--ink);
+    white-space:nowrap;
+  }
+
+  /* ---------- header ---------- */
+  header{
+    border-bottom:1px solid var(--border);
+    background:
+      radial-gradient(120% 140% at 88% -20%, var(--build-bg) 0%, transparent 46%),
+      radial-gradient(120% 140% at 12% -30%, var(--test-bg) 0%, transparent 46%),
+      var(--surface);
+  }
+  .head-inner{padding:52px 22px 44px}
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:500;
+    letter-spacing:.18em; text-transform:uppercase; color:var(--ink-3);
+    display:flex; align-items:center; gap:10px; margin:0 0 18px;
+  }
+  .eyebrow::before{content:""; width:26px; height:2px; background:var(--build); border-radius:2px}
+  h1{
+    font-size:clamp(2.1rem,5.2vw,3.35rem); line-height:1.04; font-weight:700;
+    letter-spacing:-.02em; margin:0; text-wrap:balance; max-width:16ch;
+  }
+  .lede{
+    margin:20px 0 0; font-size:clamp(1.02rem,2.1vw,1.2rem); color:var(--ink-2);
+    max-width:60ch; line-height:1.55;
+  }
+  .lede b{color:var(--ink); font-weight:600}
+  .facts{
+    display:flex; flex-wrap:wrap; gap:10px 12px; margin-top:26px;
+  }
+  .fact{
+    display:flex; align-items:baseline; gap:8px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:100px; padding:7px 15px; box-shadow:var(--shadow);
+  }
+  .fact .k{font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3)}
+  .fact .v{font-size:13.5px; font-weight:600; color:var(--ink)}
+
+  /* ---------- sections ---------- */
+  section{padding:52px 0}
+  section+section{border-top:1px solid var(--border)}
+  .sec-head{margin:0 0 26px}
+  .sec-tag{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:500;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--build);
+  }
+  h2{font-size:clamp(1.4rem,3vw,1.85rem); font-weight:700; letter-spacing:-.015em; margin:8px 0 0; text-wrap:balance}
+  .sec-sub{margin:12px 0 0; color:var(--ink-2); max-width:64ch}
+
+  /* ---------- stat tiles ---------- */
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px}
+  .stat{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--r);
+    padding:20px 20px 18px; box-shadow:var(--shadow); position:relative; overflow:hidden;
+  }
+  .stat::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent)}
+  .stat.b::before{background:var(--build)} .stat.t::before{background:var(--test)}
+  .stat .num{font-size:2.05rem; font-weight:700; letter-spacing:-.02em; line-height:1; font-variant-numeric:tabular-nums}
+  .stat .lab{margin-top:8px; font-size:13px; color:var(--ink-2); line-height:1.35}
+
+  /* ---------- flow ---------- */
+  .legend{display:flex; flex-wrap:wrap; gap:8px 18px; margin:0 0 22px}
+  .lg{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-2); font-weight:500}
+  .dot{width:11px; height:11px; border-radius:3px; flex:none}
+  .dot.b{background:var(--build)} .dot.t{background:var(--test)} .dot.g{background:var(--github)}
+
+  .flow-scroll{overflow-x:auto; margin:0 -22px; padding:4px 22px 14px}
+  .flow{display:flex; align-items:stretch; gap:0; min-width:min-content}
+  .node{
+    flex:0 0 200px; background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--r); padding:16px 16px 15px; box-shadow:var(--shadow);
+    position:relative; display:flex; flex-direction:column;
+  }
+  .node .top{position:absolute; left:0; right:0; top:0; height:4px; border-radius:var(--r) var(--r) 0 0}
+  .node.b .top{background:var(--build)} .node.t .top{background:var(--test)} .node.g .top{background:var(--github)}
+  .node .step{font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; letter-spacing:.05em; color:var(--ink-3)}
+  .node h3{margin:9px 0 0; font-size:15px; font-weight:600; letter-spacing:-.01em; line-height:1.25}
+  .node p{margin:7px 0 0; font-size:12.5px; color:var(--ink-2); line-height:1.45}
+  .runner{
+    margin-top:12px; align-self:flex-start; display:inline-flex; align-items:center; gap:6px;
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:600;
+    letter-spacing:.04em; text-transform:uppercase; padding:4px 9px; border-radius:100px;
+  }
+  .runner.b{background:var(--build-bg); color:var(--build)}
+  .runner.t{background:var(--test-bg); color:var(--test)}
+  .runner.g{background:var(--github-bg); color:var(--github)}
+  .conn{flex:0 0 34px; align-self:center; display:flex; align-items:center; justify-content:center; color:var(--border-strong)}
+  .conn svg{width:34px; height:20px}
+
+  .bridge{
+    flex:0 0 168px; align-self:center; background:var(--surface-2);
+    border:1.5px dashed var(--border-strong); border-radius:var(--r);
+    padding:16px 14px; text-align:center;
+  }
+  .bridge .ic{font-size:20px; line-height:1}
+  .bridge h3{margin:8px 0 0; font-size:13.5px; font-weight:600}
+  .bridge p{margin:5px 0 0; font-size:11.5px; color:var(--ink-3); line-height:1.4}
+  .flow-note{margin:16px 0 0; font-size:13px; color:var(--ink-3)}
+  .flow-note b{color:var(--ink-2); font-weight:600}
+
+  /* ---------- RPi runbook ---------- */
+  .runbook{display:grid; grid-template-columns:1.15fr 1fr; gap:26px; align-items:start}
+  .steps{list-style:none; counter-reset:s; margin:0; padding:0; display:flex; flex-direction:column; gap:2px}
+  .steps li{position:relative; padding:13px 0 13px 46px; border-bottom:1px solid var(--border)}
+  .steps li:last-child{border-bottom:0}
+  .steps li::before{
+    counter-increment:s; content:counter(s,decimal-leading-zero);
+    position:absolute; left:0; top:13px; font-family:"IBM Plex Mono",monospace;
+    font-size:12px; font-weight:600; color:var(--test);
+    background:var(--test-bg); width:30px; height:26px; border-radius:7px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .steps h4{margin:0; font-size:14.5px; font-weight:600}
+  .steps p{margin:4px 0 0; font-size:13px; color:var(--ink-2); line-height:1.5}
+  .aside{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--r);
+    padding:20px; box-shadow:var(--shadow); position:sticky; top:20px;
+  }
+  .aside h4{margin:0 0 4px; font-size:12px; font-family:"IBM Plex Mono",monospace; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3)}
+  .kv{display:flex; flex-direction:column; gap:12px; margin-top:14px}
+  .kv .row{display:flex; flex-direction:column; gap:4px}
+  .kv .row .t{font-size:12px; color:var(--ink-3); font-family:"IBM Plex Mono",monospace}
+  .kv .row .d{font-size:13.5px; color:var(--ink); line-height:1.4}
+  .kv .row .d b{font-weight:600}
+
+  /* ---------- module table ---------- */
+  .tbl-scroll{overflow-x:auto; margin:0 -22px; padding:0 22px; border-radius:var(--r)}
+  table{border-collapse:collapse; width:100%; min-width:720px; font-size:13.5px}
+  thead th{
+    text-align:left; font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
+    padding:0 16px 11px; border-bottom:1.5px solid var(--border-strong); white-space:nowrap;
+  }
+  tbody td{padding:14px 16px; border-bottom:1px solid var(--border); vertical-align:top}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:var(--surface-2)}
+  td .m{font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:13px; color:var(--ink); white-space:nowrap}
+  td .desc{color:var(--ink-2); line-height:1.5}
+  .env{
+    display:inline-flex; align-items:center; gap:6px; font-family:"IBM Plex Mono",monospace;
+    font-size:10.5px; font-weight:600; letter-spacing:.03em; text-transform:uppercase;
+    padding:3px 8px; border-radius:6px; white-space:nowrap;
+  }
+  .env.b{background:var(--build-bg); color:var(--build)}
+  .env.t{background:var(--test-bg); color:var(--test)}
+  .env.g{background:var(--github-bg); color:var(--github)}
+  .libs{margin-top:7px; display:flex; flex-wrap:wrap; gap:5px}
+  .lib{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-2); background:var(--surface-3); border:1px solid var(--border); padding:2px 7px; border-radius:6px; white-space:nowrap}
+
+  /* ---------- services ---------- */
+  .svc-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(232px,1fr)); gap:14px}
+  .svc{background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:18px 18px 16px; box-shadow:var(--shadow)}
+  .svc .h{display:flex; align-items:center; gap:10px}
+  .svc .ic{font-size:17px; line-height:1}
+  .svc h4{margin:0; font-size:14.5px; font-weight:600}
+  .svc p{margin:9px 0 0; font-size:13px; color:var(--ink-2); line-height:1.5}
+  .svc .tag{margin-top:11px; font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-3)}
+
+  /* ---------- SDK concept ---------- */
+  .sdk{display:grid; grid-template-columns:1fr auto 1fr; gap:20px; align-items:stretch}
+  .sdk-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:22px; box-shadow:var(--shadow)}
+  .sdk-card.b{border-top:4px solid var(--build)} .sdk-card.t{border-top:4px solid var(--test)}
+  .sdk-card .lab{font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase}
+  .sdk-card.b .lab{color:var(--build)} .sdk-card.t .lab{color:var(--test)}
+  .sdk-card h4{margin:9px 0 0; font-size:16px; font-weight:700; letter-spacing:-.01em}
+  .sdk-card ul{margin:12px 0 0; padding-left:18px; color:var(--ink-2); font-size:13.5px; line-height:1.6}
+  .sdk-card li{margin:0 0 5px}
+  .sdk-mid{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-width:120px}
+  .sdk-mid .pill{background:var(--surface-2); border:1.5px dashed var(--border-strong); border-radius:100px; padding:8px 14px; font-size:12px; font-weight:600; color:var(--ink-2); text-align:center}
+  .sdk-mid .arrow{color:var(--border-strong)}
+  .sdk-take{
+    margin-top:22px; background:var(--surface-2); border:1px solid var(--border);
+    border-left:3px solid var(--accent); border-radius:var(--r-sm);
+    padding:16px 18px; font-size:14.5px; color:var(--ink); line-height:1.55;
+  }
+  .sdk-take b{font-weight:600}
+
+  footer{border-top:1px solid var(--border); padding:30px 0 44px; color:var(--ink-3); font-size:12.5px}
+  .foot-inner{display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; justify-content:space-between}
+  .foot-inner .mono{font-size:12px}
+
+  @media (max-width:760px){
+    .runbook{grid-template-columns:1fr}
+    .aside{position:static}
+    .sdk{grid-template-columns:1fr}
+    .sdk-mid{flex-direction:row; padding:4px 0}
+    .sdk-mid .arrow{transform:rotate(90deg)}
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .node,.stat,.svc{transition:transform .16s ease, box-shadow .16s ease}
+    .node:hover,.svc:hover{transform:translateY(-2px); box-shadow:var(--shadow-lift)}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="head-inner wrap">
+    <p class="eyebrow">Continuous Integration · Matter Certification</p>
+    <h1>The Matter CI Pipeline</h1>
+    <p class="lede">An automated, nightly pipeline that <b>compiles the Matter SDK on a Mac mini</b>, ships the binaries through <b>Google Drive</b>, and runs the <b>certification test suite on a Raspberry Pi</b> — then emails a full pass/fail report. Eight GitHub Actions jobs across two self-hosted machines, driven entirely from configuration.</p>
+    <div class="facts">
+      <span class="fact"><span class="k">Trigger</span><span class="v">Nightly · 00:00 IST, Mon–Fri</span></span>
+      <span class="fact"><span class="k">Build</span><span class="v">Mac mini · Docker / ARM64</span></span>
+      <span class="fact"><span class="k">Test</span><span class="v">Raspberry Pi · real hardware</span></span>
+      <span class="fact"><span class="k">Output</span><span class="v">HTML report + email</span></span>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat g"><div class="num">8</div><div class="lab">Pipeline jobs, chained by dependency</div></div>
+      <div class="stat b"><div class="num">~19</div><div class="lab">Matter apps compiled from the SDK</div></div>
+      <div class="stat t"><div class="num">2</div><div class="lab">Self-hosted runners (mac-mini · rpi)</div></div>
+      <div class="stat"><div class="num">6</div><div class="lab">External services orchestrated</div></div>
+      <div class="stat"><div class="num">100%</div><div class="lab">Config-driven — no hard-coded paths</div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-tag">The Flow</span>
+      <h2>One nightly run, end to end</h2>
+      <p class="sec-sub">Each box is a GitHub Actions job. Colour marks <em>where</em> it runs. The build side and the test side are two different physical machines — Google Drive is the hand-off between them.</p>
+    </div>
+
+    <div class="legend">
+      <span class="lg"><span class="dot g"></span> GitHub-hosted (planning)</span>
+      <span class="lg"><span class="dot b"></span> Mac mini (build &amp; notify)</span>
+      <span class="lg"><span class="dot t"></span> Raspberry Pi (test)</span>
+    </div>
+
+    <div class="flow-scroll">
+      <div class="flow">
+
+        <div class="node g"><span class="top"></span><span class="step">JOB 0</span><h3>Determine pipeline</h3><p>Resolves build-only / test-only / build-test from the schedule or manual input.</p><span class="runner g">ubuntu-latest</span></div>
+        <div class="conn"><svg viewBox="0 0 34 20"><path d="M2 10h26m0 0l-6-5m6 5l-6 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+
+        <div class="node g"><span class="top"></span><span class="step">JOB 1</span><h3>Validate Config</h3><p>Structurally checks <code>build_config.yaml</code> before any machine time is spent.</p><span class="runner g">ubuntu-latest</span></div>
+        <div class="conn"><svg viewBox="0 0 34 20"><path d="M2 10h26m0 0l-6-5m6 5l-6 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+
+        <div class="node b"><span class="top"></span><span class="step">JOB 2</span><h3>Build (Docker)</h3><p>Compiles the SDK apps, chip-tool and the Python controller inside an ARM64 container.</p><span class="runner b">mac-mini</span></div>
+        <div class="conn"><svg viewBox="0 0 34 20"><path d="M2 10h26m0 0l-6-5m6 5l-6 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+
+        <div class="node b"><span class="top"></span><span class="step">JOB 3</span><h3>Upload to Drive</h3><p>Tars the binaries + wheels into a versioned bundle and pushes it to Google Drive.</p><span class="runner b">mac-mini</span></div>
+        <div class="conn"><svg viewBox="0 0 34 20"><path d="M2 10h26m0 0l-6-5m6 5l-6 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+
+        <div class="bridge"><div class="ic">☁️</div><h3>Google Drive</h3><p>The build bundle crosses from the Mac mini to the Pi</p></div>
+        <div class="conn"><svg viewBox="0 0 34 20"><path d="M2 10h26m0 0l-6-5m6 5l-6 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+
+        <div class="node t"><span class="top"></span><span class="step">JOB 5</span><h3>Fetch Test Commands</h3><p>Reads the enabled test cases and their commands from a Google Sheet.</p><span class="runner t">rpi</span></div>
+        <div class="conn"><svg viewBox="0 0 34 20"><path d="M2 10h26m0 0l-6-5m6 5l-6 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+
+        <div class="node t"><span class="top"></span><span class="step">JOB 6</span><h3>Run Tests</h3><p>Downloads the bundle, launches each device app and drives the certification suite.</p><span class="runner t">rpi</span></div>
+        <div class="conn"><svg viewBox="0 0 34 20"><path d="M2 10h26m0 0l-6-5m6 5l-6 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+
+        <div class="node b"><span class="top"></span><span class="step">JOB 7</span><h3>Email Report</h3><p>Emails the HTML test report + download link to the whole team.</p><span class="runner b">mac-mini</span></div>
+
+      </div>
+    </div>
+    <p class="flow-note"><b>Also branching off Job 3:</b> a separate <b>Build email</b> (Job 4) goes out as soon as the build finishes, so a broken build is known before tests even start. Jobs skip cleanly — a <em>test-only</em> run reuses the latest bundle already on Drive and never touches the Mac mini.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-tag">Zoom In</span>
+      <h2>How a test actually runs on the Raspberry Pi</h2>
+      <p class="sec-sub">The Pi is the interesting part: it behaves like a real Matter controller talking to a real device over the network. This is what <code>run_tests.py</code> does for every test case.</p>
+    </div>
+
+    <div class="runbook">
+      <ol class="steps">
+        <li><h4>Stage the exact build</h4><p><code>prepare_rpi_tests.py</code> pulls the newest bundle from Drive, checks the Pi's SDK out to the <b>same commit</b> that was built, and symlinks the prebuilt binaries into place — so the test scripts and the binaries always match.</p></li>
+        <li><h4>Launch the device (DUT)</h4><p>The device-under-test app (e.g. <code>chip-all-clusters-app</code>) is started in the background with <code>subprocess.Popen</code> in its own process group, and its log is captured live on a background thread.</p></li>
+        <li><h4>Wait until it's ready</h4><p>The harness watches the device log for its startup / pairing signal before starting the test — instead of a blind fixed delay — mirroring how the upstream Matter CI runs.</p></li>
+        <li><h4>Drive the certification test</h4><p>The SDK's own Python test (e.g. <code>TC_ACE_1_6.py</code>) runs in the built controller virtualenv, commissions the device on-network, and exercises the cluster under test.</p></li>
+        <li><h4>Handle real device behaviour</h4><p>Auto-answers operator prompts on stdin, injects events through a named pipe, orchestrates factory-resets / reboots, and forwards commands to Fabric-Sync bridges — all the things a human tester would otherwise do by hand.</p></li>
+        <li><h4>Score &amp; report</h4><p>The test's result summary is parsed into <b>PASS / PASS* / FAIL / ERROR / RERUN / CANCEL</b>, and the whole run is rendered to a filterable <code>report.html</code>.</p></li>
+      </ol>
+
+      <div class="aside">
+        <h4>Under the hood</h4>
+        <div class="kv">
+          <div class="row"><span class="t">process control</span><span class="d"><b>subprocess.Popen</b> + <b>threading</b> + <b>queue</b> — live stdout, no pexpect</span></div>
+          <div class="row"><span class="t">clean cancellation</span><span class="d"><b>signal</b> handlers tear down every device app on stop</span></div>
+          <div class="row"><span class="t">command safety</span><span class="d"><b>shlex</b> parsing; auto-repair of stale SDK paths in test args</span></div>
+          <div class="row"><span class="t">test framework</span><span class="d">Matter <b>python_testing</b> / <b>mobly</b>, from the SDK checkout</span></div>
+          <div class="row"><span class="t">report</span><span class="d">self-contained <b>HTML</b> built with the <b>html</b> stdlib module</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-tag">The Modules</span>
+      <h2>What each part is built from</h2>
+      <p class="sec-sub">Every stage is a small, single-purpose Python script (plus one shell build script). The libraries below are the load-bearing ones — the rest is the Python standard library.</p>
+    </div>
+
+    <div class="tbl-scroll">
+      <table>
+        <thead>
+          <tr><th>Module</th><th>Runs on</th><th>What it does &amp; key libraries</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="m">build_inside_<br>container.sh</span></td>
+            <td><span class="env b">Mac mini · Docker</span></td>
+            <td><div class="desc">The build itself. Fetches the SDK, compiles every app, <code>chip-tool</code>, and the Python controller wheel, then collects binaries + wheels + a commit stamp into one output folder.</div><div class="libs"><span class="lib">gn</span><span class="lib">ninja</span><span class="lib">pigweed env</span><span class="lib">ccache</span></div></td>
+          </tr>
+          <tr>
+            <td><span class="m">discover_<br>targets.py</span></td>
+            <td><span class="env b">build + test</span></td>
+            <td><div class="desc">The "which apps, where" resolver. Reads the SDK's own app map so source paths and binary names are never hard-coded — one source of truth for every other script.</div><div class="libs"><span class="lib">subprocess</span><span class="lib">SDK HostApp</span><span class="lib">yaml</span></div></td>
+          </tr>
+          <tr>
+            <td><span class="m">upload_<br>artifacts.py</span></td>
+            <td><span class="env b">Mac mini</span></td>
+            <td><div class="desc">Bundles the build output into a versioned <code>.tar.gz</code>, uploads it to Google Drive under a service account, makes a shareable link, and prunes old builds.</div><div class="libs"><span class="lib">googleapiclient</span><span class="lib">google.oauth2</span><span class="lib">tarfile</span></div></td>
+          </tr>
+          <tr>
+            <td><span class="m">notify.py</span></td>
+            <td><span class="env b">Mac mini</span></td>
+            <td><div class="desc">Sends the build and test emails as HTML via Gmail. Recipients come from a config file merged with a secret, so adding someone is a one-line edit.</div><div class="libs"><span class="lib">smtplib</span><span class="lib">email.mime</span><span class="lib">yaml</span></div></td>
+          </tr>
+          <tr>
+            <td><span class="m">prepare_rpi_<br>tests.py</span></td>
+            <td><span class="env t">Raspberry Pi</span></td>
+            <td><div class="desc">Downloads the newest bundle, checks out the Pi's SDK to the matching commit, symlinks the binaries in, and installs the controller wheels into the test virtualenv.</div><div class="libs"><span class="lib">googleapiclient</span><span class="lib">subprocess</span><span class="lib">tarfile</span></div></td>
+          </tr>
+          <tr>
+            <td><span class="m">fetch_test_<br>commands.py</span></td>
+            <td><span class="env t">Raspberry Pi</span></td>
+            <td><div class="desc">Reads the device + test commands for each enabled test case from a Google Sheet, filters by the test list, and writes the run plan to JSON.</div><div class="libs"><span class="lib">googleapiclient (Sheets v4)</span><span class="lib">google.oauth2</span></div></td>
+          </tr>
+          <tr>
+            <td><span class="m">run_tests.py</span></td>
+            <td><span class="env t">Raspberry Pi</span></td>
+            <td><div class="desc">The heart of testing. Launches device apps, drives the certification suite, handles reboots / pipes / prompts, scores results, and renders the HTML report.</div><div class="libs"><span class="lib">subprocess</span><span class="lib">threading</span><span class="lib">queue</span><span class="lib">signal</span><span class="lib">shlex</span><span class="lib">html</span></div></td>
+          </tr>
+          <tr>
+            <td><span class="m">upload_test_<br>results.py</span></td>
+            <td><span class="env t">Raspberry Pi</span></td>
+            <td><div class="desc">Archives the report + per-test logs and uploads them to Drive, returning the download link that goes into the test email.</div><div class="libs"><span class="lib">googleapiclient</span><span class="lib">tarfile</span></div></td>
+          </tr>
+          <tr>
+            <td><span class="m">validate_<br>config.py</span></td>
+            <td><span class="env g">GitHub-hosted</span></td>
+            <td><div class="desc">A fast pre-flight check of the config file, so misconfiguration fails in seconds instead of after a long build.</div><div class="libs"><span class="lib">yaml</span></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-tag">Libraries at a Glance</span>
+      <h2>What powers each function</h2>
+      <p class="sec-sub">A deliberate design choice runs through the whole system: the two machines are driven by <b>GitHub Actions runners</b>, and almost everything else is the <b>Python standard library</b> — few moving parts to break.</p>
+    </div>
+
+    <div class="tbl-scroll">
+      <table>
+        <thead>
+          <tr><th>Function</th><th>Library / mechanism</th><th>How it works</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><div class="desc"><b>Control the Raspberry Pi</b><br>to run the tests</div></td>
+            <td><div class="libs"><span class="lib">GitHub Actions runner</span></div></td>
+            <td><div class="desc">Not SSH or a remote-control library — a runner agent installed on the Pi (labelled <code>rpi</code>) pulls the test jobs over its own connection and runs them locally.</div></td>
+          </tr>
+          <tr>
+            <td><div class="desc"><b>Control the Mac mini</b><br>to build the artifacts</div></td>
+            <td><div class="libs"><span class="lib">GitHub Actions runner</span><span class="lib">Docker</span><span class="lib">gn + ninja</span></div></td>
+            <td><div class="desc">Same runner model (labelled <code>mac-mini</code>); the build runs inside a Docker container and compiles with gn / ninja in the pigweed environment.</div></td>
+          </tr>
+          <tr>
+            <td><div class="desc"><b>Capture DUT &amp; Ctrl logs</b><br>from every test</div></td>
+            <td><div class="libs"><span class="lib">subprocess</span><span class="lib">threading</span><span class="lib">queue</span></div></td>
+            <td><div class="desc">Python stdlib, no pexpect. <code>Popen</code> streams the device app straight to its log; a reader thread drains the controller's output into a queue — captured to file and watched live.</div></td>
+          </tr>
+          <tr>
+            <td><div class="desc"><b>Send emails</b><br>build &amp; test reports</div></td>
+            <td><div class="libs"><span class="lib">smtplib</span><span class="lib">email.mime</span></div></td>
+            <td><div class="desc">Python stdlib. A multipart HTML+plain message sent over an authenticated SSL connection to Gmail (<code>smtp.gmail.com:465</code>).</div></td>
+          </tr>
+          <tr>
+            <td><div class="desc"><b>Analyse logs</b><br>pass / fail / skipped steps</div></td>
+            <td><div class="libs"><span class="lib">re (regex)</span><span class="lib">html</span></div></td>
+            <td><div class="desc">Regex counts the real test steps and reads the framework's result summary → PASS / PASS* / FAIL / ERROR / RERUN / CANCEL, then the <code>html</code> module renders the report.</div></td>
+          </tr>
+          <tr>
+            <td><div class="desc"><b>Move files &amp; read the test sheet</b><br>Drive + Google Sheet</div></td>
+            <td><div class="libs"><span class="lib">googleapiclient</span><span class="lib">google.oauth2</span></div></td>
+            <td><div class="desc">The only significant third-party libraries. Google Drive API v3 carries build bundles &amp; results; Sheets API v4 (read-only) pulls the test matrix — both via a service account.</div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-tag">Dependencies</span>
+      <h2>External services it orchestrates</h2>
+      <p class="sec-sub">The pipeline is glue between six systems. Credentials are held in GitHub secrets; everything else is in versioned config.</p>
+    </div>
+
+    <div class="svc-grid">
+      <div class="svc"><div class="h"><span class="ic">⚙️</span><h4>GitHub Actions</h4></div><p>Orchestrates all eight jobs and their dependencies, across two self-hosted runners plus GitHub's own for the light planning steps.</p><div class="tag">runners: mac-mini · rpi · ubuntu-latest</div></div>
+      <div class="svc"><div class="h"><span class="ic">🐳</span><h4>Docker</h4></div><p>Runs the build in a reproducible ARM64 Ubuntu container on the Mac mini, with the SDK and toolchain baked into the image.</p><div class="tag">image: matter-sdk-builder</div></div>
+      <div class="svc"><div class="h"><span class="ic">☁️</span><h4>Google Drive API</h4></div><p>Carries build bundles and result archives between the two machines. Files are owned by a service account with its own storage.</p><div class="tag">Drive v3 · service account</div></div>
+      <div class="svc"><div class="h"><span class="ic">📊</span><h4>Google Sheets API</h4></div><p>The team's test matrix. Each row is a test case with its device and test commands — edited by testers, read by the pipeline.</p><div class="tag">Sheets v4 · read-only</div></div>
+      <div class="svc"><div class="h"><span class="ic">✉️</span><h4>Gmail SMTP</h4></div><p>Delivers the build and test-result emails over an authenticated SSL connection using an app password.</p><div class="tag">smtp.gmail.com:465</div></div>
+      <div class="svc"><div class="h"><span class="ic">🔌</span><h4>connectedhomeip SDK</h4></div><p>The upstream Matter project — source of the device apps, chip-tool, controller, and the certification test scripts themselves.</p><div class="tag">project-chip/connectedhomeip</div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-tag">Key Idea</span>
+      <h2>Build once, test against the very same code</h2>
+      <p class="sec-sub">The pipeline never vendors the Matter SDK — it consumes the upstream project in two coordinated places, pinned to one commit so results are always trustworthy.</p>
+    </div>
+
+    <div class="sdk">
+      <div class="sdk-card b">
+        <span class="lab">Build side · Mac mini</span>
+        <h4>Compile the SDK</h4>
+        <ul>
+          <li>Clone + fetch <code>connectedhomeip</code> to the latest commit</li>
+          <li>Build ~19 device apps + <code>chip-tool</code></li>
+          <li>Build the Python controller wheels</li>
+          <li>Stamp the exact commit into the bundle</li>
+        </ul>
+      </div>
+
+      <div class="sdk-mid">
+        <div class="pill">bundle<br>via Drive</div>
+        <div class="arrow"><svg width="30" height="18" viewBox="0 0 30 18"><path d="M2 9h22m0 0l-6-5m6 5l-6 5" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></div>
+      </div>
+
+      <div class="sdk-card t">
+        <span class="lab">Test side · Raspberry Pi</span>
+        <h4>Test the SDK</h4>
+        <ul>
+          <li>Check the Pi's SDK out to that <em>same commit</em></li>
+          <li>Drop in the prebuilt binaries + wheels</li>
+          <li>Run the upstream certification test scripts</li>
+          <li>Report PASS / FAIL per test case</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="sdk-take"><b>Why it matters:</b> the binaries running on the Pi and the test scripts driving them come from one identical commit of the Matter SDK. There is never a mismatch between "what we built" and "what we tested" — the foundation of a trustworthy certification result.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="foot-inner wrap">
+    <span>Matter CI — internal engineering architecture overview</span>
+    <span class="mono">Mac mini · build → Google Drive → Raspberry Pi · test</span>
+  </div>
+</footer>
+</body>
+</html>

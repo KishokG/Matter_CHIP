@@ -40,6 +40,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 # instead of a hardcoded apps: block in build_config.yaml.
 sys.path.insert(0, str(SCRIPT_DIR))
 from discover_targets import resolve_pipeline_apps
+from yaml_pics import convert as convert_pics_xml   # XML PICS → flat CODE=1/0
 
 # =============================================================================
 # Global cancel flag — set by SIGTERM/SIGINT handler
@@ -1666,6 +1667,12 @@ class TestRunner:
         return status, counts, reason, elapsed
 
     def run_one(self, tc: dict, dut: DUTManager) -> dict:
+        # YAML certification tests take a different execution path: the SDK's own
+        # run_test_suite.py owns the app + chip-tool + commissioning, so we don't
+        # use DUTManager or the Python-controller retry logic here.
+        if tc.get("type") == "yaml":
+            return self.run_one_yaml(tc)
+
         tc_id    = tc["test_case_id"]
         log_path = self.log_dir / f"{tc_id}.log"
         dut_log  = self.log_dir / f"{tc_id}_dut.log"
@@ -1761,6 +1768,7 @@ class TestRunner:
         return {
             "test_case_id":            tc["test_case_id"],
             "cluster":                 tc.get("cluster", ""),
+            "type":                    tc.get("type", "python"),   # python | yaml
             "dut_command":             tc["dut_command"],          # raw (from Sheet)
             "python_command":          tc["python_command"],       # raw (from Sheet)
             "executed_dut_command":    exec_dut,                   # actually launched
@@ -1771,6 +1779,220 @@ class TestRunner:
             "log_file":                str(log_path),
             "note":                    note,
         }
+
+    # =====================================================================
+    # YAML certification test execution (Option A — wrap run_test_suite.py)
+    # =====================================================================
+    # The app key each certification YAML declares (its CI block) → our config
+    # app name. run_test_suite.py reads the key from the YAML and picks the app;
+    # we supply --app-path for every one we built so a test always finds its DUT.
+    _YAML_APP_KEYS = {
+        "all-clusters":   "all-clusters",
+        "all-devices":    "all-devices",
+        "tv":             "tv-app",
+        "network-manager": "network-manager",
+        "lock":           "lock",
+        "bridge":         "bridge",
+        "evse":           "evse",
+        "microwave-oven": "microwave-oven",
+        "lit-icd":        "lit-icd",
+    }
+
+    def _resolve_app_binary(self, app_key: str):
+        """Map an app key (e.g. 'all-clusters') → its built binary on this RPi,
+        using the same app resolution the build/DUT launch use. None if missing.
+        Caches the resolved app list (resolution is not free)."""
+        apps = getattr(self, "_apps_cache", None)
+        if apps is None:
+            try:
+                apps = resolve_pipeline_apps(self.sdk_dir, self.cfg)
+            except Exception as e:
+                print(f"  [YAML] app resolution failed: {e}")
+                apps = []
+            self._apps_cache = apps
+        for app in apps:
+            if app.get("name") == app_key:
+                p = self.sdk_dir / app["build_dir"] / app["binary_name"]
+                return p if p.exists() else None
+        return None
+
+    def _yaml_app_paths(self) -> list:
+        """--app-path args for every YAML app key whose binary we built. Passing
+        the full set lets run_test_suite.py select the one each YAML declares."""
+        args = []
+        for sdk_key, cfg_name in self._YAML_APP_KEYS.items():
+            b = self._resolve_app_binary(cfg_name)
+            if b:
+                args += ["--app-path", f"{sdk_key}:{b}"]
+        return args
+
+    def _chip_tool_binary(self):
+        ct = self.cfg.get("chip_tool", {})
+        if ct.get("build_dir") and ct.get("binary_name"):
+            p = self.sdk_dir / ct["build_dir"] / ct["binary_name"]
+            return p if p.exists() else None
+        return None
+
+    def _yaml_pics_file(self, tc: dict):
+        """Convert the configured PICS XML → a flat CODE=1/0 file. Cached per PICS
+        source so we don't re-parse thousands of items for every test."""
+        yt  = self.cfg.get("yaml_tests", {}) or {}
+        # Same PICS source as the Python suite (test_execution.pics_folder), unless
+        # a per-test "pics" override is given in yaml_tests.json.
+        src = tc.get("pics") or self.pics_folder
+        if not src:
+            print("  [YAML] no PICS source configured — empty PICS "
+                  "(only unconditional steps run).")
+            return None
+        cache = getattr(self, "_yaml_pics_cache", None)
+        if cache is None:
+            cache = self._yaml_pics_cache = {}
+        if src in cache:
+            return cache[src]
+        out = self.log_dir / f"_yaml_pics_{Path(str(src)).name}.txt"
+        try:
+            convert_pics_xml(src, out, extra=(yt.get("pics_overrides", {}) or {}))
+        except (FileNotFoundError, ValueError) as e:
+            print(f"  [YAML] PICS conversion failed ({e}) — empty PICS.")
+            out = None
+        cache[src] = out
+        return out
+
+    def run_one_yaml(self, tc: dict) -> dict:
+        tc_id    = tc["test_case_id"]
+        target   = tc["yaml_target"]
+        app_key  = tc.get("app", "all-clusters")
+        log_path = self.log_dir / f"{tc_id}.log"
+        summary  = self.log_dir / f"{tc_id}_summary.json"
+        yt       = self.cfg.get("yaml_tests", {}) or {}
+
+        print(f"\n── {tc_id} (YAML: {target}) ──────────────────────────")
+
+        app_paths = self._yaml_app_paths()
+        tool_bin  = self._chip_tool_binary()
+        rts       = self.sdk_dir / "scripts" / "tests" / "run_test_suite.py"
+        if not app_paths:
+            return self._result(tc, ERROR, {}, 0.0, log_path,
+                                 note="YAML: no DUT app binaries found in bundle.")
+        if tool_bin is None:
+            return self._result(tc, ERROR, {}, 0.0, log_path,
+                                 note="YAML: chip-tool binary not in bundle.")
+        if not rts.exists():
+            return self._result(tc, ERROR, {}, 0.0, log_path,
+                                 note=f"YAML: run_test_suite.py missing at {rts}.")
+
+        pics_file = self._yaml_pics_file(tc)
+        chiptool  = self.sdk_dir / "scripts" / "tests" / "chipyaml" / "chiptool.py"
+
+        # run_test_suite.py: global opts (--target, --find-path) then the `run`
+        # subcommand. It reads which app the YAML needs (its CI block) and picks
+        # from the --app-path set we supply. Runner defaults to chip_tool_python
+        # — exactly what we want — so we leave --runner unset.
+        cmd = [
+            str(self.venv_python), str(rts),
+            "--target", target,
+            "--find-path", str(self.sdk_dir / "scripts" / "tests"),
+            "run",
+            "--iterations", str(yt.get("iterations", 1)),
+            "--test-timeout-seconds", str(yt.get("test_timeout_seconds", 120)),
+            *app_paths,
+            "--tool-path", f"chip-tool:{tool_bin}",
+            "--tool-path", f"chip-tool-with-python:{chiptool}",
+            "--commissioning-method", str(yt.get("commissioning_method", "on-network")),
+            "--summary-file", str(summary),
+        ]
+        if pics_file:
+            cmd += ["--pics-file", str(pics_file)]
+
+        executed = " ".join(shlex.quote(c) for c in cmd)
+        n_apps = len(app_paths) // 2
+        header = (f"[CI] YAML test           : {target}\n"
+                  f"[CI] QA server (hint)    : {app_key}\n"
+                  f"[CI] App-paths supplied  : {n_apps} (run_test_suite picks per YAML)\n"
+                  f"[CI] Executed command    : {executed}\n"
+                  f"[CI] {'-'*68}\n")
+
+        # matter_yamltests / chiptest live under scripts/; add them to PYTHONPATH
+        # and run from the SDK root so the runner's relative paths resolve.
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(p for p in [
+            str(self.sdk_dir / "scripts" / "tests"),
+            str(self.sdk_dir / "scripts" / "py_matter_yamltests"),
+            env.get("PYTHONPATH", ""),
+        ] if p)
+
+        if summary.exists():
+            try:
+                summary.unlink()      # stale summary must not mask a failed launch
+            except OSError:
+                pass
+
+        t0 = time.time()
+        with open(log_path, "w") as lf:
+            lf.write(header)
+            lf.flush()
+            try:
+                proc = subprocess.run(
+                    cmd, cwd=str(self.sdk_dir), env=env,
+                    stdout=lf, stderr=subprocess.STDOUT,
+                    timeout=int(yt.get("test_timeout_seconds", 120)) + 120,
+                )
+                rc = proc.returncode
+            except subprocess.TimeoutExpired:
+                lf.write("\n[CI] run_test_suite.py TIMED OUT.\n")
+                rc = -1
+
+        elapsed = round(time.time() - t0, 2)
+        try:
+            log_text = log_path.read_text(errors="replace")
+        except OSError:
+            log_text = ""
+
+        status, counts, reason = self.parse_yaml_summary(summary, log_text, rc)
+        counts["executed_dut_command"]    = f"DUT app auto-selected by run_test_suite.py (QA hint: {app_key})"
+        counts["executed_python_command"] = executed
+
+        shown = {k: v for k, v in counts.items()
+                 if k not in ("executed_dut_command", "executed_python_command")}
+        rs = f" | {reason[:70]}" if reason else ""
+        print(f"  [{status}] {tc_id} — {elapsed}s  {shown}{rs}")
+        return self._result(tc, status, counts, elapsed, log_path, note=reason)
+
+    def parse_yaml_summary(self, summary_file: Path, log_text: str, rc: int):
+        """run_test_suite.py's RunSummary JSON → (status, counts, reason). Counts
+        are test-level (the runner reports one result per target, not per YAML
+        step). Missing summary = the app/commissioning failed before any test ran."""
+        if not summary_file.exists():
+            reason = "YAML run produced no summary (setup/commissioning likely failed)."
+            m = re.search(r"(?:CHIP Error 0x[0-9A-Fa-f]+[^\n]*|Traceback[^\n]*|Error[^\n]*)",
+                          log_text[-4000:] if log_text else "")
+            if m:
+                reason = m.group(0)[:200]
+            return ERROR, {}, reason
+        try:
+            data = json.loads(summary_file.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            return ERROR, {}, f"YAML summary unreadable: {e}"
+
+        passed    = int(data.get("passed", 0))
+        failed    = int(data.get("failed", 0))
+        cancelled = int(data.get("cancelled", 0))
+        total     = int(data.get("total_runs", passed + failed + cancelled))
+        counts = {"executed": total, "passed": passed,
+                  "failed": failed, "skipped": 0, "error": 0}
+
+        reason = ""
+        exc = data.get("exception_first")
+        if isinstance(exc, str) and exc not in ("", "None"):
+            reason = exc[:200]
+
+        if cancelled:
+            return CANCEL, counts, reason or "Cancelled during YAML run."
+        if failed:
+            return FAIL, counts, reason or f"{failed} YAML test(s) failed."
+        if total == 0:
+            return ERROR, counts, reason or "No YAML tests executed."
+        return PASS, counts, reason
 
     def run_all(self) -> list[dict]:
         dut = DUTManager(self.cfg)
@@ -1944,7 +2166,12 @@ def generate_report(results: list[dict], cfg: dict = None,
         counts  = r.get("counts", {})
         elapsed = r["elapsed_s"]
         log_file = Path(r.get("log_file", ""))
-        dut_log  = log_file.parent / f"{tc_id}_dut.log" if log_file.name else None
+        is_yaml  = r.get("type") == "yaml"
+        # YAML tests have no separate DUT log — run_test_suite.py interleaves the
+        # app + tool + step output into the single run log, so don't link a file
+        # that isn't there.
+        dut_log  = (log_file.parent / f"{tc_id}_dut.log"
+                    if (log_file.name and not is_yaml) else None)
 
         # HTML-safe copies for interpolation (tc_id/cluster come from the Sheet,
         # reason from raw test output — all untrusted for HTML purposes).
@@ -1971,9 +2198,15 @@ def generate_report(results: list[dict], cfg: dict = None,
         reason = html.escape(status_reason(r))
         reason_cell = f'<span class="reason">{reason}</span>' if reason else ""
 
+        # A small YAML tag distinguishes cert-YAML rows from the Python-driven ones.
+        type_tag = ('<span style="font-family:\'JetBrains Mono\',monospace;font-size:9px;'
+                    'font-weight:700;letter-spacing:.05em;color:#7c5cff;border:1px solid #7c5cff;'
+                    'border-radius:4px;padding:1px 4px;margin-left:8px;vertical-align:middle">'
+                    'YAML</span>') if is_yaml else ""
+
         rows_html += f"""
         <tr class="tc-row row-{e_status.lower()}" data-cluster="{e_cluster}" data-status="{e_status}" data-time="{elapsed}" data-tcid="{e_tc_id}">
-          <td>{tcid_html}<div class="cluster-sub">{e_cluster}</div></td>
+          <td>{tcid_html}{type_tag}<div class="cluster-sub">{e_cluster}</div></td>
           <td>{badge(status)}</td>
           <td>{steps_cell(counts, status)}</td>
           <td class="mono time">{elapsed}s</td>

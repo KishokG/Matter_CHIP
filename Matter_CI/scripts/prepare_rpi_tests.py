@@ -57,6 +57,16 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 # Extra runtime deps run_tests.py needs (mirrors the bundle's install.sh).
 TEST_PIP_DEPS = ["mobly", "click", "colorama", "pyserial"]
 
+# Deps for the YAML certification runner (scripts/tests/run_test_suite.py +
+# matter_yamltests). Installed ONLY when yaml_tests.enabled, so a Python-only
+# setup stays lean. BLE-only deps (bluezoo/sdbus) are intentionally omitted —
+# we commission YAML tests on-network.
+YAML_RUNNER_PIP_DEPS = [
+    "alive_progress", "click", "colorama", "coloredlogs", "diskcache",
+    "tabulate", "aenum", "construct", "dacite", "deprecation", "ecdsa",
+    "rich", "websockets",
+]
+
 
 def log(msg):  print(f"[PREP] {msg}")
 def die(msg):  print(f"[PREP] ❌ {msg}", file=sys.stderr); sys.exit(1)
@@ -321,8 +331,30 @@ def install_wheels(cfg: dict, sdk_dir: Path, bundle_dir: Path):
     log(f"Installing extra runner deps: {', '.join(TEST_PIP_DEPS)} ...")
     subprocess.run([str(py), "-m", "pip", "install", *TEST_PIP_DEPS, "--quiet"], check=False)
 
+    setup_yaml_runner_deps(py, sdk_dir, cfg)
     setup_push_av_server(py, sdk_dir)
     log("Python env ready.")
+
+
+def setup_yaml_runner_deps(py: Path, sdk_dir: Path, cfg: dict):
+    """Install what scripts/tests/run_test_suite.py + matter_yamltests need, so
+    YAML certification tests can run in the same venv. Only when yaml_tests is
+    enabled. Idempotent; the two local packages are editable installs (a .pth to
+    the source dir), which survive the per-run `git checkout` of the SDK."""
+    if not (cfg.get("yaml_tests", {}) or {}).get("enabled", False):
+        return
+    log(f"Installing YAML-runner deps: {', '.join(YAML_RUNNER_PIP_DEPS)} ...")
+    subprocess.run([str(py), "-m", "pip", "install", *YAML_RUNNER_PIP_DEPS, "--quiet"],
+                   check=False)
+    # Local packages the runner imports (matter.yamltests, matter_idl).
+    for pkg in ("py_matter_yamltests", "py_matter_idl"):
+        p = sdk_dir / "scripts" / pkg
+        if p.exists():
+            log(f"Installing local package: scripts/{pkg} (editable) ...")
+            subprocess.run([str(py), "-m", "pip", "install", "-e", str(p), "--quiet"],
+                           check=False)
+        else:
+            log(f"⚠️  scripts/{pkg} not found — YAML runner may miss imports.")
 
 
 def setup_push_av_server(py: Path, sdk_dir: Path):

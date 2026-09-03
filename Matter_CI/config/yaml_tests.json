@@ -1,0 +1,803 @@
+{
+  "_comment": "Curated YAML certification tests. Validated at fetch time against the SDK's src/app/tests/suites/ciTests.json \u2014 entries not in that automated set (manual/simulated/typo) are skipped with a warning, so a non-automatable test can never launch. Fields: 'test' = YAML target; 'cluster' = full cluster name for the report; 'app' = QA server hint (run_test_suite auto-selects the app the YAML declares); 'enabled' = on/off.",
+  "tests": [
+    {
+      "test": "Test_TC_ACE_1_1",
+      "cluster": "Access Control Enforcement",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ACFREMON_2_1",
+      "cluster": "Activated Carbon Filter Monitoring Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ACL_2_1",
+      "cluster": "Access Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_AIRQUAL_2_1",
+      "cluster": "Air Quality Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ALOGIN_12_1",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_APBSC_9_1",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_APPLAUNCHER_3_5",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_APPLAUNCHER_3_6",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_APPLAUNCHER_3_7",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_APPLAUNCHER_3_8",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_APPLAUNCHER_3_9",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_AUDIOOUTPUT_7_1",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_BOOL_2_1",
+      "cluster": "Boolean State Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_BR_5",
+      "cluster": "Bridge",
+      "app": "bridge",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_3_1",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_3_3",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_4_1",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_4_2",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_4_3",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_4_4",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_5_1",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_5_2",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_5_3",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_6_1",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_6_2",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_6_3",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_7_1",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_7_2",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_7_3",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_7_4",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_8_1",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_9_2",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CC_9_3",
+      "cluster": "Color Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CDOCONC_2_1",
+      "cluster": "Carbon Dioxide Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CHANNEL_5_1",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CMOCONC_2_1",
+      "cluster": "Carbon Monoxide Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CNET_4_5",
+      "cluster": "Network Commissioning Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CNET_4_6",
+      "cluster": "Network Commissioning Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_CONTENTLAUNCHER_10_1",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DGGEN_2_3",
+      "cluster": "General Diagnostics Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DGGEN_3_1",
+      "cluster": "General Diagnostics Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DGTHREAD_2_2",
+      "cluster": "Thread Network Diagnostics Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DGTHREAD_2_3",
+      "cluster": "Thread Network Diagnostics Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DGTHREAD_2_4",
+      "cluster": "Thread Network Diagnostics Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DGWIFI_2_1",
+      "cluster": "Wi-Fi Network Diagnostics Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DGWIFI_2_3",
+      "cluster": "Wi-Fi Network Diagnostics Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DRLK_2_11",
+      "cluster": "Door lock",
+      "app": "lock",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DRLK_2_4",
+      "cluster": "Door lock",
+      "app": "lock",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DRLK_2_6",
+      "cluster": "Door lock",
+      "app": "lock",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DRLK_2_7",
+      "cluster": "Door lock",
+      "app": "lock",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_DRLK_2_8",
+      "cluster": "Door lock",
+      "app": "lock",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_EEVSE_2_1",
+      "cluster": "Energy EVSE",
+      "app": "evse",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_FAN_2_2",
+      "cluster": "Fan Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_FAN_2_5",
+      "cluster": "Fan Control Cluster",
+      "app": "air-purifier",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_FAN_3_6",
+      "cluster": "Fan Control Cluster",
+      "app": "air-purifier",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_FLDCONC_2_1",
+      "cluster": "Formaldehyde Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_FLW_2_1",
+      "cluster": "Flow Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_G_2_1",
+      "cluster": "Groups Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_G_2_4",
+      "cluster": "Groups Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_GRPKEY_2_1",
+      "cluster": "Group Communication",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_HEPAFREMON_2_1",
+      "cluster": "HEPA Filter Monitoring Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_I_2_1",
+      "cluster": "Identify Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ICDM_4_1",
+      "cluster": "ICD Management Cluster",
+      "app": "lit-icd",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ILL_2_1",
+      "cluster": "Illuminance Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_KEYPADINPUT_3_2",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_KEYPADINPUT_3_3",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_LOWPOWER_2_1",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_LVL_2_1",
+      "cluster": "Level Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_LVL_2_2",
+      "cluster": "Level Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_LVL_3_1",
+      "cluster": "Level Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_LVL_4_1",
+      "cluster": "Level Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_LVL_5_1",
+      "cluster": "Level Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_MEDIAINPUT_3_10",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_MEDIAINPUT_3_11",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_MEDIAINPUT_3_12",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_MEDIAPLAYBACK_6_9",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_MOD_2_1",
+      "cluster": "Mode Select Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_MOD_3_1",
+      "cluster": "Mode Select Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_MWOCTRL_2_5",
+      "cluster": "Microwave Oven Control Cluster",
+      "app": "microwave-oven",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_NDOCONC_2_1",
+      "cluster": "Nitrogen Dioxide Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_OO_2_1",
+      "cluster": "On/Off Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_OO_2_3",
+      "cluster": "On/Off Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_OO_2_6",
+      "cluster": "On/Off Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_OPCREDS_3_7",
+      "cluster": "Node Operational Credentials Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_OZCONC_2_1",
+      "cluster": "Ozone Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PCC_2_1",
+      "cluster": "Pump Configuration and Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PCC_2_2",
+      "cluster": "Pump Configuration and Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PCC_2_3",
+      "cluster": "Pump Configuration and Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PCC_2_4",
+      "cluster": "Pump Configuration and Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PMHCONC_2_1",
+      "cluster": "PM1 Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PMICONC_2_1",
+      "cluster": "PM2.5 Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PMKCONC_2_1",
+      "cluster": "PM10 Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PS_2_1",
+      "cluster": "Power Source Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_PSCFG_2_1",
+      "cluster": "Power Source Configuration Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_RH_2_1",
+      "cluster": "Relative Humidity Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_RNCONC_2_1",
+      "cluster": "Radon Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_S_2_1",
+      "cluster": "Scenes Management Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_SWTCH_2_1",
+      "cluster": "Switch Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TBRM_2_1",
+      "cluster": "Thread Border Router Management Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TBRM_2_2",
+      "cluster": "Thread Border Router Management Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TBRM_2_3",
+      "cluster": "Thread Border Router Management Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TBRM_2_4",
+      "cluster": "Thread Border Router Management Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TCTL_2_1",
+      "cluster": "Temperature Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TCTL_2_2",
+      "cluster": "Temperature Control Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TGTNAV_8_1",
+      "cluster": "Media Cluster",
+      "app": "tv",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_THNETDIR_2_1",
+      "cluster": "Thread Network Directory Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_THNETDIR_2_2",
+      "cluster": "Thread Network Directory Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_THNETDIR_2_3",
+      "cluster": "Thread Network Directory Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TIMESYNC_2_3",
+      "cluster": "Time Synchronization Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TSTAT_2_1",
+      "cluster": "Thermostat Cluster",
+      "app": "thermostat",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TSUIC_2_1",
+      "cluster": "Thermostat User Interface Configuration Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_TVOCCONC_2_1",
+      "cluster": "Total Volatile Organic Compounds Concentration Measurement Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ULABEL_2_1",
+      "cluster": "User Label Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ULABEL_2_2",
+      "cluster": "User Label Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ULABEL_2_3",
+      "cluster": "User Label Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_ULABEL_2_4",
+      "cluster": "User Label Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WASHERCTRL_2_2",
+      "cluster": "Laundry Washer Controls Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WIFINM_2_1",
+      "cluster": "Wi-Fi Network Management Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WIFINM_2_2",
+      "cluster": "Wi-Fi Network Management Cluster",
+      "app": "network-manager",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_2_1",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_2_2",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_2_3",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_2_4",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_2_5",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_3_1",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_3_2",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_3_3",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_3_4",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_3_5",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_4_1",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_4_2",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_4_3",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    },
+    {
+      "test": "Test_TC_WNCV_4_4",
+      "cluster": "Window Covering Cluster",
+      "app": "all-clusters",
+      "enabled": true
+    }
+  ]
+}

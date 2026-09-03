@@ -451,6 +451,108 @@ def save(commands: list, cfg: dict):
 
 
 # =============================================================================
+# YAML certification tests (additive to the Sheet-driven Python tests)
+# =============================================================================
+def _yaml_target_to_tcid(target: str) -> tuple[str, str]:
+    """`Test_TC_ACE_1_1` → (`TC-ACE-1.1`, `ACE`). Falls back to the raw target
+    for any name that doesn't fit the Test_TC_<CLUSTER>_<x>_<y> shape."""
+    name = target[len("Test_"):] if target.startswith("Test_") else target
+    parts = name.split("_")
+    if len(parts) >= 3 and parts[0] == "TC":
+        cluster = parts[1]
+        return f"TC-{cluster}-" + ".".join(parts[2:]), cluster
+    return target, ""
+
+
+def _load_sdk_yaml_test_sets(sdk_dir: Path) -> tuple[set, set]:
+    """(automated, manual) YAML test-name sets from the SDK's OWN manifests —
+    src/app/tests/suites/ciTests.json (runnable) and manualTests.json (excluded).
+    Both are {collection: [test names]}; we flatten across collections. Empty
+    automated set = manifests missing → caller keeps entries but warns."""
+    suites = sdk_dir / "src" / "app" / "tests" / "suites"
+
+    def flat(fname: str) -> set:
+        p = suites / fname
+        out: set = set()
+        if not p.exists():
+            print(f"[WARN] {p} not found — cannot validate YAML tests against the SDK.")
+            return out
+        try:
+            data = json.loads(p.read_text())
+            for names in (data.values() if isinstance(data, dict) else []):
+                if isinstance(names, list):
+                    out.update(n for n in names if isinstance(n, str))
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[WARN] Could not read {p}: {e}")
+        return out
+
+    return flat("ciTests.json"), flat("manualTests.json")
+
+
+def load_yaml_tests(cfg: dict) -> list[dict]:
+    """Build YAML test records from config/yaml_tests.json, validated against the
+    SDK's automated set. Returns [] when YAML testing is disabled or nothing is
+    selected. Each record carries type='yaml' so run_tests.py routes it to the
+    run_test_suite.py path instead of the Python-controller path."""
+    yt = cfg.get("yaml_tests", {}) or {}
+    if not yt.get("enabled", False):
+        return []
+
+    list_file = PROJECT_ROOT / yt.get("list_file", "config/yaml_tests.json")
+    if not list_file.exists():
+        print(f"[WARN] YAML list file not found: {list_file} — no YAML tests.")
+        return []
+    try:
+        raw = json.loads(list_file.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[ERROR] Could not read {list_file}: {e}")
+        return []
+
+    entries = raw.get("tests", []) if isinstance(raw, dict) else raw
+    entries = [e for e in (entries or []) if isinstance(e, dict) and e.get("enabled")]
+    if not entries:
+        print("[INFO] No ENABLED YAML tests in yaml_tests.json.")
+        return []
+
+    sdk_dir = Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
+    automated, manual = _load_sdk_yaml_test_sets(sdk_dir)
+
+    records, skipped = [], []
+    for e in entries:
+        target = str(e.get("test", "")).strip()
+        if not target:
+            continue
+        # SDK manifests are authoritative: only run what upstream marks automatable.
+        if automated and target not in automated:
+            skipped.append(f"{target} (not in ciTests.json — manual/simulated/typo)")
+            continue
+        if target in manual or target.endswith("_Simulated"):
+            skipped.append(f"{target} (SDK-classified manual/simulated)")
+            continue
+        tcid, abbrev = _yaml_target_to_tcid(target)
+        # Full cluster name from the config (for the HTML report); fall back to
+        # the abbreviation derived from the target name when not provided.
+        cluster = str(e.get("cluster", "")).strip() or abbrev
+        records.append({
+            "type":           "yaml",
+            "test_case_id":   tcid,
+            "cluster":        cluster,
+            "yaml_target":    target,
+            "app":            (str(e.get("app", "")).strip() or "all-clusters"),
+            "pics":           str(e.get("pics", "")).strip(),
+            "dut_command":    "",   # run_test_suite.py launches the app itself
+            "python_command": f"run_test_suite.py --target {target}",
+        })
+
+    if skipped:
+        print(f"[WARN] {len(skipped)} YAML test(s) skipped:")
+        for s in skipped:
+            print(f"  ⏭  {s}")
+    print(f"[INFO] {len(records)} YAML test(s) selected (validated vs SDK ciTests.json).")
+    return records
+
+
+# =============================================================================
 # Main
 # =============================================================================
 def apply_runtime_filters(tc_map: dict | None, cluster_filter: str,
@@ -523,10 +625,30 @@ def main():
 
     tc_map = apply_runtime_filters(tc_map, cluster_filter, tc_filter)
 
-    # An empty selection is a HARD STOP. Previously this only warned and then
-    # passed {} to parse_rows, whose truthiness check read it as "no filter" and
-    # ran EVERY row in the sheet — so one mistyped TC ID launched the whole suite.
-    if tc_map is not None and not tc_map:
+    # Which kind of tests to run (workflow input; default both). yaml/python
+    # restrict to that one kind; both runs the Sheet Python tests AND the curated
+    # YAML tests.
+    test_type = os.environ.get("TEST_TYPE", "both").strip().lower()
+    if test_type not in ("both", "python", "yaml"):
+        print(f"[WARN] Unknown TEST_TYPE '{test_type}' — defaulting to 'both'.")
+        test_type = "both"
+    if test_type != "both":
+        print(f"[INFO] Test type filter: {test_type} only")
+
+    # YAML tests come from config/yaml_tests.json (the Sheet lists only Python
+    # tests), validated against the SDK's ciTests.json. Loaded first so an empty
+    # Python selection can still proceed on a YAML-only run.
+    yaml_cmds = load_yaml_tests(cfg) if test_type in ("both", "yaml") else []
+
+    # An empty Python selection is a HARD STOP — UNLESS there are YAML tests to
+    # run. test_type=yaml forces the Python side empty (Sheet is skipped entirely).
+    python_selected = test_type in ("both", "python")
+    python_empty = (not python_selected) or (tc_map is not None and not tc_map)
+    if python_empty and not yaml_cmds:
+        if test_type == "yaml":
+            print("[ERROR] test_type=yaml but no YAML tests selected — enable entries "
+                  "in yaml_tests.json (and ensure they're in the SDK's ciTests.json).")
+            sys.exit(1)
         tc_list_file = cfg["test_execution"]["tc_list_file"]
         if tc_filter or cluster_filter:
             print("[ERROR] The requested filter selected 0 test cases — nothing to run.")
@@ -541,15 +663,23 @@ def main():
         print("[ERROR] Refusing to fall back to running the full suite.")
         sys.exit(1)
 
-    if tc_map is None:
-        print("[INFO] No TC list and no filter — running every row in the sheet.")
-    else:
-        print(f"[INFO] Running {len(tc_map)} test cases")
-        clusters = sorted(set(tc_map.values()))
-        print(f"[INFO] Clusters: {clusters}")
+    # Fetch + parse the Sheet ONLY when there is a Python selection. A YAML-only
+    # run (Python selection empty) skips the Sheet entirely.
+    commands: list[dict] = []
+    if not python_empty:
+        if tc_map is None:
+            print("[INFO] No TC list and no filter — running every row in the sheet.")
+        else:
+            print(f"[INFO] Running {len(tc_map)} Python test case(s)")
+            clusters = sorted(set(tc_map.values()))
+            print(f"[INFO] Clusters: {clusters}")
+        rows     = fetch_sheet(cfg)
+        commands = parse_rows(rows, cfg, tc_map)
+    elif yaml_cmds:
+        print("[INFO] No Python tests selected — running YAML tests only.")
 
-    rows     = fetch_sheet(cfg)
-    commands = parse_rows(rows, cfg, tc_map)
+    # Append the validated YAML tests (additive to the Python suite).
+    commands.extend(yaml_cmds)
 
     # Error: no commands found — exit clearly before saving empty file
     if not commands:

@@ -67,6 +67,17 @@ on:
           Overrides cluster_filter if both provided. Empty = use cluster_filter or all.
         required: false
         default: ""
+      test_type:
+        description: >
+          Which test kind to run (ignored when pipeline=build-only).
+          python = Sheet-driven Python tests; yaml = curated YAML cert tests
+          (config/yaml_tests.json); both = run both.
+        type: choice
+        options:
+          - both
+          - python
+          - yaml
+        default: both
 
 # ── Concurrency control ───────────────────────────────────────────────────────
 # Only one build runs at a time on the RPi.
@@ -538,6 +549,7 @@ jobs:
           export GSHEET_SA_KEY_PATH="${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
           export CLUSTER_FILTER="${{ github.event.inputs.cluster_filter }}"
           export TC_FILTER="${{ github.event.inputs.tc_filter }}"
+          export TEST_TYPE="${{ github.event.inputs.test_type || 'both' }}"
           python3 Matter_CI/scripts/fetch_test_commands.py \
             --config Matter_CI/config/build_config.yaml
 
