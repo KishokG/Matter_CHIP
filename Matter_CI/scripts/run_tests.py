@@ -1974,6 +1974,22 @@ class TestRunner:
             log_text = ""
 
         status, counts, reason = self.parse_yaml_summary(summary, log_text, rc)
+
+        # Step-level counts from the yamltests output (parity with the Python
+        # tests' Steps column — total / passed / skipped / failed).
+        steps = self._parse_yaml_steps(log_text, status == PASS)
+        if steps:
+            counts.update(steps)
+
+        # A concise, readable per-step view (just the TEST output) written next to
+        # the full debug log — the full log is ~6k lines of app/mDNS boot spam.
+        concise = self._yaml_concise_steps(log_text)
+        if concise:
+            try:
+                (self.log_dir / f"{tc_id}_steps.log").write_text(concise)
+            except OSError:
+                pass
+
         counts["executed_dut_command"]    = f"DUT app auto-selected by run_test_suite.py (QA hint: {app_key})"
         counts["executed_python_command"] = executed
 
@@ -2024,6 +2040,40 @@ class TestRunner:
         if total == 0:
             return ERROR, counts, reason or "No YAML tests executed."
         return PASS, counts, reason
+
+    @staticmethod
+    def _parse_yaml_steps(log_text: str, test_passed: bool) -> dict:
+        """Step-level counts from the yamltests logger output. The authoritative
+        line is 'Run finished in Xms with N steps runned and M steps skipped.'
+        Returns {} if the run didn't reach that line (crash / no summary), so the
+        caller keeps the coarser test-level counts."""
+        m = re.search(r"with\s+(\d+)\s+steps?\s+runned\s+and\s+(\d+)\s+steps?\s+skipped",
+                      log_text or "")
+        if not m:
+            return {}
+        runned, skipped = int(m.group(1)), int(m.group(2))
+        if test_passed:
+            failed, passed = 0, runned
+        else:
+            # continueOnFailure defaults false → the run stops at the first failing
+            # step, so exactly one of the runned steps is the failure.
+            failed = 1
+            passed = max(runned - 1, 0)
+        return {"step_total": runned + skipped, "step_passed": passed,
+                "step_failed": failed, "step_skipped": skipped}
+
+    @staticmethod
+    def _yaml_concise_steps(log_text: str) -> str:
+        """Pull JUST the test-runner output (the readable per-step story) out of the
+        full run_test_suite log, dropping the app/tool/mDNS boot spam and the
+        per-line '<ts> LEVEL [W0/TEST STDOUT] <Test>: ' prefixes."""
+        out = []
+        for raw in (log_text or "").splitlines():
+            clean = re.sub(r"\x1b\[[0-9;]*m", "", raw)
+            m = re.search(r"\[W\d+/TEST ST(?:DOUT|DERR)\]\s+\S+?:\s?(.*)$", clean)
+            if m:
+                out.append(m.group(1).rstrip())
+        return "\n".join(out).strip()
 
     def run_all(self) -> list[dict]:
         dut = DUTManager(self.cfg)
@@ -2199,10 +2249,12 @@ def generate_report(results: list[dict], cfg: dict = None,
         log_file = Path(r.get("log_file", ""))
         is_yaml  = r.get("type") == "yaml"
         # YAML tests have no separate DUT log — run_test_suite.py interleaves the
-        # app + tool + step output into the single run log, so don't link a file
-        # that isn't there.
+        # app + tool + step output into the single run log. Instead we surface a
+        # concise per-step view (_steps.log) in that second-link slot.
         dut_log  = (log_file.parent / f"{tc_id}_dut.log"
                     if (log_file.name and not is_yaml) else None)
+        steps_log = (log_file.parent / f"{tc_id}_steps.log"
+                     if (log_file.name and is_yaml) else None)
 
         # HTML-safe copies for interpolation (tc_id/cluster come from the Sheet,
         # reason from raw test output — all untrusted for HTML purposes).
@@ -2225,6 +2277,9 @@ def generate_report(results: list[dict], cfg: dict = None,
         if dut_log and dut_log.name:
             log_links += (f'<a href="test_runs/{e_dut}" target="_blank" '
                           f'class="log-link dut-log">DUT Log</a>')
+        if steps_log and steps_log.exists():
+            log_links += (f'<a href="test_runs/{html.escape(steps_log.name)}" '
+                          f'target="_blank" class="log-link dut-log">Steps</a>')
 
         reason = html.escape(status_reason(r))
         reason_cell = f'<span class="reason">{reason}</span>' if reason else ""
