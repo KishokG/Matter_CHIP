@@ -1,5 +1,5 @@
 {
-  "_comment": "Curated YAML certification tests. Validated at fetch time against the SDK's src/app/tests/suites/ciTests.json \u2014 entries not in that automated set (manual/simulated/typo) are skipped with a warning, so a non-automatable test can never launch. Fields: 'test' = YAML target; 'cluster' = full cluster name for the report; 'app' = QA server hint (run_test_suite auto-selects the app the YAML declares); 'enabled' = on/off.",
+  "_comment": "Curated YAML certification tests \u2014 the source of truth for WHAT runs (every enabled entry runs; the SDK's ciTests.json is advisory, a test not in it runs anyway with a warning and may fail). The 'app' field is AUTHORITATIVE for the DUT: the test runs on the app you set here, overriding the YAML's own CI: block. Accepts the config app name or its alias (e.g. 'tv-app' or 'tv', 'all-clusters'); it must be enabled in discovery.apps so it's built. Leave 'app' empty to let the SDK pick per YAML (the YAML's CI: block, or all-clusters). Fields: 'test' = YAML target; 'cluster' = report name; 'app' = DUT app (authoritative, optional); 'enabled' = on/off.",
   "tests": [
     {
       "test": "Test_TC_ACE_1_1",

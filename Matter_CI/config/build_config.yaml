@@ -82,7 +82,8 @@ discovery:
     - { name: tv-app,                      enabled: true, modifiers: [ipv6only] }        # chip-tv-app
     - { name: tv-casting-app,              enabled: true, modifiers: [ipv6only] }        # chip-tv-casting-app
     - { name: water-heater,                enabled: true, modifiers: [ipv6only] }        # matter-water-heater-app
-    - { name: water-leak-detector,         enabled: false, modifiers: [ipv6only] }        # water-leak-detector-app
+    - { name: water-leak-detector,         enabled: false, modifiers: [ipv6only] }       # water-leak-detector-app
+    - { name: electrical-protection,       enabled: false, modifiers: [ipv6only] }       # electrical-protection-app
 
 
 # ============================================================

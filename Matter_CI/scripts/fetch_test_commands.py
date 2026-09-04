@@ -536,18 +536,22 @@ def load_yaml_tests(cfg: dict) -> list[dict]:
     sdk_dir = Path(os.environ.get("MATTER_SDK_DIR", cfg["rpi"]["sdk_dir"]))
     automated, manual = _load_sdk_yaml_test_sets(sdk_dir)
 
-    records, skipped = [], []
+    records, warned = [], []
     for e in entries:
         target = str(e.get("test", "")).strip()
         if not target:
             continue
-        # SDK manifests are authoritative: only run what upstream marks automatable.
+        # The SDK manifests are ADVISORY, not a gate: yaml_tests.json is the source
+        # of truth for what runs. We warn (don't skip) when a test isn't in the
+        # SDK's automated set — it may be manual/UI/simulated or lack a YAML file,
+        # so it can fail, and that's acceptable. Run everything the user enabled.
         if automated and target not in automated:
-            skipped.append(f"{target} (not in ciTests.json — manual/simulated/typo)")
-            continue
-        if target in manual or target.endswith("_Simulated"):
-            skipped.append(f"{target} (SDK-classified manual/simulated)")
-            continue
+            warned.append(f"{target} (not in SDK ciTests.json — may be manual/UI/"
+                          f"simulated or missing; running anyway)")
+        elif target in manual:
+            warned.append(f"{target} (SDK-classified manual — running anyway)")
+        elif target.endswith("_Simulated"):
+            warned.append(f"{target} (simulated test — running anyway)")
         tcid, abbrev = _yaml_target_to_tcid(target)
         # Full cluster name from the config (for the HTML report); fall back to
         # the abbreviation derived from the target name when not provided.
@@ -557,17 +561,19 @@ def load_yaml_tests(cfg: dict) -> list[dict]:
             "test_case_id":   tcid,
             "cluster":        cluster,
             "yaml_target":    target,
-            "app":            (str(e.get("app", "")).strip() or "all-clusters"),
+            "app":            str(e.get("app", "")).strip(),   # authoritative; "" = SDK picks
             "pics":           str(e.get("pics", "")).strip(),
             "dut_command":    "",   # run_test_suite.py launches the app itself
             "python_command": f"run_test_suite.py --target {target}",
         })
 
-    if skipped:
-        print(f"[WARN] {len(skipped)} YAML test(s) skipped:")
-        for s in skipped:
-            print(f"  ⏭  {s}")
-    print(f"[INFO] {len(records)} YAML test(s) selected (validated vs SDK ciTests.json).")
+    if warned:
+        print(f"[WARN] {len(warned)} YAML test(s) not in the SDK's automated set — "
+              f"running anyway (may fail):")
+        for w in warned:
+            print(f"  ⚠️  {w}")
+    print(f"[INFO] {len(records)} YAML test(s) selected (all enabled entries run; "
+          f"SDK ciTests.json is advisory).")
     return records
 
 

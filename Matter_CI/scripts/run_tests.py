@@ -1783,25 +1783,9 @@ class TestRunner:
     # =====================================================================
     # YAML certification test execution (Option A — wrap run_test_suite.py)
     # =====================================================================
-    # The app key each certification YAML declares (its CI block) → our config
-    # app name. run_test_suite.py reads the key from the YAML and picks the app;
-    # we supply --app-path for every one we built so a test always finds its DUT.
-    _YAML_APP_KEYS = {
-        "all-clusters":   "all-clusters",
-        "all-devices":    "all-devices",
-        "tv":             "tv-app",
-        "network-manager": "network-manager",
-        "lock":           "lock",
-        "bridge":         "bridge",
-        "evse":           "evse",
-        "microwave-oven": "microwave-oven",
-        "lit-icd":        "lit-icd",
-    }
-
-    def _resolve_app_binary(self, app_key: str):
-        """Map an app key (e.g. 'all-clusters') → its built binary on this RPi,
-        using the same app resolution the build/DUT launch use. None if missing.
-        Caches the resolved app list (resolution is not free)."""
+    def _resolved_apps(self):
+        """Cached resolve_pipeline_apps() — the config-driven app→binary list,
+        the single source of truth (discovery.apps in build_config.yaml)."""
         apps = getattr(self, "_apps_cache", None)
         if apps is None:
             try:
@@ -1810,20 +1794,66 @@ class TestRunner:
                 print(f"  [YAML] app resolution failed: {e}")
                 apps = []
             self._apps_cache = apps
-        for app in apps:
-            if app.get("name") == app_key:
-                p = self.sdk_dir / app["build_dir"] / app["binary_name"]
-                return p if p.exists() else None
+        return apps
+
+    def _all_yaml_keys(self) -> set:
+        """Every --app-path key we can offer, derived from the BUILT apps: each
+        app's config name plus its '-app'-stripped alias (tv-app → tv)."""
+        keys = set()
+        for app in self._resolved_apps():
+            name = app.get("name")
+            if not name:
+                continue
+            if not (self.sdk_dir / app["build_dir"] / app["binary_name"]).exists():
+                continue
+            keys.add(name)
+            if name.endswith("-app"):
+                keys.add(name[:-4])
+        return keys
+
+    def _resolve_app_binary(self, app_hint: str):
+        """Resolve a configured app name → a BUILT binary. Accepts our config name,
+        the '-app' form, or the '-app'-stripped alias (so 'tv', 'tv-app' both work).
+        None if not built."""
+        if not app_hint:
+            return None
+        for app in self._resolved_apps():
+            name = app.get("name", "")
+            aliases = {name, name[:-4] if name.endswith("-app") else name + "-app"}
+            if app_hint in aliases:
+                binp = self.sdk_dir / app["build_dir"] / app["binary_name"]
+                return binp if binp.exists() else None
         return None
 
-    def _yaml_app_paths(self) -> list:
-        """--app-path args for every YAML app key whose binary we built. Passing
-        the full set lets run_test_suite.py select the one each YAML declares."""
-        args = []
-        for sdk_key, cfg_name in self._YAML_APP_KEYS.items():
-            b = self._resolve_app_binary(cfg_name)
-            if b:
-                args += ["--app-path", f"{sdk_key}:{b}"]
+    def _yaml_app_paths(self, force_binary=None) -> list:
+        """--app-path list for run_test_suite.py.
+
+        force_binary set → the app configured in yaml_tests.json WINS: point every
+        candidate YAML key at that one binary, so the test runs on YOUR app
+        regardless of the YAML's CI: block (or its all-clusters default).
+
+        force_binary None → offer every BUILT app keyed by its name (+ '-app'-
+        stripped alias) and let run_test_suite pick the one the YAML declares.
+
+        Either way it's driven by discovery.apps — no second place to edit."""
+        if force_binary is not None:
+            return [a for k in sorted(self._all_yaml_keys())
+                    for a in ("--app-path", f"{k}:{force_binary}")]
+        args, seen = [], set()
+        for app in self._resolved_apps():
+            name = app.get("name")
+            if not name:
+                continue
+            binp = self.sdk_dir / app["build_dir"] / app["binary_name"]
+            if not binp.exists():            # only offer apps we actually built
+                continue
+            keys = {name}
+            if name.endswith("-app"):
+                keys.add(name[:-4])          # tv-app → tv, lock-app → lock, …
+            for k in sorted(keys):
+                if k not in seen:
+                    seen.add(k)
+                    args += ["--app-path", f"{k}:{binp}"]
         return args
 
     def _chip_tool_binary(self):
@@ -1861,14 +1891,24 @@ class TestRunner:
     def run_one_yaml(self, tc: dict) -> dict:
         tc_id    = tc["test_case_id"]
         target   = tc["yaml_target"]
-        app_key  = tc.get("app", "all-clusters")
+        app_key  = tc.get("app", "")
         log_path = self.log_dir / f"{tc_id}.log"
         summary  = self.log_dir / f"{tc_id}_summary.json"
         yt       = self.cfg.get("yaml_tests", {}) or {}
 
         print(f"\n── {tc_id} (YAML: {target}) ──────────────────────────")
 
-        app_paths = self._yaml_app_paths()
+        # The app configured in yaml_tests.json WINS: force the test onto that app
+        # regardless of the YAML's CI: block. Only fall back to the SDK's own
+        # per-YAML selection when no app is configured, or the configured one
+        # wasn't built.
+        force_bin = self._resolve_app_binary(app_key)
+        if app_key and force_bin is None:
+            print(f"  [YAML] configured app '{app_key}' not found in the bundle — "
+                  f"falling back to the app the YAML declares.")
+        app_paths = self._yaml_app_paths(force_binary=force_bin)
+        app_note  = (f"forced: {app_key} → {force_bin.name}" if force_bin
+                     else "SDK-selected per YAML")
         tool_bin  = self._chip_tool_binary()
         rts       = self.sdk_dir / "scripts" / "tests" / "run_test_suite.py"
         if not app_paths:
@@ -1925,10 +1965,9 @@ class TestRunner:
             cmd += ["--pics-file", str(pics_file)]
 
         executed = " ".join(shlex.quote(c) for c in cmd)
-        n_apps = len(app_paths) // 2
         header = (f"[CI] YAML test           : {target}\n"
-                  f"[CI] QA server (hint)    : {app_key}\n"
-                  f"[CI] App-paths supplied  : {n_apps} (run_test_suite picks per YAML)\n"
+                  f"[CI] Configured app      : {app_key or '(none)'}\n"
+                  f"[CI] DUT app             : {app_note}\n"
                   f"[CI] Executed command    : {executed}\n"
                   f"[CI] {'-'*68}\n")
 
