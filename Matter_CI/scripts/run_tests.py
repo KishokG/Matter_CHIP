@@ -1796,20 +1796,12 @@ class TestRunner:
             self._apps_cache = apps
         return apps
 
-    def _all_yaml_keys(self) -> set:
-        """Every --app-path key we can offer, derived from the BUILT apps: each
-        app's config name plus its '-app'-stripped alias (tv-app → tv)."""
-        keys = set()
-        for app in self._resolved_apps():
-            name = app.get("name")
-            if not name:
-                continue
-            if not (self.sdk_dir / app["build_dir"] / app["binary_name"]).exists():
-                continue
-            keys.add(name)
-            if name.endswith("-app"):
-                keys.add(name[:-4])
-        return keys
+    # Every app "key" a certification YAML can name in its CI: block. When an app
+    # is configured in yaml_tests.json we force the configured binary onto ALL of
+    # these — the YAML's own CI: block is deliberately IGNORED and OUR configured
+    # app is always used. Add a key here only if a future SDK introduces a new one.
+    _CERT_YAML_APP_KEYS = ("all-clusters", "all-devices", "tv", "network-manager",
+                           "lock", "bridge", "evse", "microwave-oven", "lit-icd")
 
     def _resolve_app_binary(self, app_hint: str):
         """Resolve a configured app name → a BUILT binary. Accepts our config name,
@@ -1828,16 +1820,14 @@ class TestRunner:
     def _yaml_app_paths(self, force_binary=None) -> list:
         """--app-path list for run_test_suite.py.
 
-        force_binary set → the app configured in yaml_tests.json WINS: point every
-        candidate YAML key at that one binary, so the test runs on YOUR app
-        regardless of the YAML's CI: block (or its all-clusters default).
+        force_binary set → the app configured in yaml_tests.json WINS: point EVERY
+        cert app key (_CERT_YAML_APP_KEYS) at that one binary. The YAML's own CI:
+        block is IGNORED — whatever key it declares resolves to YOUR configured app.
 
-        force_binary None → offer every BUILT app keyed by its name (+ '-app'-
-        stripped alias) and let run_test_suite pick the one the YAML declares.
-
-        Either way it's driven by discovery.apps — no second place to edit."""
+        force_binary None (no app configured) → offer every BUILT app so
+        run_test_suite can still pick one."""
         if force_binary is not None:
-            return [a for k in sorted(self._all_yaml_keys())
+            return [a for k in self._CERT_YAML_APP_KEYS
                     for a in ("--app-path", f"{k}:{force_binary}")]
         args, seen = [], set()
         for app in self._resolved_apps():
@@ -1907,8 +1897,8 @@ class TestRunner:
             print(f"  [YAML] configured app '{app_key}' not found in the bundle — "
                   f"falling back to the app the YAML declares.")
         app_paths = self._yaml_app_paths(force_binary=force_bin)
-        app_note  = (f"forced: {app_key} → {force_bin.name}" if force_bin
-                     else "SDK-selected per YAML")
+        app_note  = (f"forced: {app_key} → {force_bin.name} (YAML CI ignored)" if force_bin
+                     else "SDK-selected per YAML (no app configured)")
         tool_bin  = self._chip_tool_binary()
         rts       = self.sdk_dir / "scripts" / "tests" / "run_test_suite.py"
         if not app_paths:
@@ -2029,7 +2019,7 @@ class TestRunner:
             except OSError:
                 pass
 
-        counts["executed_dut_command"]    = f"DUT app auto-selected by run_test_suite.py (QA hint: {app_key})"
+        counts["executed_dut_command"]    = f"DUT app: {app_note}"
         counts["executed_python_command"] = executed
 
         shown = {k: v for k, v in counts.items()
