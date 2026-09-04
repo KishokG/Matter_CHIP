@@ -76,7 +76,7 @@
     {
       "test": "Test_TC_BOOL_2_1",
       "cluster": "Boolean State Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
@@ -328,7 +328,7 @@
     {
       "test": "Test_TC_FAN_3_6",
       "cluster": "Fan Control Cluster",
-      "app": "air-purifier",
+      "app": "all-devices",
       "enabled": true
     },
     {
@@ -340,7 +340,7 @@
     {
       "test": "Test_TC_FLW_2_1",
       "cluster": "Flow Measurement Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
@@ -382,7 +382,7 @@
     {
       "test": "Test_TC_ILL_2_1",
       "cluster": "Illuminance Measurement Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
@@ -406,31 +406,31 @@
     {
       "test": "Test_TC_LVL_2_1",
       "cluster": "Level Control Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
       "test": "Test_TC_LVL_2_2",
       "cluster": "Level Control Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
       "test": "Test_TC_LVL_3_1",
       "cluster": "Level Control Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
       "test": "Test_TC_LVL_4_1",
       "cluster": "Level Control Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
       "test": "Test_TC_LVL_5_1",
       "cluster": "Level Control Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
@@ -568,7 +568,7 @@
     {
       "test": "Test_TC_RH_2_1",
       "cluster": "Relative Humidity Measurement Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
@@ -586,7 +586,7 @@
     {
       "test": "Test_TC_SWTCH_2_1",
       "cluster": "Switch Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
@@ -622,7 +622,7 @@
     {
       "test": "Test_TC_TCTL_2_2",
       "cluster": "Temperature Control Cluster",
-      "app": "all-clusters",
+      "app": "all-devices",
       "enabled": true
     },
     {
