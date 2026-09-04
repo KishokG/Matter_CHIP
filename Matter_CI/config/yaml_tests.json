@@ -82,7 +82,7 @@
     {
       "test": "Test_TC_BR_5",
       "cluster": "Bridge",
-      "app": "bridge",
+      "app": "fabric-bridge",
       "enabled": true
     },
     {

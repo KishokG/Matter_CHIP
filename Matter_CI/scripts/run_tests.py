@@ -1894,8 +1894,12 @@ class TestRunner:
         # wasn't built.
         force_bin = self._resolve_app_binary(app_key)
         if app_key and force_bin is None:
-            print(f"  [YAML] configured app '{app_key}' not found in the bundle — "
-                  f"falling back to the app the YAML declares.")
+            # A configured app that wasn't built is a config/build error — fail
+            # clearly rather than silently falling back (which then errors deep
+            # inside run_test_suite when the YAML needs that app).
+            return self._result(tc, ERROR, {}, 0.0, log_path,
+                                 note=f"YAML: configured app '{app_key}' is not built — "
+                                      f"enable it in discovery.apps and rebuild.")
         app_paths = self._yaml_app_paths(force_binary=force_bin)
         app_note  = (f"forced: {app_key} → {force_bin.name} (YAML CI ignored)" if force_bin
                      else "SDK-selected per YAML (no app configured)")
