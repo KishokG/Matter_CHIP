@@ -2329,8 +2329,9 @@ def generate_report(results: list[dict], cfg: dict = None,
                     'border-radius:4px;padding:1px 4px;margin-left:8px;vertical-align:middle">'
                     'YAML</span>') if is_yaml else ""
 
+        e_type = "yaml" if is_yaml else "python"
         rows_html += f"""
-        <tr class="tc-row row-{e_status.lower()}" data-cluster="{e_cluster}" data-status="{e_status}" data-time="{elapsed}" data-tcid="{e_tc_id}">
+        <tr class="tc-row row-{e_status.lower()}" data-cluster="{e_cluster}" data-status="{e_status}" data-type="{e_type}" data-time="{elapsed}" data-tcid="{e_tc_id}">
           <td>{tcid_html}{type_tag}<div class="cluster-sub">{e_cluster}</div></td>
           <td>{badge(status)}</td>
           <td>{steps_cell(counts, status)}</td>
@@ -2372,6 +2373,21 @@ def generate_report(results: list[dict], cfg: dict = None,
         f'checked onchange="onClusterChange()"><span>{c}</span></label>'
         for c in (html.escape(str(x)) for x in clusters)
     )
+
+    # ---- Type filter (Python / YAML / Both) — only shown when the run has BOTH
+    # kinds, so a single-kind run isn't cluttered with a pointless control. ----
+    types_present = {r.get("type", "python") for r in results}
+    if "yaml" in types_present and "python" in types_present:
+        type_filter_html = (
+            '<span class="flabel">Type:</span>'
+            '<select id="typeFilter" onchange="applyFilters()">'
+            '<option value="ALL">Both</option>'
+            '<option value="python">Python</option>'
+            '<option value="yaml">YAML</option>'
+            '</select>'
+        )
+    else:
+        type_filter_html = ""
 
     # ---- Footer status ----
     if failed == 0 and errors == 0 and rerun == 0 and cancelled == 0:
@@ -2583,6 +2599,8 @@ def generate_report(results: list[dict], cfg: dict = None,
       </div>
     </div>
 
+    __TYPE_FILTER__
+
     <span class="flabel">Status:</span>
     <select id="statusFilter" onchange="applyFilters()">
       <option value="ALL">All statuses</option>
@@ -2653,6 +2671,8 @@ def generate_report(results: list[dict], cfg: dict = None,
 
     function applyFilters() {
       var status = document.getElementById('statusFilter').value;
+      var typeEl = document.getElementById('typeFilter');
+      var type   = typeEl ? typeEl.value : 'ALL';
       var search = document.getElementById('searchFilter').value.toLowerCase();
       var sel = checkedClusters(), allC = sel.length === allClusterBoxes().length;
       var selSet = {}; sel.forEach(c => selSet[c] = true);
@@ -2660,6 +2680,7 @@ def generate_report(results: list[dict], cfg: dict = None,
       document.querySelectorAll('.tc-row').forEach(function(row) {
         var ok = (allC || selSet[row.dataset.cluster] === true)
               && (status === 'ALL' || row.dataset.status === status)
+              && (type === 'ALL' || row.dataset.type === type)
               && (search === '' || row.textContent.toLowerCase().indexOf(search) !== -1);
         row.classList.toggle('hidden', !ok);
         if (ok) visible++;
@@ -2675,6 +2696,8 @@ def generate_report(results: list[dict], cfg: dict = None,
     function clearSearch() { document.getElementById('searchFilter').value = ''; applyFilters(); }
     function clearFilters() {
       document.getElementById('statusFilter').value = 'ALL';
+      var typeEl = document.getElementById('typeFilter');
+      if (typeEl) typeEl.value = 'ALL';
       document.getElementById('searchFilter').value = '';
       allClusterBoxes().forEach(c => c.checked = true);
       updateClusterLabel(); applyFilters();
@@ -2712,6 +2735,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     # `html` module for the WHOLE function (Python scoping), breaking every
     # html.escape() call above with UnboundLocalError.
     html_out = (_TEMPLATE
+                .replace("__TYPE_FILTER__", type_filter_html)
                 .replace("__FOOT_DOT__", foot_dot)
                 .replace("__COMMIT__", str(bi_commit))
                 .replace("__BRANCH__", str(bi_branch))

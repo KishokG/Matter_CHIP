@@ -79,7 +79,7 @@ discovery:
     - { name: refrigerator,                enabled: false,  modifiers: [no-werror, ipv6only] } # chip-refrigerator-app (no-werror: upstream -Werror bug)
     - { name: rvc,                         enabled: true, modifiers: [ipv6only] }        # chip-rvc-app
     - { name: terms-and-conditions,        enabled: true, modifiers: [ipv6only] }        # chip-terms-and-conditions-app
-    - { name: tv-app,                      enabled: true, modifiers: [ipv6only] }        # chip-tv-app
+    - { name: tv-app,                      enabled: true, modifiers: [ipv6only, no-shell] }        # chip-tv-app
     - { name: tv-casting-app,              enabled: true, modifiers: [ipv6only] }        # chip-tv-casting-app
     - { name: water-heater,                enabled: true, modifiers: [ipv6only] }        # matter-water-heater-app
     - { name: water-leak-detector,         enabled: false, modifiers: [ipv6only] }       # water-leak-detector-app

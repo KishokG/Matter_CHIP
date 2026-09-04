@@ -246,6 +246,12 @@ MODIFIER_GN_ARGS = {
     # [[nodiscard]] CHIP_ERROR). Drops -Werror for that app so a benign warning
     # isn't fatal. Do NOT use on core cert apps — it hides real regressions.
     "no-werror":      "treat_warnings_as_errors=false",
+    # Disable the interactive CHIP shell (tv-app/others default chip_build_libshell
+    # =true in their args.gni). Under run_test_suite the app's stdin is non-
+    # interactive, so the shell thread hits EOF immediately and the app EXITS
+    # before its event loop ("Server died, returncode 0"). Turning the shell off
+    # lets main() go straight to ChipLinuxAppMainLoop() and stay alive.
+    "no-shell":       "chip_build_libshell=false",
 }
 
 # TH default for virtually every linux reference app (ipv6-only host).
