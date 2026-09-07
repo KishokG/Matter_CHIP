@@ -1878,6 +1878,62 @@ class TestRunner:
         cache[src] = out
         return out
 
+    def _yaml_teardown(self, tc_id: str) -> None:
+        """Reap what run_test_suite.py may leave behind so per-test setup cost
+        doesn't creep up over a long suite.
+
+        Each YAML test re-execs run_test_suite under `unshare -n -m` and, inside
+        that sandbox, boots a DUT app + chip-tool in isolated network namespaces
+        (ns-eth-app/tool/mgmt). On a clean exit the kernel tears the sandbox down
+        with the top process. But a stray app/chip-tool that didn't get reaped
+        keeps its network namespace (and veth peers) alive and eats RAM — and it
+        compounds: measured on the RPi, the pure app-boot phase climbed ~11s →
+        ~38s across 133 sequential tests purely from this accumulation, while a
+        clean run held flat at ~11s. This runs AFTER the test's own timing is
+        captured, so the cleanup cost is never charged to the test.
+
+        Safe to call unconditionally here: the YAML path never uses the persistent
+        DUTManager app, and run_test_suite has already exited by the time we run.
+        """
+        try:
+            # 1) Kill any DUT app / chip-tool still running from the SDK out/ dir
+            #    (covers chip-*-app, all-devices-app, matter-*-app, lit-icd-app,
+            #    chip-tool — everything run_test_suite launches). Same out/-path
+            #    match the Python DUT launch uses, so it can't hit unrelated procs.
+            ps = subprocess.run(
+                f"pgrep -af '{self.sdk_dir}/out/' 2>/dev/null | grep -Ev 'pgrep|grep -' || true",
+                shell=True, capture_output=True, text=True)
+            strays = [ln for ln in ps.stdout.splitlines() if ln.strip()]
+            if strays:
+                print(f"  [YAML] cleanup: {len(strays)} leftover app/tool process(es) "
+                      f"after {tc_id} — killing to stop resource creep:")
+                for ln in strays[:5]:
+                    print(f"           {ln[:110]}")
+                subprocess.run(f"pkill -f '{self.sdk_dir}/out/' 2>/dev/null || true",
+                               shell=True)
+            # 2) Orphaned python runners (the chip-tool-with-python bridge + the
+            #    unshared run_test_suite re-exec) that outlived the parent.
+            subprocess.run("pkill -f 'chipyaml/chiptool.py' 2>/dev/null || true",
+                           shell=True)
+            subprocess.run("pkill -f 'run_test_suite.py' 2>/dev/null || true",
+                           shell=True)
+            # 3) Delete any stale isolated namespaces left in the ROOT netns. On a
+            #    clean sandbox exit there are none; if a stray process (killed
+            #    above) had held one open, `ip netns list` now shows it — drop it
+            #    so its veth peers and IPv6/mDNS state don't pile up.
+            ns = subprocess.run("ip netns list 2>/dev/null || true",
+                                shell=True, capture_output=True, text=True)
+            for line in ns.stdout.splitlines():
+                name = line.split()[0] if line.strip() else ""
+                if name.startswith("ns-eth-") or name.startswith("ns-"):
+                    subprocess.run(f"ip netns delete {shlex.quote(name)} 2>/dev/null || true",
+                                   shell=True)
+            # 4) Per-app KVS / storage scratch in /tmp — a fresh test should not
+            #    inherit a previous run's persisted attributes.
+            subprocess.run("rm -f /tmp/chip_* 2>/dev/null || true", shell=True)
+        except Exception as e:      # cleanup must never fail the test
+            print(f"  [YAML] cleanup after {tc_id} hit a non-fatal error: {e}")
+
     def run_one_yaml(self, tc: dict) -> dict:
         tc_id    = tc["test_case_id"]
         target   = tc["yaml_target"]
@@ -2001,6 +2057,13 @@ class TestRunner:
                 rc = -1
 
         elapsed = round(time.time() - t0, 2)
+
+        # Reap any stray app/chip-tool/namespace run_test_suite left behind BEFORE
+        # the next test starts. Done after `elapsed` is captured so the cleanup
+        # cost is never charged to this test's duration. (Fixes the per-test setup
+        # creep — app-boot climbing ~11s→~38s — seen over long sequential suites.)
+        self._yaml_teardown(tc_id)
+
         try:
             log_text = log_path.read_text(errors="replace")
         except OSError:
