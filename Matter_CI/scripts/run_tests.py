@@ -1934,6 +1934,119 @@ class TestRunner:
         except Exception as e:      # cleanup must never fail the test
             print(f"  [YAML] cleanup after {tc_id} hit a non-fatal error: {e}")
 
+    def _yaml_cert_path(self, target: str):
+        """Locate a YAML test's source file (usually under
+        src/app/tests/suites/certification/)."""
+        base = self.sdk_dir / "src" / "app" / "tests" / "suites"
+        if not base.exists():
+            return None
+        return next(base.rglob(f"{target}.yaml"), None)
+
+    def _filter_yaml_ci_to_app(self, target: str, app_key: str):
+        """Option-1 app selection: when an app is forced (from yaml_tests.json),
+        keep ONLY the YAML CI variants that use that app and drop the rest — so
+        run_test_suite runs the configured app's variant only.
+
+        Why: a YAML CI block can declare several variants on DIFFERENT apps (e.g.
+        OO-2.3 runs once on all-clusters and again on all-devices with
+        `--device on-off-light`). The SDK runs every variant for one --target. We
+        force one binary for all app keys, so an all-devices `--device …` variant
+        would launch on all-clusters → `Unknown option: --device` → VerifyOrDie →
+        SIGABRT → the whole test FAILs even though the configured app's variant
+        passed. Filtering the CI block to the configured app skips the
+        incompatible variants cleanly instead of crashing on them.
+
+        Edits ONLY the `CI:` block, byte-preserving the rest of the file. The
+        original is backed up to <yaml>.ci_orig and put back by _restore_yaml_ci().
+        Returns the yaml path (str) when a filter was applied, else None."""
+        import yaml
+        yp = self._yaml_cert_path(target)
+        if yp is None:
+            return None
+        try:
+            text = yp.read_text()
+            data = yaml.safe_load(text)
+        except (OSError, yaml.YAMLError):
+            return None
+        ci = (data or {}).get("CI")
+        if not isinstance(ci, list) or len(ci) <= 1:
+            return None                     # single/absent variant — nothing to skip
+        keep_idx = [i for i, e in enumerate(ci)
+                    if isinstance(e, dict) and str(e.get("app", "")).strip() == app_key]
+        if not keep_idx or len(keep_idx) == len(ci):
+            return None                     # forced app isn't a CI variant, or all match
+        lines = text.splitlines(keepends=True)
+        # Locate the top-level 'CI:' block → up to the next non-indented key / EOF.
+        start = next((i for i, ln in enumerate(lines) if ln.rstrip("\n") == "CI:"), None)
+        if start is None:
+            return None
+        end = len(lines)
+        for i in range(start + 1, len(lines)):
+            s = lines[i]
+            if s.strip() and not s[0].isspace():
+                end = i
+                break
+        block = lines[start + 1:end]
+        # Split the block into list entries at the ENTRY-level '- ' marker only.
+        # Deeper markers (e.g. the 'args:' items '- --device') are more indented
+        # and belong to the current entry, so match the first marker's indent.
+        first = next((ln for ln in block if re.match(r"^\s*-\s", ln)), None)
+        if first is None:
+            return None
+        indent = first[:len(first) - len(first.lstrip(" "))]
+        marker = re.compile(r"^" + re.escape(indent) + r"-\s")
+        entries, cur = [], []
+        for ln in block:
+            if marker.match(ln):
+                if cur:
+                    entries.append(cur)
+                cur = [ln]
+            elif cur:
+                cur.append(ln)
+        if cur:
+            entries.append(cur)
+        if len(entries) != len(ci):
+            return None                     # textual split disagrees with parse — bail safely
+        kept = []
+        for i in keep_idx:
+            kept.extend(entries[i])
+        new_lines = lines[:start + 1] + kept + lines[end:]
+        try:
+            Path(str(yp) + ".ci_orig").write_text(text)     # backup for restore/sweep
+            yp.write_text("".join(new_lines))
+        except OSError:
+            return None
+        dropped = len(ci) - len(keep_idx)
+        print(f"  [YAML] {target}: kept {len(keep_idx)} CI variant(s) for "
+              f"app '{app_key}', skipped {dropped} other-app variant(s).")
+        return str(yp)
+
+    @staticmethod
+    def _restore_yaml_ci(yaml_path: str) -> None:
+        """Restore a YAML file edited by _filter_yaml_ci_to_app from its backup."""
+        try:
+            bak = Path(str(yaml_path) + ".ci_orig")
+            if bak.exists():
+                Path(yaml_path).write_text(bak.read_text())
+                bak.unlink()
+        except OSError:
+            pass
+
+    def _sweep_yaml_ci_backups(self) -> None:
+        """Restore any CI backups left behind by a run that died mid-test, so the
+        SDK's YAML sources are always pristine before a new run starts."""
+        base = self.sdk_dir / "src" / "app" / "tests" / "suites"
+        if not base.exists():
+            return
+        for bak in base.rglob("*.yaml.ci_orig"):
+            orig = Path(str(bak)[:-len(".ci_orig")])
+            try:
+                orig.write_text(bak.read_text())
+                bak.unlink()
+                print(f"  [YAML] restored leftover CI backup: {orig.name}")
+            except OSError:
+                pass
+
     def run_one_yaml(self, tc: dict) -> dict:
         tc_id    = tc["test_case_id"]
         target   = tc["yaml_target"]
@@ -2041,22 +2154,36 @@ class TestRunner:
             except OSError:
                 pass
 
+        # Option-1 app selection: when an app is forced, keep only that app's CI
+        # variant(s) in the YAML and skip the rest, so run_test_suite never tries
+        # to launch an incompatible variant (e.g. all-devices `--device …` on the
+        # forced all-clusters binary → SIGABRT). Restored in the finally below.
+        ci_backup = self._filter_yaml_ci_to_app(target, app_key) if (app_key and force_bin) else None
+
         t0 = time.time()
-        with open(log_path, "w") as lf:
-            lf.write(header)
-            lf.flush()
-            try:
-                proc = subprocess.run(
-                    cmd, cwd=str(self.sdk_dir), env=env,
-                    stdout=lf, stderr=subprocess.STDOUT,
-                    timeout=int(yt.get("test_timeout_seconds", 120)) + 120,
-                )
-                rc = proc.returncode
-            except subprocess.TimeoutExpired:
-                lf.write("\n[CI] run_test_suite.py TIMED OUT.\n")
-                rc = -1
+        try:
+            with open(log_path, "w") as lf:
+                lf.write(header)
+                lf.flush()
+                try:
+                    proc = subprocess.run(
+                        cmd, cwd=str(self.sdk_dir), env=env,
+                        stdout=lf, stderr=subprocess.STDOUT,
+                        timeout=int(yt.get("test_timeout_seconds", 120)) + 120,
+                    )
+                    rc = proc.returncode
+                except subprocess.TimeoutExpired:
+                    lf.write("\n[CI] run_test_suite.py TIMED OUT.\n")
+                    rc = -1
+        finally:
+            # run_test_suite has read the YAML by now — put the original back even
+            # on error, so the SDK sources are never left modified.
+            if ci_backup:
+                self._restore_yaml_ci(ci_backup)
 
         elapsed = round(time.time() - t0, 2)
+        if ci_backup:
+            app_note += " — only this app's CI variant run"
 
         # Reap any stray app/chip-tool/namespace run_test_suite left behind BEFORE
         # the next test starts. Done after `elapsed` is captured so the cleanup
@@ -2213,6 +2340,10 @@ class TestRunner:
         print(f"[TEST] Python venv : {self.venv_python}")
         print(f"[TEST] Scripts dir : {self.scripts_dir}")
         print(f"[TEST] Send SIGTERM or click Cancel in GitHub to stop cleanly.")
+
+        # A prior run that died mid-YAML-test may have left a CI-block edit in
+        # place — restore any such backups so the SDK sources start pristine.
+        self._sweep_yaml_ci_backups()
 
         for i, tc in enumerate(self.commands, 1):
             # Check cancel flag before starting each new test
