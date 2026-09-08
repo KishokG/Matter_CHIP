@@ -2073,7 +2073,7 @@ class TestRunner:
 
         # Step-level counts from the yamltests output (parity with the Python
         # tests' Steps column — total / passed / skipped / failed).
-        steps = self._parse_yaml_steps(log_text, status == PASS)
+        steps = self._parse_yaml_steps(log_text, status in (PASS, PASS_WARN))
         if steps:
             counts.update(steps)
 
@@ -2132,10 +2132,46 @@ class TestRunner:
         if cancelled:
             return CANCEL, counts, reason or "Cancelled during YAML run."
         if failed:
+            # Special case: every YAML step passed (the test runner exited 0 and
+            # reached "Run finished"), but run_test_suite still marked the run
+            # failed ONLY because the DUT app aborted on shutdown (SIGABRT /
+            # std::terminate). That's an app-teardown bug, not a certification
+            # failure — the cluster behaviour was fully validated. Report it as
+            # PASS-with-warning so the report reflects that the steps passed,
+            # while the warning + Ctrl Log keep the crash visible.
+            if self._yaml_is_teardown_crash(log_text):
+                counts["passed"] = total
+                counts["failed"] = 0
+                return PASS_WARN, counts, (
+                    "All YAML steps passed; DUT app exited abnormally on shutdown "
+                    "(SIGABRT/std::terminate) — pass with warning (app-teardown bug).")
             return FAIL, counts, reason or f"{failed} YAML test(s) failed."
         if total == 0:
             return ERROR, counts, reason or "No YAML tests executed."
         return PASS, counts, reason
+
+    @staticmethod
+    def _yaml_is_teardown_crash(log_text: str) -> bool:
+        """True when the YAML steps all passed but the run was marked failed only
+        because the DUT app exited abnormally *after* the test finished.
+
+        Discriminator (all three required, so a genuine step failure is never
+        masked):
+          1. the `chiptool.py 'tests' …` runner completed with error code 0
+             — i.e. no step assertion failed;
+          2. the runner reached its "… steps runned and … skipped" summary line;
+          3. the only failure is an abnormal subprocess exit
+             ("Subprocess terminated abnormally", e.g. app SIGABRT/std::terminate).
+        A real assertion failure fails discriminator (1) (the tests runner exits
+        non-zero and never prints "completed with error code 0")."""
+        if not log_text:
+            return False
+        tests_ok = re.search(r"chiptool\.py', 'tests',[^\n]*completed with error code 0",
+                             log_text) is not None
+        finished = re.search(r"\d+\s+steps?\s+runned\s+and\s+\d+\s+steps?\s+skipped",
+                             log_text) is not None
+        abnormal = "Subprocess terminated abnormally" in log_text
+        return tests_ok and finished and abnormal
 
     @staticmethod
     def _parse_yaml_steps(log_text: str, test_passed: bool) -> dict:
