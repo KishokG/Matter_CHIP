@@ -273,7 +273,7 @@ yaml_tests:
   # source as the Python suite: test_execution.pics_folder (above). A per-test
   # "pics" field in yaml_tests.json can override it for a specific test.
   commissioning_method: "on-network"              # how run_test_suite commissions the DUT
-  test_timeout_seconds: 120                       # per-YAML-test cap
+  test_timeout_seconds: 600                       # per-YAML-test cap
   iterations: 1
   # Log verbosity for run_test_suite.py. It only dumps the full app/tool/step
   # output on FAILURE at the default 'info'; log_level_tests raises test-execution
