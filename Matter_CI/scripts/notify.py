@@ -530,7 +530,7 @@ def compute_test_summary(results_path: Path) -> dict:
     # them from the pass-rate denominator so they don't drag the % down.
     denom = total - skipped
     pct = round(accepted / denom * 100) if denom else 0
-    is_thcli = any(r.get("type") == "thcli" for r in results)
+    is_thcli = any(r.get("engine") == "thcli" or r.get("type") == "thcli" for r in results)
     # Failing TCs (name + short note), failures first — for the email body.
     ORDER = {"FAIL": 0, "ERROR": 1, "RERUN": 2, "PASS*": 3, "CANCEL": 4, "PASS": 5}
     failing = sorted(

@@ -2331,7 +2331,10 @@ class TestRunner:
 
     def _thcli_result(self, tc, status, counts, elapsed, log_path, note):
         res = self._result(tc, status, counts, elapsed, log_path, note=note)
-        res["type"] = "thcli"      # so the report renders a TH-CLI row + filter
+        # Keep `type` as the UNDERLYING kind (python/yaml) so the report's
+        # Python/YAML/Both filter still works within a TH-CLI run; record the
+        # execution engine separately for the TH-CLI badge + TH-log link.
+        res["engine"] = "thcli"
         return res
 
     def _yaml_cert_path(self, target: str):
@@ -2846,7 +2849,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     skipped_tc = sum(1 for r in results if r["status"] == SKIP)
     run_time  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     # TH-CLI runs are labelled so anyone opening the report knows the engine.
-    is_thcli    = any(r.get("type") == "thcli" for r in results)
+    is_thcli    = any(r.get("engine") == "thcli" or r.get("type") == "thcli" for r in results)
     report_kind = "TH-CLI Validation" if is_thcli else "Test Report"
 
     # Collect unique clusters for filter dropdown
@@ -2925,16 +2928,17 @@ def generate_report(results: list[dict], cfg: dict = None,
         counts  = r.get("counts", {})
         elapsed = r["elapsed_s"]
         log_file = Path(r.get("log_file", ""))
+        # `type` = underlying kind (python/yaml); `engine` = thcli when run via the
+        # Test Harness CLI. (Back-compat: older JSONs used type=="thcli".)
+        is_thcli = r.get("engine") == "thcli" or r.get("type") == "thcli"
         is_yaml  = r.get("type") == "yaml"
-        is_thcli = r.get("type") == "thcli"
-        # YAML tests have no separate DUT log — run_test_suite.py interleaves the
-        # app + tool + step output into the single run log. Instead we surface a
-        # concise per-step view (_steps.log) in that second-link slot. TH-CLI has
-        # both a DUT log AND the harness's own detailed log (_th.log).
+        # Native YAML has no separate DUT log (run_test_suite interleaves it) — we
+        # surface a concise per-step view (_steps.log) instead. TH-CLI rows always
+        # have a DUT log AND the harness's own detailed log (_th.log).
         dut_log  = (log_file.parent / f"{tc_id}_dut.log"
-                    if (log_file.name and not is_yaml) else None)
+                    if (log_file.name and (is_thcli or not is_yaml)) else None)
         steps_log = (log_file.parent / f"{tc_id}_steps.log"
-                     if (log_file.name and is_yaml) else None)
+                     if (log_file.name and is_yaml and not is_thcli) else None)
         th_log   = (log_file.parent / f"{tc_id}_th.log"
                     if (log_file.name and is_thcli) else None)
 
@@ -2975,10 +2979,12 @@ def generate_report(results: list[dict], cfg: dict = None,
                     'font-weight:700;letter-spacing:.05em;color:%s;border:1px solid %s;'
                     'border-radius:4px;padding:1px 4px;margin-left:8px;vertical-align:middle">'
                     '%s</span>' % (color, color, label))
-        type_tag = (_tag("YAML", "#7c5cff") if is_yaml
-                    else _tag("TH-CLI", "#0ea5a5") if is_thcli else "")
+        type_tag = (_tag("TH-CLI", "#0ea5a5") if is_thcli
+                    else _tag("YAML", "#7c5cff") if is_yaml else "")
 
-        e_type = "yaml" if is_yaml else "thcli" if is_thcli else "python"
+        # Filter on the UNDERLYING kind (python/yaml) so the Python/YAML/Both
+        # filter works within a TH-CLI run too.
+        e_type = "yaml" if is_yaml else "python"
         rows_html += f"""
         <tr class="tc-row row-{e_status.lower()}" data-cluster="{e_cluster}" data-status="{e_status}" data-type="{e_type}" data-time="{elapsed}" data-tcid="{e_tc_id}">
           <td>{tcid_html}{type_tag}<div class="cluster-sub">{e_cluster}</div></td>
