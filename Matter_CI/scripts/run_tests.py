@@ -721,18 +721,20 @@ class TestRunner:
         self.scripts_dir   = self.sdk_dir / "src" / "python_testing"
         self.venv_name     = cfg["python_controller"].get("install_venv_name", "python_env")
         self.venv_python   = self.sdk_dir / self.venv_name / "bin" / "python3"
-        if not self.venv_python.exists():
-            print(f"[ERROR] Python venv not found: {self.venv_python}")
-            print(f"[ERROR] Run pipeline with build mode to install python controller first")
-            sys.exit(1)
-        self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.results: list[dict] = []
         # Execution engine: "native" (python-controller + run_test_suite, default)
         # or "thcli" (run every test through the RPi's Matter Test Harness CLI).
         # Set by the workflow's EXECUTION_MODE input; config gives the default.
         self.execution_mode = (os.environ.get("EXECUTION_MODE", "").strip().lower()
                                or str(cfg.get("thcli_tests", {}).get("default_mode", "native")).lower())
         self._thcli_project_id = None      # resolved once per run (lazy)
+        # The connectedhomeip venv is a NATIVE-mode requirement only. TH-CLI mode
+        # uses the RPi's own Test Harness SDK, so don't require our venv there.
+        if self.execution_mode != "thcli" and not self.venv_python.exists():
+            print(f"[ERROR] Python venv not found: {self.venv_python}")
+            print(f"[ERROR] Run pipeline with build mode to install python controller first")
+            sys.exit(1)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.results: list[dict] = []
         # Retry settings
         self.retry_on_commissioning = cfg["test_execution"].get(
             "retry_on_commissioning_failure", 3)
@@ -2677,15 +2679,23 @@ class TestRunner:
         return "\n".join(out).strip()
 
     def run_all(self) -> list[dict]:
-        dut = DUTManager(self.cfg)
+        thcli = self.execution_mode == "thcli"
+        # DUTManager (and its SDK-target discovery) is native/YAML only. TH-CLI
+        # launches its own app from apps_dir and never touches connectedhomeip.
+        dut = None if thcli else DUTManager(self.cfg)
         print(f"\n[TEST] Running {len(self.commands)} test case(s)...")
-        print(f"[TEST] Python venv : {self.venv_python}")
-        print(f"[TEST] Scripts dir : {self.scripts_dir}")
+        if thcli:
+            print(f"[TEST] Engine      : TH-CLI ({self._thcli().get('th_cli_dir', '?')})")
+            print(f"[TEST] Sample apps : {self._thcli().get('apps_dir', '?')}")
+        else:
+            print(f"[TEST] Python venv : {self.venv_python}")
+            print(f"[TEST] Scripts dir : {self.scripts_dir}")
         print(f"[TEST] Send SIGTERM or click Cancel in GitHub to stop cleanly.")
 
-        # A prior run that died mid-YAML-test may have left a CI-block edit in
-        # place — restore any such backups so the SDK sources start pristine.
-        self._sweep_yaml_ci_backups()
+        # A prior run that died mid-YAML-test may have left a CI-block edit in the
+        # SDK — restore any such backups so its sources start pristine (native only).
+        if not thcli:
+            self._sweep_yaml_ci_backups()
 
         for i, tc in enumerate(self.commands, 1):
             # Check cancel flag before starting each new test
@@ -3412,9 +3422,18 @@ def main():
         print("[WARN] No commands to run.")
         sys.exit(0)
 
-    # One-shot shared-library preflight so missing runtime libs are reported
-    # up-front (in the run log + job summary), not as a per-TC rc=127.
-    preflight_ldd_check(cfg, commands)
+    # NATIVE-mode preflight only: query the SDK targets + check our built DUT
+    # binaries' shared libs. TH-CLI mode uses the RPi's own apps/SDK, so skip all
+    # connectedhomeip inspection.
+    exec_mode = (os.environ.get("EXECUTION_MODE", "").strip().lower()
+                 or str(cfg.get("thcli_tests", {}).get("default_mode", "native")).lower())
+    if exec_mode == "thcli":
+        print("[TEST] Execution mode: TH-CLI — using the RPi's Matter Test Harness "
+              "CLI + its own apps/SDK; skipping connectedhomeip venv/target/preflight checks.")
+    else:
+        # One-shot shared-library preflight so missing runtime libs are reported
+        # up-front (in the run log + job summary), not as a per-TC rc=127.
+        preflight_ldd_check(cfg, commands)
 
     runner  = TestRunner(cfg, commands)
     results = runner.run_all()
