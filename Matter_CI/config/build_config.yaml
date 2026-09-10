@@ -171,8 +171,9 @@ google_sheets:
   # Column indices (0-based: 0=A, 1=B, 2=C ...)
   columns:
     test_case_id: 2      # Column C — TC ID e.g. TC-ACE-1.2
-    dut_command: 4       # Column E — sample app advertisement command
+    dut_command: 4       # Column E — sample app advertisement command (also the TH-CLI DUT app)
     python_command: 5    # Column F — python3 test command
+    thcli_command: 6     # Column G — th-cli run-tests command (TH-CLI execution mode)
   header_rows: 6         # rows to skip at top (instructions/headers)
   # Note: service_account.json is written at runtime from CREDENTIALS_JSON GitHub Secret
   # It is never stored in the repo — do NOT add it to git
@@ -285,3 +286,42 @@ yaml_tests:
   # cert tests are real-DUT runs, so the SDK-CI-only simulation gate is OFF.
   pics_overrides:
     PICS_SDK_CI_ONLY: 0
+
+# ============================================================
+# TH-CLI execution mode (Matter Test Harness CLI on the RPi)
+# ============================================================
+# An ALTERNATE execution engine. Instead of our python-controller / run_test_suite,
+# each test case is run through the Test Harness CLI already installed on the RPi
+# (`th-cli run-tests …`). TH-CLI owns commissioning + its own SDK/chip-tool (in a
+# th-sdk Docker container) and uses PREBUILT sample apps under apps_dir — it does
+# NOT use any app/chip-tool we build. We only: advertise the sample app, drive the
+# interactive th-cli prompts, then parse its output log.
+#
+# Selected at runtime by EXECUTION_MODE=thcli (workflow "execution_mode" input).
+# The test SET is still the usual Python (Sheet) + YAML (yaml_tests.json) lists.
+thcli_tests:
+  enabled: true
+  th_cli_dir:       "/home/ubuntu/certification-tool/cli/th_cli"   # run `th-cli` from here
+  th_cli_bin:       "th-cli"                                       # on PATH; or absolute path
+  apps_dir:         "/home/ubuntu/apps"                            # PREBUILT sample apps (NOT our build)
+  config_dir:       "/home/ubuntu/sample_config_files"            # per-test -c configs (TC-<ID>.json)
+  output_logs_dir:  "/home/ubuntu/certification-tool/cli/th_cli/output_logs"
+  default_config:   "default_config.json"                         # -c fallback when no TC-<ID>.json
+  # Commissioning params the sample app must advertise on (must match the -c config).
+  discriminator:    "3840"
+  passcode:         "20202021"
+  # Project handling: use this id unless the form asks to create a new one. If the
+  # configured id doesn't exist at runtime, warn and create a fresh project.
+  default_project_id: 5
+  project_prefix:   "CI_Validation"
+  # PICS (-p) path is reused from test_execution.pics_folder (above).
+  # Per-test rule: a Python test needs -p only if its Sheet command (col G) has -p;
+  # YAML tests always pass -p <pics_folder>.
+  test_timeout_seconds: 900                                        # per-TC cap (TH runs are slow)
+  # Interactive-prompt auto-answers (matched as substrings, first match wins).
+  # Driven over a pty so th-cli sees a real terminal.
+  prompt_responses:
+    - { match: "reuse the previous commissioning", answer: "2" }  # NO → always fresh commission
+    - { match: "Should the DUT be commissioned",   answer: "1" }  # YES
+    - { match: "Commissioning Mode",               answer: "1" }  # DONE
+  default_prompt_answer: "1"                                       # unmatched prompt → safe default (logged)

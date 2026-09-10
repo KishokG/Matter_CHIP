@@ -354,6 +354,7 @@ def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str] | None) -> list[dic
     col_tc  = cols["test_case_id"]
     col_dut = cols["dut_command"]
     col_py  = cols["python_command"]
+    col_thcli = cols.get("thcli_command")   # Column G — optional (TH-CLI mode)
 
     # Load failed build status to skip TCs for failed apps
     failed_apps = load_build_status(cfg)
@@ -415,12 +416,18 @@ def parse_rows(rows: list, cfg: dict, tc_map: dict[str, str] | None) -> list[dic
             parts = tc_id.split("-")
             cluster = parts[1] if len(parts) > 1 else "Unknown"
 
+        # TH-CLI mode: the ready-made `th-cli run-tests …` command from column G
+        # (raw — run_tests.py fills in --title/--project-id and resolves -c/-p).
+        # Empty for tests not run via TH-CLI; the runner falls back gracefully.
+        raw_thcli = cell(row, col_thcli) if col_thcli is not None else ""
+
         commands.append({
             "row":            i,
             "test_case_id":   tc_id,
             "cluster":        cluster,
             "dut_command":    dut_cmd,
             "python_command": py_cmd,
+            "thcli_command":  raw_thcli.strip(),
         })
 
     if errors:

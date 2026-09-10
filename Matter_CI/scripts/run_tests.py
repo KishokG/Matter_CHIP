@@ -727,6 +727,12 @@ class TestRunner:
             sys.exit(1)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.results: list[dict] = []
+        # Execution engine: "native" (python-controller + run_test_suite, default)
+        # or "thcli" (run every test through the RPi's Matter Test Harness CLI).
+        # Set by the workflow's EXECUTION_MODE input; config gives the default.
+        self.execution_mode = (os.environ.get("EXECUTION_MODE", "").strip().lower()
+                               or str(cfg.get("thcli_tests", {}).get("default_mode", "native")).lower())
+        self._thcli_project_id = None      # resolved once per run (lazy)
         # Retry settings
         self.retry_on_commissioning = cfg["test_execution"].get(
             "retry_on_commissioning_failure", 3)
@@ -1667,6 +1673,11 @@ class TestRunner:
         return status, counts, reason, elapsed
 
     def run_one(self, tc: dict, dut: DUTManager) -> dict:
+        # TH-CLI mode: every test (python OR yaml) runs through the RPi's Matter
+        # Test Harness CLI instead of our native engines.
+        if self.execution_mode == "thcli":
+            return self.run_one_thcli(tc)
+
         # YAML certification tests take a different execution path: the SDK's own
         # run_test_suite.py owns the app + chip-tool + commissioning, so we don't
         # use DUTManager or the Python-controller retry logic here.
@@ -1933,6 +1944,337 @@ class TestRunner:
             subprocess.run("rm -f /tmp/chip_* 2>/dev/null || true", shell=True)
         except Exception as e:      # cleanup must never fail the test
             print(f"  [YAML] cleanup after {tc_id} hit a non-fatal error: {e}")
+
+    # =====================================================================
+    # TH-CLI execution (Matter Test Harness CLI already installed on the RPi)
+    # ---------------------------------------------------------------------
+    # We advertise the RPi's PREBUILT sample app (apps_dir), drive th-cli's
+    # interactive prompts over a pty, then parse its output log. TH-CLI owns
+    # commissioning + its own SDK/chip-tool — we build/launch none of that.
+    # =====================================================================
+    def _thcli(self) -> dict:
+        return self.cfg.get("thcli_tests", {}) or {}
+
+    def _thcli_find_app(self, dut_command: str):
+        """Resolve the sample-app binary from apps_dir (the RPi's prebuilt apps —
+        NOT our build). Returns (Path|None, err)."""
+        m = re.search(r"\./([^\s]+)", dut_command or "")
+        if not m:
+            return None, "no './<app>' in DUT command"
+        name = m.group(1)
+        apps_dir = Path(self._thcli().get("apps_dir", "/home/ubuntu/apps"))
+        if not apps_dir.exists():
+            return None, f"apps_dir not found: {apps_dir}"
+        direct = apps_dir / name
+        if direct.exists():
+            return direct, ""
+        hit = next(apps_dir.rglob(name), None)
+        return (hit, "") if hit else (None, f"'{name}' not found under {apps_dir}")
+
+    def _thcli_dut_command(self, tc):
+        """The sample app to advertise. Python tests carry it in dut_command
+        (Sheet col E). YAML tests carry only an `app` key (yaml_tests.json) — map
+        it to a matching prebuilt binary under apps_dir."""
+        dc = tc.get("dut_command", "")
+        if dc:
+            return dc
+        app = str(tc.get("app", "")).strip()
+        if not app:
+            return ""
+        apps_dir = Path(self._thcli().get("apps_dir", "/home/ubuntu/apps"))
+        for pat in (f"chip-{app}-app", f"{app}-app", f"matter-{app}-app", f"chip-{app}", app):
+            if (apps_dir / pat).exists():
+                return f"./{pat}"
+        if apps_dir.exists():                       # fuzzy: any executable containing the key
+            key = app.replace("-", "")
+            for p in sorted(apps_dir.rglob("*")):
+                if p.is_file() and os.access(p, os.X_OK) and key in p.name.replace("-", ""):
+                    return f"./{p.name}"
+        return f"./chip-{app}-app"                   # best-effort default
+
+    def _thcli_launch_app(self, dut_command, dut_log):
+        """Advertise the sample app (fresh KVS → commissionable) on the TH
+        discriminator, from apps_dir. Returns (proc|None, full_cmd, err)."""
+        if not dut_command:
+            return None, "", "no DUT app configured for this test"
+        binary, err = self._thcli_find_app(dut_command)
+        if binary is None:
+            return None, "", err
+        apps_dir = self._thcli().get("apps_dir", "/home/ubuntu/apps")
+        # Kill any stray app from a previous TH-CLI test (match the apps_dir path).
+        subprocess.run(f"pkill -f '{apps_dir}/' 2>/dev/null || true", shell=True)
+        # Force the discriminator TH commissions on (must match the -c config).
+        cmd = apply_discriminator(dut_command, str(self._thcli().get("discriminator", "3840")))
+        m = re.search(r"\./([^\s]+)", cmd)
+        full = cmd.replace(m.group(0), str(binary))
+        if "rm -rf" not in full:                     # fresh KVS so a NO-reuse re-commission works
+            full = "rm -rf /tmp/chip_* && " + full
+        dut_log.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(dut_log, "w")
+        proc = subprocess.Popen(full, shell=True, stdout=fh, stderr=subprocess.STDOUT,
+                                preexec_fn=os.setsid, cwd=str(binary.parent))
+        proc._logfh = fh
+        print(f"  [TH][DUT] {full}")
+        time.sleep(self.cfg["test_execution"].get("dut_settle_wait", 2))
+        return proc, full, ""
+
+    def _thcli_stop_app(self, proc):
+        apps_dir = self._thcli().get("apps_dir", "/home/ubuntu/apps")
+        if proc is not None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                try: os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, OSError): pass
+            fh = getattr(proc, "_logfh", None)
+            if fh:
+                try: fh.close()
+                except OSError: pass
+        subprocess.run(f"pkill -f '{apps_dir}/' 2>/dev/null || true", shell=True)
+
+    def _thcli_run_cli(self, args, timeout=60):
+        """Run a non-interactive `th-cli <args>` → (rc, combined output)."""
+        thc = self._thcli()
+        argv = [thc.get("th_cli_bin", "th-cli")] + list(args)
+        try:
+            p = subprocess.run(argv, cwd=thc.get("th_cli_dir", "."),
+                               capture_output=True, text=True, timeout=timeout)
+            return p.returncode, (p.stdout or "") + (p.stderr or "")
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            return -1, str(e)
+
+    def _thcli_project_exists(self, pid):
+        rc, out = self._thcli_run_cli(["project", "list"])
+        if rc != 0:
+            return None                       # couldn't determine
+        return any(re.match(rf"\s*{int(pid)}\b", ln) for ln in out.splitlines())
+
+    def _thcli_create_project(self):
+        run_id = os.environ.get("GITHUB_RUN_ID", datetime.now().strftime("%Y%m%d_%H%M%S"))
+        name = f"{self._thcli().get('project_prefix','CI_Validation')}_{run_id}"
+        rc, out = self._thcli_run_cli(["project", "create", "-n", name])
+        m = re.search(r"\bID[:\s]+(\d+)", out) or re.search(r"\b(\d+)\b", out)
+        if rc == 0 and m:
+            return int(m.group(1)), name
+        rc2, out2 = self._thcli_run_cli(["project", "list"])   # fallback: newest id
+        ids = [int(x) for x in re.findall(r"^\s*(\d+)\s", out2, re.M)]
+        return (max(ids), name) if ids else (None, name)
+
+    def _thcli_ensure_project(self):
+        if self._thcli_project_id is not None:
+            return self._thcli_project_id
+        want_new = os.environ.get("THCLI_NEW_PROJECT", "").strip().lower() in ("1", "true", "yes", "new")
+        if not want_new:
+            pid = self._thcli().get("default_project_id")
+            if pid is not None:
+                if self._thcli_project_exists(pid):
+                    print(f"  [TH] Using configured project id {pid}")
+                    self._thcli_project_id = int(pid)
+                    return self._thcli_project_id
+                print(f"  [TH] ⚠️  configured project id {pid} not found — creating a new project.")
+        pid, name = self._thcli_create_project()
+        if pid is None:
+            return None
+        print(f"  [TH] Created project '{name}' → id {pid}")
+        self._thcli_project_id = pid
+        return pid
+
+    def _thcli_resolve_config(self, tc_id):
+        thc = self._thcli()
+        cfgdir = Path(thc.get("config_dir", "/home/ubuntu/sample_config_files"))
+        return (f"{tc_id}.json" if (cfgdir / f"{tc_id}.json").exists()
+                else thc.get("default_config", "default_config.json"))
+
+    @staticmethod
+    def _thcli_set_opt(toks, opt, value):
+        for i, t in enumerate(toks):
+            if t == opt:
+                if i + 1 < len(toks): toks[i + 1] = value
+                else: toks.append(value)
+                return toks
+        return toks + [opt, value]
+
+    @staticmethod
+    def _thcli_replace_opt_if_present(toks, opts, value):
+        for i, t in enumerate(toks):
+            if t in opts and i + 1 < len(toks):
+                toks[i + 1] = value
+                return True
+        return False
+
+    def _thcli_build_argv(self, tc, project_id):
+        """Build the th-cli argv. Python tests reuse the Sheet's column-G command
+        (fill --title/--project-id, resolve -c/-p VALUES only if present). YAML
+        tests are synthesized (no Sheet command)."""
+        thc   = self._thcli()
+        tc_id = tc["test_case_id"]
+        bin_  = thc.get("th_cli_bin", "th-cli")
+        underscore = tc_id.replace("-", "_").replace(".", "_")   # TC-ACE-1.2 → TC_ACE_1_2
+        if tc.get("type") == "yaml":
+            return [bin_, "run-tests", "--tests-list", underscore,
+                    "--title", tc_id, "--project-id", str(project_id),
+                    "-p", str(self.pics_folder)]
+        raw = (tc.get("thcli_command") or "").strip()
+        if raw:
+            toks = shlex.split(raw)
+            if toks and toks[0] != bin_ and toks[0].endswith("th-cli"):
+                toks[0] = bin_
+        else:
+            toks = [bin_, "run-tests", "--tests-list", underscore]
+        toks = self._thcli_set_opt(toks, "--title", tc_id)
+        toks = self._thcli_set_opt(toks, "--project-id", str(project_id))
+        # Resolve -c / -p VALUES only when the Sheet command actually uses them.
+        self._thcli_replace_opt_if_present(toks, ("-c", "--config"), self._thcli_resolve_config(tc_id))
+        self._thcli_replace_opt_if_present(toks, ("-p", "--pics"), str(self.pics_folder))
+        return toks
+
+    def _thcli_answer_for(self, text, responses, default_ans):
+        tail = (text or "")[-1000:].lower()
+        for r in responses:
+            m = str(r.get("match", "")).lower()
+            if m and m in tail:
+                return str(r.get("answer", default_ans))
+        return default_ans
+
+    def _thcli_drive(self, argv, cwd, log_fh, timeout):
+        """Run th-cli over a pty, auto-answering the interactive prompts.
+        Returns (rc, err). All th-cli output is streamed into log_fh."""
+        try:
+            import pexpect
+        except ImportError:
+            log_fh.write("\n[CI] pexpect not installed — cannot drive th-cli prompts.\n")
+            return 127, "pexpect not installed on runner"
+        thc = self._thcli()
+        responses   = thc.get("prompt_responses", []) or []
+        default_ans = str(thc.get("default_prompt_answer", "1"))
+        try:
+            child = pexpect.spawn(argv[0], argv[1:], cwd=cwd, encoding="utf-8",
+                                  timeout=timeout, dimensions=(60, 220), codec_errors="replace")
+        except Exception as e:
+            log_fh.write(f"\n[CI] failed to spawn th-cli: {e}\n")
+            return 127, f"spawn failed: {e}"
+        child.logfile_read = log_fh
+        trig = r"enter a number for an option above"
+        while True:
+            try:
+                idx = child.expect([trig, pexpect.EOF, pexpect.TIMEOUT], timeout=timeout)
+            except Exception as e:
+                log_fh.write(f"\n[CI] pexpect error: {e}\n")
+                try: child.close(force=True)
+                except Exception: pass
+                return -1, f"pexpect error: {e}"
+            if idx == 0:
+                ans = self._thcli_answer_for(child.before or "", responses, default_ans)
+                log_fh.write(f"\n[CI][PROMPT → {ans}]\n"); log_fh.flush()
+                try: child.sendline(ans)
+                except Exception: break
+            else:
+                break                          # EOF (done) or TIMEOUT (hung)
+        try: child.close()
+        except Exception: pass
+        rc = child.exitstatus
+        if rc is None:
+            rc = -(child.signalstatus or 1)
+        return rc, ""
+
+    def _thcli_locate_log(self, title, since):
+        """Newest output_logs/test_run_<title>_*.log for this run."""
+        d = Path(self._thcli().get("output_logs_dir", ""))
+        if not d.exists():
+            return None
+        cands = sorted(d.glob(f"test_run_{title}_*.log"), key=lambda p: p.stat().st_mtime)
+        fresh = [p for p in cands if p.stat().st_mtime >= since - 2]
+        pool  = fresh or cands
+        return pool[-1] if pool else None
+
+    def parse_thcli_log(self, text, tc_id, rc, rerr):
+        """TH output log → (status, counts, reason). Verdict from the stable
+        'Test Case/Run Completed [..]' marker; steps from 'Test Step Completed'."""
+        if not text:
+            return ERROR, {}, (rerr or "TH-CLI produced no output log.")[:200]
+        m = (re.search(r"Test Case Completed \[(PASSED|FAILED|ERROR|CANCELLED)\]", text)
+             or re.search(r"Test Run Completed \[(PASSED|FAILED|ERROR|CANCELLED)\]", text))
+        verdict = m.group(1) if m else None
+        status  = {"PASSED": PASS, "FAILED": FAIL, "ERROR": ERROR,
+                   "CANCELLED": CANCEL}.get(verdict, ERROR)
+        step_pass = len(re.findall(r"Test Step Completed \[PASSED\]", text))
+        step_fail = len(re.findall(r"Test Step Completed \[FAILED\]", text))
+        step_skip = len(re.findall(r"\bSkipping\b", text))
+        counts = {"step_total": step_pass + step_fail + step_skip,
+                  "step_passed": step_pass, "step_failed": step_fail, "step_skipped": step_skip,
+                  "executed": 1, "passed": 1 if status == PASS else 0,
+                  "failed": 1 if status == FAIL else 0, "skipped": 0, "error": 0}
+        reason = ""
+        if status != PASS:
+            pm = re.search(r"problem:\s*(.+)", text)
+            if pm:
+                reason = pm.group(1).strip()[:200]
+            elif verdict is None:
+                reason = "No TH verdict in log — run may have crashed or timed out."
+            else:
+                reason = f"TH-CLI reported {verdict}."
+        return status, counts, reason
+
+    def run_one_thcli(self, tc):
+        tc_id       = tc["test_case_id"]
+        thc         = self._thcli()
+        log_path    = self.log_dir / f"{tc_id}.log"        # th-cli console (our combined log)
+        dut_log     = self.log_dir / f"{tc_id}_dut.log"    # sample-app output
+        th_log_copy = self.log_dir / f"{tc_id}_th.log"     # copy of TH's own output_logs file
+        print(f"\n── {tc_id} (TH-CLI) ──────────────────────────")
+
+        pid = self._thcli_ensure_project()
+        if pid is None:
+            return self._thcli_result(tc, ERROR, {}, 0.0, log_path,
+                                      "TH-CLI: could not resolve or create a project.")
+
+        dut_command = self._thcli_dut_command(tc)
+        app_proc, app_full, aerr = self._thcli_launch_app(dut_command, dut_log)
+        if aerr and dut_command:
+            print(f"  [TH][DUT] ⚠️  {aerr}")
+
+        argv     = self._thcli_build_argv(tc, pid)
+        executed = " ".join(shlex.quote(a) for a in argv)
+        header = (f"[CI] TH-CLI test         : {tc_id}\n"
+                  f"[CI] Project id          : {pid}\n"
+                  f"[CI] DUT app             : {app_full or '(none)'}\n"
+                  f"[CI] Executed command    : {executed}\n"
+                  f"[CI] {'-'*68}\n")
+
+        t0 = start = time.time()
+        with open(log_path, "w") as lf:
+            lf.write(header); lf.flush()
+            rc, rerr = self._thcli_drive(argv, thc.get("th_cli_dir", "."), lf,
+                                         int(thc.get("test_timeout_seconds", 900)))
+        elapsed = round(time.time() - t0, 2)
+
+        self._thcli_stop_app(app_proc)
+
+        thlog, th_text = self._thcli_locate_log(tc_id, start), ""
+        if thlog:
+            try:
+                th_text = thlog.read_text(errors="replace")
+                th_log_copy.write_text(th_text)
+            except OSError:
+                pass
+
+        status, counts, reason = self.parse_thcli_log(th_text, tc_id, rc, rerr)
+        counts["executed_dut_command"]    = f"DUT app: {app_full or '(none)'}"
+        counts["executed_python_command"] = executed
+        shown = {k: v for k, v in counts.items()
+                 if k not in ("executed_dut_command", "executed_python_command")}
+        rs = f" | {reason[:70]}" if reason else ""
+        print(f"  [{status}] {tc_id} — {elapsed}s  {shown}{rs}")
+        return self._thcli_result(tc, status, counts, elapsed, log_path, reason)
+
+    def _thcli_result(self, tc, status, counts, elapsed, log_path, note):
+        res = self._result(tc, status, counts, elapsed, log_path, note=note)
+        res["type"] = "thcli"      # so the report renders a TH-CLI row + filter
+        return res
 
     def _yaml_cert_path(self, target: str):
         """Locate a YAML test's source file (usually under
@@ -2511,13 +2853,17 @@ def generate_report(results: list[dict], cfg: dict = None,
         elapsed = r["elapsed_s"]
         log_file = Path(r.get("log_file", ""))
         is_yaml  = r.get("type") == "yaml"
+        is_thcli = r.get("type") == "thcli"
         # YAML tests have no separate DUT log — run_test_suite.py interleaves the
         # app + tool + step output into the single run log. Instead we surface a
-        # concise per-step view (_steps.log) in that second-link slot.
+        # concise per-step view (_steps.log) in that second-link slot. TH-CLI has
+        # both a DUT log AND the harness's own detailed log (_th.log).
         dut_log  = (log_file.parent / f"{tc_id}_dut.log"
                     if (log_file.name and not is_yaml) else None)
         steps_log = (log_file.parent / f"{tc_id}_steps.log"
                      if (log_file.name and is_yaml) else None)
+        th_log   = (log_file.parent / f"{tc_id}_th.log"
+                    if (log_file.name and is_thcli) else None)
 
         # HTML-safe copies for interpolation (tc_id/cluster come from the Sheet,
         # reason from raw test output — all untrusted for HTML purposes).
@@ -2543,17 +2889,23 @@ def generate_report(results: list[dict], cfg: dict = None,
         if steps_log and steps_log.exists():
             log_links += (f'<a href="test_runs/{html.escape(steps_log.name)}" '
                           f'target="_blank" class="log-link dut-log">Steps</a>')
+        if th_log and th_log.exists():
+            log_links += (f'<a href="test_runs/{html.escape(th_log.name)}" '
+                          f'target="_blank" class="log-link dut-log">TH Log</a>')
 
         reason = html.escape(status_reason(r))
         reason_cell = f'<span class="reason">{reason}</span>' if reason else ""
 
-        # A small YAML tag distinguishes cert-YAML rows from the Python-driven ones.
-        type_tag = ('<span style="font-family:\'JetBrains Mono\',monospace;font-size:9px;'
-                    'font-weight:700;letter-spacing:.05em;color:#7c5cff;border:1px solid #7c5cff;'
+        # A small tag distinguishes cert-YAML / TH-CLI rows from Python-driven ones.
+        def _tag(label, color):
+            return ('<span style="font-family:\'JetBrains Mono\',monospace;font-size:9px;'
+                    'font-weight:700;letter-spacing:.05em;color:%s;border:1px solid %s;'
                     'border-radius:4px;padding:1px 4px;margin-left:8px;vertical-align:middle">'
-                    'YAML</span>') if is_yaml else ""
+                    '%s</span>' % (color, color, label))
+        type_tag = (_tag("YAML", "#7c5cff") if is_yaml
+                    else _tag("TH-CLI", "#0ea5a5") if is_thcli else "")
 
-        e_type = "yaml" if is_yaml else "python"
+        e_type = "yaml" if is_yaml else "thcli" if is_thcli else "python"
         rows_html += f"""
         <tr class="tc-row row-{e_status.lower()}" data-cluster="{e_cluster}" data-status="{e_status}" data-type="{e_type}" data-time="{elapsed}" data-tcid="{e_tc_id}">
           <td>{tcid_html}{type_tag}<div class="cluster-sub">{e_cluster}</div></td>
@@ -2598,16 +2950,18 @@ def generate_report(results: list[dict], cfg: dict = None,
         for c in (html.escape(str(x)) for x in clusters)
     )
 
-    # ---- Type filter (Python / YAML / Both) — only shown when the run has BOTH
-    # kinds, so a single-kind run isn't cluttered with a pointless control. ----
+    # ---- Type filter (Python / YAML / TH-CLI / All) — only shown when the run
+    # has more than one kind, so a single-kind run isn't cluttered with it. ----
     types_present = {r.get("type", "python") for r in results}
-    if "yaml" in types_present and "python" in types_present:
+    if len(types_present) > 1:
+        opts = ['<option value="ALL">All</option>']
+        if "python" in types_present: opts.append('<option value="python">Python</option>')
+        if "yaml"   in types_present: opts.append('<option value="yaml">YAML</option>')
+        if "thcli"  in types_present: opts.append('<option value="thcli">TH-CLI</option>')
         type_filter_html = (
             '<span class="flabel">Type:</span>'
             '<select id="typeFilter" onchange="applyFilters()">'
-            '<option value="ALL">Both</option>'
-            '<option value="python">Python</option>'
-            '<option value="yaml">YAML</option>'
+            + "".join(opts) +
             '</select>'
         )
     else:

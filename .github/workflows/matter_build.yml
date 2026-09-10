@@ -78,6 +78,27 @@ on:
           - python
           - yaml
         default: both
+      execution_mode:
+        description: >
+          Execution engine. native = our python-controller / run_test_suite
+          (default). th-cli = run each test through the RPi's Matter Test Harness
+          CLI (uses the RPi's prebuilt apps + its own SDK — no build needed, so
+          pair this with pipeline=test-only).
+        type: choice
+        options:
+          - native
+          - th-cli
+        default: native
+      thcli_project:
+        description: >
+          TH-CLI project (execution_mode=th-cli only). default = use
+          thcli_tests.default_project_id from config (create one if it's missing);
+          create-new = always create a fresh TH project for this run.
+        type: choice
+        options:
+          - default
+          - create-new
+        default: default
 
 # ── Concurrency control ───────────────────────────────────────────────────────
 # Only one build runs at a time on the RPi.
@@ -622,12 +643,21 @@ jobs:
           rm -f "${GITHUB_WORKSPACE}/Matter_CI/config/service_account.json"
 
       - name: Run test suite
+        env:
+          # Execution engine + TH-CLI project selection (from the form; native by
+          # default). run_tests.py reads these to pick the runner per test case.
+          EXECUTION_MODE: ${{ github.event.inputs.execution_mode == 'th-cli' && 'thcli' || 'native' }}
+          THCLI_NEW_PROJECT: ${{ github.event.inputs.thcli_project == 'create-new' && '1' || '0' }}
         run: |
           export MATTER_SDK_DIR=$(python3 -c "
           import yaml
           cfg = yaml.safe_load(open('Matter_CI/config/build_config.yaml'))
           print(cfg['rpi']['sdk_dir'])
           ")
+          # TH-CLI mode drives th-cli's interactive prompts over a pty — needs pexpect.
+          if [ "${EXECUTION_MODE}" = "thcli" ]; then
+            python3 -m pip install pexpect --break-system-packages --quiet || pip3 install pexpect --quiet || true
+          fi
           python3 Matter_CI/scripts/run_tests.py \
             --config   Matter_CI/config/build_config.yaml \
             --commands Matter_CI/logs/test_commands.json
