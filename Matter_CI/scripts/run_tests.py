@@ -2845,6 +2845,9 @@ def generate_report(results: list[dict], cfg: dict = None,
     cancelled = sum(1 for r in results if r["status"] == CANCEL)
     skipped_tc = sum(1 for r in results if r["status"] == SKIP)
     run_time  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # TH-CLI runs are labelled so anyone opening the report knows the engine.
+    is_thcli    = any(r.get("type") == "thcli" for r in results)
+    report_kind = "TH-CLI Validation" if is_thcli else "Test Report"
 
     # Collect unique clusters for filter dropdown
     clusters = sorted(set(extract_cluster(r["test_case_id"], r.get("cluster", "")) for r in results))
@@ -3054,7 +3057,7 @@ def generate_report(results: list[dict], cfg: dict = None,
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Matter CI — Test Report</title>
+  <title>Matter CI — __REPORT_KIND__</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -3218,7 +3221,7 @@ def generate_report(results: list[dict], cfg: dict = None,
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#34d17f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 3h6"/><path d="M10 3v6l-5.2 9.4A1.5 1.5 0 0 0 6.1 21h11.8a1.5 1.5 0 0 0 1.3-2.6L14 9V3"/><path d="M7.5 14h9"/>
         </svg>
-        Matter CI — Test Report
+        Matter CI — __REPORT_KIND__
       </div>
       <div class="header-meta">
         <span class="chip">__COMMIT__</span>
@@ -3388,6 +3391,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     # html.escape() call above with UnboundLocalError.
     html_out = (_TEMPLATE
                 .replace("__TYPE_FILTER__", type_filter_html)
+                .replace("__REPORT_KIND__", report_kind)
                 .replace("__FOOT_DOT__", foot_dot)
                 .replace("__COMMIT__", str(bi_commit))
                 .replace("__BRANCH__", str(bi_branch))

@@ -524,8 +524,13 @@ def compute_test_summary(results_path: Path) -> dict:
     errored   = n("ERROR")
     rerun     = n("RERUN")
     cancelled = n("CANCEL")
+    skipped   = n("SKIP")
     accepted  = passed + pass_warn           # PASS* is an accepted (partial) pass
-    pct = round(accepted / total * 100) if total else 0
+    # SKIP tests were intentionally not run (TH-CLI can't drive them) — exclude
+    # them from the pass-rate denominator so they don't drag the % down.
+    denom = total - skipped
+    pct = round(accepted / denom * 100) if denom else 0
+    is_thcli = any(r.get("type") == "thcli" for r in results)
     # Failing TCs (name + short note), failures first — for the email body.
     ORDER = {"FAIL": 0, "ERROR": 1, "RERUN": 2, "PASS*": 3, "CANCEL": 4, "PASS": 5}
     failing = sorted(
@@ -535,8 +540,8 @@ def compute_test_summary(results_path: Path) -> dict:
     return {
         "total": total, "passed": passed, "pass_warn": pass_warn,
         "failed": failed, "errored": errored, "rerun": rerun,
-        "cancelled": cancelled, "accepted": accepted, "pct": pct,
-        "failing": failing,
+        "cancelled": cancelled, "skipped": skipped, "accepted": accepted, "pct": pct,
+        "failing": failing, "is_thcli": is_thcli,
     }
 
 
@@ -661,7 +666,7 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
                    letter-spacing:1.8px;text-transform:uppercase;margin-bottom:14px">
         GRLPS &nbsp;&mdash;&nbsp; Matter CI Pipeline</span>
       <p style="font-size:22px;font-weight:700;color:#fff;margin:0 0 8px;line-height:1.2">
-        Test execution results</p>
+        {"TH-CLI Validation results" if s.get("is_thcli") else "Test execution results"}</p>
       <p style="font-size:12px;color:rgba(255,255,255,0.6);margin:0">
         {date_str} &nbsp;&middot;&nbsp; Raspberry Pi ARM64</p>
     </td></tr>
@@ -713,7 +718,9 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
 def build_test_plain(commit: str, branch: str, drive_link: str,
                      run_url: str, run_id: str, s: dict) -> str:
     lines = [
-        f"Matter CI — Test Execution Results (Run #{run_id})",
+        (f"Matter CI — TH-CLI Validation Results (Run #{run_id})"
+         if s.get("is_thcli") else
+         f"Matter CI — Test Execution Results (Run #{run_id})"),
         "=" * 48,
         f"Verdict     : {_exec_status(s).upper()}",
         f"Pass rate   : {s['pct']}%  ({s['accepted']}/{s['total']} accepted)",
@@ -853,7 +860,8 @@ def main():
         s = compute_test_summary(Path(args.results))
         verdict = _exec_status(s)
         icons = {"success": "✅", "partial": "⚠️", "failed": "🔴", "empty": "⚪"}
-        subject = (f"{icons[verdict]} Matter CI Tests #{args.run_id} — "
+        kind = "TH-CLI Validation" if s.get("is_thcli") else "Tests"
+        subject = (f"{icons[verdict]} Matter CI {kind} #{args.run_id} — "
                    f"{s['accepted']}/{s['total']} passed ({s['pct']}%) | {branch} | {commit}")
         html_body  = build_test_html(cfg, commit, branch, args.drive_link,
                                      args.run_url, args.run_id, s)
