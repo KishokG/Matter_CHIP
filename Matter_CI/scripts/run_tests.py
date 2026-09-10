@@ -2088,57 +2088,49 @@ class TestRunner:
         return pid
 
     def _thcli_resolve_config(self, tc_id):
+        """Absolute path to the -c config: <config_dir>/TC-<ID>.json if present,
+        else <config_dir>/default_config.json. Absolute so th-cli (run from its own
+        dir) finds it regardless of cwd; falls back to the bare name only if the
+        default isn't in config_dir (th-cli then resolves it from its own dir)."""
         thc = self._thcli()
         cfgdir = Path(thc.get("config_dir", "/home/ubuntu/sample_config_files"))
-        return (f"{tc_id}.json" if (cfgdir / f"{tc_id}.json").exists()
-                else thc.get("default_config", "default_config.json"))
+        specific = cfgdir / f"{tc_id}.json"
+        if specific.exists():
+            return str(specific)
+        default_name = thc.get("default_config", "default_config.json")
+        default_path = cfgdir / default_name
+        return str(default_path) if default_path.exists() else default_name
 
     @staticmethod
-    def _thcli_set_opt(toks, opt, value):
-        for i, t in enumerate(toks):
-            if t == opt:
-                if i + 1 < len(toks): toks[i + 1] = value
-                else: toks.append(value)
-                return toks
-        return toks + [opt, value]
-
-    @staticmethod
-    def _thcli_replace_opt_if_present(toks, opts, value):
-        for i, t in enumerate(toks):
-            if t in opts and i + 1 < len(toks):
-                toks[i + 1] = value
-                return True
-        return False
+    def _thcli_python_needs_pics(tc):
+        """A Python test needs -p (PICS) only if its Sheet column-G command uses
+        -p. We inspect ONLY the command portion (before any 'Note:' prose) so
+        appended notes/placeholders can't cause a false match."""
+        raw = tc.get("thcli_command") or ""
+        cmd = re.split(r"(?i)\bnote\s*:", raw, 1)[0]
+        return bool(re.search(r"(?:^|\s)-p\b", cmd))
 
     def _thcli_build_argv(self, tc, project_id):
-        """Build the th-cli argv. Python tests reuse the Sheet's column-G command
-        (fill --title/--project-id, resolve -c/-p VALUES only if present). YAML
-        tests are synthesized (no Sheet command)."""
+        """Build a CLEAN th-cli argv from known parts.
+
+        We deliberately do NOT reuse the Sheet column-G string verbatim: it's a
+        human-written TEMPLATE that can carry placeholders (<id>, <Name of the test
+        run execution>) and a trailing 'Note:' explanation, which corrupt the
+        command if parsed literally. The command is uniform across tests, so we
+        rebuild it and use column G only to decide whether this test needs -p."""
         thc   = self._thcli()
         tc_id = tc["test_case_id"]
         bin_  = thc.get("th_cli_bin", "th-cli")
         underscore = tc_id.replace("-", "_").replace(".", "_")   # TC-ACE-1.2 → TC_ACE_1_2
-        cfg_val = self._thcli_resolve_config(tc_id)   # TC-<ID>.json if present, else default_config.json
-        if tc.get("type") == "yaml":
-            return [bin_, "run-tests", "--tests-list", underscore,
-                    "--title", tc_id, "--project-id", str(project_id),
-                    "-c", cfg_val, "-p", str(self.pics_folder)]
-        raw = (tc.get("thcli_command") or "").strip()
-        if raw:
-            toks = shlex.split(raw)
-            if toks and toks[0] != bin_ and toks[0].endswith("th-cli"):
-                toks[0] = bin_
-        else:
-            toks = [bin_, "run-tests", "--tests-list", underscore]
-        toks = self._thcli_set_opt(toks, "--title", tc_id)
-        toks = self._thcli_set_opt(toks, "--project-id", str(project_id))
-        # ALWAYS attach a config (Option B): replace an existing -c/--config value,
-        # else add -c. Value is TC-<ID>.json when present, else default_config.json.
-        if not self._thcli_replace_opt_if_present(toks, ("-c", "--config"), cfg_val):
-            toks = self._thcli_set_opt(toks, "-c", cfg_val)
-        # -p (PICS): resolve the VALUE only when the Sheet command already uses it.
-        self._thcli_replace_opt_if_present(toks, ("-p", "--pics"), str(self.pics_folder))
-        return toks
+        argv = [bin_, "run-tests",
+                "--tests-list", underscore,
+                "--project-id", str(project_id),
+                "-c", self._thcli_resolve_config(tc_id),         # always (Option B), absolute path
+                "--title", tc_id]
+        # PICS: YAML always; Python only when its column-G command uses -p.
+        if tc.get("type") == "yaml" or self._thcli_python_needs_pics(tc):
+            argv += ["-p", str(self.pics_folder)]
+        return argv
 
     def _thcli_answer_for(self, text, responses, default_ans):
         tail = (text or "")[-1000:].lower()
