@@ -23,6 +23,7 @@ import sys
 import json
 import html
 import signal
+import fnmatch
 import shlex
 import shutil
 import subprocess
@@ -95,6 +96,7 @@ FAIL      = "FAIL"
 RERUN     = "RERUN"
 ERROR     = "ERROR"
 CANCEL    = "CANCEL"
+SKIP      = "SKIP"     # intentionally not run (e.g. TH-CLI can't drive it unattended)
 
 
 # =============================================================================
@@ -2116,10 +2118,11 @@ class TestRunner:
         tc_id = tc["test_case_id"]
         bin_  = thc.get("th_cli_bin", "th-cli")
         underscore = tc_id.replace("-", "_").replace(".", "_")   # TC-ACE-1.2 → TC_ACE_1_2
+        cfg_val = self._thcli_resolve_config(tc_id)   # TC-<ID>.json if present, else default_config.json
         if tc.get("type") == "yaml":
             return [bin_, "run-tests", "--tests-list", underscore,
                     "--title", tc_id, "--project-id", str(project_id),
-                    "-p", str(self.pics_folder)]
+                    "-c", cfg_val, "-p", str(self.pics_folder)]
         raw = (tc.get("thcli_command") or "").strip()
         if raw:
             toks = shlex.split(raw)
@@ -2129,8 +2132,11 @@ class TestRunner:
             toks = [bin_, "run-tests", "--tests-list", underscore]
         toks = self._thcli_set_opt(toks, "--title", tc_id)
         toks = self._thcli_set_opt(toks, "--project-id", str(project_id))
-        # Resolve -c / -p VALUES only when the Sheet command actually uses them.
-        self._thcli_replace_opt_if_present(toks, ("-c", "--config"), self._thcli_resolve_config(tc_id))
+        # ALWAYS attach a config (Option B): replace an existing -c/--config value,
+        # else add -c. Value is TC-<ID>.json when present, else default_config.json.
+        if not self._thcli_replace_opt_if_present(toks, ("-c", "--config"), cfg_val):
+            toks = self._thcli_set_opt(toks, "-c", cfg_val)
+        # -p (PICS): resolve the VALUE only when the Sheet command already uses it.
         self._thcli_replace_opt_if_present(toks, ("-p", "--pics"), str(self.pics_folder))
         return toks
 
@@ -2221,6 +2227,58 @@ class TestRunner:
                 reason = f"TH-CLI reported {verdict}."
         return status, counts, reason
 
+    def _thcli_uses_app_pipe(self, tc):
+        """True if the test's Python script drives DUT state via the SDK app-pipe
+        or prompts an operator (write_to_app_pipe / --app-pipe / wait_for_user_input)
+        — TH-CLI can't drive those unattended. Inspects TH's own sdk_checkout copy
+        (python_tests_dir), falling back to our connectedhomeip src/python_testing.
+        Cached per script; the `--app-pipe` header also catches tests whose actual
+        write lives in a shared base module (e.g. TC_OPSTATE_2_1 → TC_OpstateCommon)."""
+        py = tc.get("python_command", "") or ""
+        m = re.search(r"\b(TC_\w+\.py)\b", py)
+        if not m:
+            return False
+        script = m.group(1)
+        cache = getattr(self, "_thcli_apppipe_cache", None)
+        if cache is None:
+            cache = self._thcli_apppipe_cache = {}
+        if script in cache:
+            return cache[script]
+        dirs = []
+        pt = self._thcli().get("python_tests_dir")
+        if pt:
+            dirs.append(Path(pt))
+        dirs.append(self.scripts_dir)                 # fallback: our connectedhomeip
+        uses = False
+        for d in dirs:
+            try:
+                text = (d / script).read_text(errors="replace")
+            except OSError:
+                continue
+            uses = (bool(re.search(r"--app-pipe(?!-out)[ =]", text))
+                    or "write_to_app_pipe" in text or "wait_for_user_input" in text)
+            break                                     # first dir that has the script wins
+        cache[script] = uses
+        return uses
+
+    def _thcli_skip_reason(self, tc):
+        """Why (if at all) this test should be SKIPPED in TH-CLI mode rather than
+        run — because TH-CLI can't drive it unattended. Empty string = run it."""
+        thc   = self._thcli()
+        tc_id = tc.get("test_case_id", "")
+        for pat in (thc.get("skip_tests") or []):
+            if fnmatch.fnmatch(tc_id, str(pat)):
+                return f"skipped by config (matches '{pat}') — needs manual intervention"
+        # Python test with no single advertisable app → self-orchestrating /
+        # multi-DUT / Fabric-Sync, which TH-CLI can't run unattended.
+        if thc.get("skip_no_dut_app", True) and tc.get("type") != "yaml" \
+                and not self._thcli_dut_command(tc):
+            return "skipped — no single DUT app (self-orchestrating / multi-DUT / Fabric-Sync)"
+        # Operator / app-pipe tests need manual DUT state changes TH-CLI can't drive.
+        if thc.get("skip_app_pipe", True) and self._thcli_uses_app_pipe(tc):
+            return "skipped — operator/app-pipe test (needs manual DUT state changes)"
+        return ""
+
     def run_one_thcli(self, tc):
         tc_id       = tc["test_case_id"]
         thc         = self._thcli()
@@ -2228,6 +2286,12 @@ class TestRunner:
         dut_log     = self.log_dir / f"{tc_id}_dut.log"    # sample-app output
         th_log_copy = self.log_dir / f"{tc_id}_th.log"     # copy of TH's own output_logs file
         print(f"\n── {tc_id} (TH-CLI) ──────────────────────────")
+
+        # Skip tests TH-CLI can't run unattended (don't run → no mass failures).
+        skip = self._thcli_skip_reason(tc)
+        if skip:
+            print(f"  [SKIP] {tc_id} — {skip}")
+            return self._thcli_result(tc, SKIP, {}, 0.0, "", skip)   # "" → no (broken) log link
 
         pid = self._thcli_ensure_project()
         if pid is None:
@@ -2787,6 +2851,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     rerun     = sum(1 for r in results if r["status"] == RERUN)
     errors    = sum(1 for r in results if r["status"] == ERROR)
     cancelled = sum(1 for r in results if r["status"] == CANCEL)
+    skipped_tc = sum(1 for r in results if r["status"] == SKIP)
     run_time  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Collect unique clusters for filter dropdown
@@ -2796,6 +2861,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     PILL_CLASS = {
         PASS: "pill-pass", PASS_WARN: "pill-passw", FAIL: "pill-fail",
         RERUN: "pill-rerun", ERROR: "pill-error", CANCEL: "pill-cancel",
+        SKIP: "pill-skip",
     }
 
     def badge(status):
@@ -2820,6 +2886,8 @@ def generate_report(results: list[dict], cfg: dict = None,
             return note
         if status == CANCEL:
             return "Cancelled by user before this test started"
+        if status == SKIP:
+            return note or "Skipped (not run in TH-CLI mode)"
         if note:
             return note
         counts = r.get("counts", {})
@@ -2977,13 +3045,16 @@ def generate_report(results: list[dict], cfg: dict = None,
     else:
         type_filter_html = ""
 
-    # ---- Footer status ----
+    # ---- Footer status (SKIP is neutral — never a failure) ----
+    skip_txt = f" · {skipped_tc} skipped" if skipped_tc else ""
     if failed == 0 and errors == 0 and rerun == 0 and cancelled == 0:
-        footer_status = "All tests passed"; foot_dot = "#22c55e"
+        footer_status = ("All tests passed" if not skipped_tc
+                         else f"{passed + pass_warn}/{total} passed{skip_txt}")
+        foot_dot = "#22c55e"
     elif failed == 0 and errors == 0:
-        footer_status = f"{passed + pass_warn}/{total} passed"; foot_dot = "#f59e0b"
+        footer_status = f"{passed + pass_warn}/{total} passed{skip_txt}"; foot_dot = "#f59e0b"
     else:
-        footer_status = f"{failed} failed · {errors} error(s)"; foot_dot = "#ef4444"
+        footer_status = f"{failed} failed · {errors} error(s){skip_txt}"; foot_dot = "#ef4444"
     built_txt = bi_date if bi_date else "—"
 
     _TEMPLATE = r"""<!DOCTYPE html>
@@ -3114,6 +3185,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     .pill-rerun  { background: #FFF7ED; color: #C2410C; border-color: #FED7AA; } .pill-rerun .dot  { background: #F97316; }
     .pill-error  { background: #F8FAFC; color: #334155; border-color: #E2E8F0; } .pill-error .dot  { background: #64748B; }
     .pill-cancel { background: #FAF5FF; color: #6B21A8; border-color: #E9D5FF; } .pill-cancel .dot { background: #A855F7; }
+    .pill-skip   { background: #F1F5F9; color: #475569; border-color: #CBD5E1; } .pill-skip .dot   { background: #94A3B8; }
 
     .steps { display: inline-flex; align-items: center; gap: 11px; font-size: 12.5px; color: #374151; }
     .sg { display: inline-flex; align-items: center; gap: 3px; }

@@ -318,6 +318,25 @@ thcli_tests:
   # Per-test rule: a Python test needs -p only if its Sheet command (col G) has -p;
   # YAML tests always pass -p <pics_folder>.
   test_timeout_seconds: 900                                        # per-TC cap (TH runs are slow)
+  # Tests TH-CLI can't run UNATTENDED are skipped for now (reported as SKIP, not
+  # run) to avoid mass failures — we'll revisit later. Two ways:
+  #   • skip_tests: fnmatch patterns on the TC ID (use for app-pipe / operator-
+  #     driven tests that DO have a single app but need manual DUT state changes).
+  #   • skip_no_dut_app: auto-skip Python tests with no single advertisable app
+  #     (self-orchestrating / multi-DUT / Fabric-Sync — the app path may be in the
+  #     config but the flow needs manual intervention).
+  skip_no_dut_app: true
+  # Auto-skip operator/app-pipe tests: any test whose Python script drives DUT
+  # state via the SDK app-pipe or prompts for operator input (write_to_app_pipe /
+  # --app-pipe / wait_for_user_input) can't run unattended under TH-CLI. Detected
+  # from the test script itself (self-maintaining — no static list to curate).
+  skip_app_pipe: true
+  # Where the test scripts live for that detection. TH-CLI runs its OWN sdk_checkout
+  # copy; fall back to our connectedhomeip src/python_testing if this isn't present.
+  python_tests_dir: "/home/ubuntu/certification-tool/backend/test_collections/matter/sdk_tests/sdk_checkout/python_testing"
+  skip_tests: []          # extra manual fnmatch patterns on the TC ID (belt-and-suspenders)
+    # - "TC-FSYNC-*"        # example: Fabric-Sync (two DUTs)
+    # - "TC-MCORE-*"        # example: multi-controller
   # Interactive-prompt auto-answers (matched as substrings, first match wins).
   # Driven over a pty so th-cli sees a real terminal.
   prompt_responses:
