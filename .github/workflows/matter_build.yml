@@ -147,6 +147,13 @@ jobs:
               PIPELINE="build-only"
               ;;
           esac
+          # TH-CLI execution needs NO build — it uses the RPi's own prebuilt apps +
+          # its own SDK. Force test-only so the Mac-mini build + Drive upload +
+          # bundle download are all skipped.
+          if [ "${{ github.event.inputs.execution_mode }}" = "th-cli" ]; then
+            echo "execution_mode=th-cli → forcing pipeline=test-only (no build needed)."
+            PIPELINE="test-only"
+          fi
           echo "Resolved pipeline: $PIPELINE (event=${{ github.event_name }})"
           echo "pipeline=$PIPELINE" >> "$GITHUB_OUTPUT"
 
@@ -621,6 +628,9 @@ jobs:
           path: Matter_CI/logs/
 
       - name: Prepare RPi (download bundle, checkout SDK, install)
+        # TH-CLI mode uses the RPi's OWN prebuilt apps + SDK, so it needs none of
+        # our Mac-built bundle — skip the ~1.3 GB download / SDK checkout / install.
+        if: ${{ github.event.inputs.execution_mode != 'th-cli' }}
         env:
           CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
         run: |
