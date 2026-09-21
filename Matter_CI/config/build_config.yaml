@@ -166,7 +166,7 @@ google_drive:
 # Google Sheets — Test Command Source
 # ============================================================
 google_sheets:
-  spreadsheet_id: "1gBFM74LDa5quay68T061jiIWAa5eF4TJm6K83ccS6QA"   # from the sheet URL
+  spreadsheet_id: "1AvdavsRfpbPzGAkTxIYpXqBEB-0W6WHcK2wDsrupDew"   # from the sheet URL
   sheet_name: "Python Script Validation Procedure"   # tab name
   # Column indices (0-based: 0=A, 1=B, 2=C ...)
   columns:
