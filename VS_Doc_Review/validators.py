@@ -12,14 +12,17 @@ import re
 from typing import Dict, List
 
 import config
-from sheet_utils import cell, normalize
+from sheet_utils import cell, normalize, strip_notes
 
 # ---------------------------------------------------------------------------
 # Regex building blocks
 # ---------------------------------------------------------------------------
 
-# TC-<CLUSTER>-<digits>(.<digits>)*  e.g. TC-ACE-1.4, TC-WEBRTC-1.10
-ID_HYPHEN_RE = re.compile(r"^TC-[A-Za-z0-9]+(?:-\d+)+(?:\.\d+)*$")
+# TC-<CLUSTER>-<digits>(.<digits>)*  e.g. TC-ACE-1.4, TC-WEBRTC-1.10,
+# TC-SC-TC-2.1 (the cluster abbreviation itself can contain hyphens - the
+# only hard requirement is hyphens/dots throughout, never underscores, and
+# a numeric version suffix at the end).
+ID_HYPHEN_RE = re.compile(r"^TC(?:-[A-Za-z0-9]+)*-\d+(?:\.\d+)*$")
 
 # The bracketed id at the start of the Test Case Name column, e.g.
 # "[TC-ACE-1.4] Targets[DUT-Commissionee]" -> "TC-ACE-1.4"
@@ -34,6 +37,13 @@ ARG_TOKEN_RE = re.compile(r"(?:(?<=\s)|^)(--[A-Za-z][\w-]*|-[A-Za-z](?![\w-]))")
 # Column D uses a JSON-ish "key": "value" style with no leading dashes at
 # all, e.g. "int-arg": "minFrameRate:15" or "endpoint":"1".
 D_KEY_RE = re.compile(r'"([A-Za-z][\w-]*)"\s*:')
+
+# When column F's real command uses one of these flags, it's a generic
+# shared script (e.g. TC_DeviceConformance.py, TC_DeviceBasicComposition.py)
+# that pulls its configuration from elsewhere rather than from literal
+# product-specific CLI args - so column D's declared arguments aren't
+# expected to appear in F at all for these rows.
+SHARED_SCRIPT_MARKERS = {"manual-code"}
 
 
 # A `-p` / `--pics-config-folder` style flag used as a whole token.
@@ -66,11 +76,14 @@ def check_no_empty_columns(row_cells: Dict[str, str]) -> List[dict]:
     return issues
 
 
-def check_id_formats_and_consistency(row_cells: Dict[str, str]) -> List[dict]:
+def check_id_formats_and_consistency(row_cells: Dict[str, str], known_master_ids: set = frozenset()) -> List[dict]:
     issues = []
     name_col, id_col = row_cells["B"], row_cells["C"]
 
-    if not ID_HYPHEN_RE.match(id_col):
+    # The regex catches the common mistake (underscores instead of hyphens),
+    # but the master tab is the real source of truth for what a legitimate
+    # ID looks like - if this exact ID exists there, don't second-guess it.
+    if not ID_HYPHEN_RE.match(id_col) and id_col not in known_master_ids:
         issues.append({
             "severity": "error",
             "check": "Test Case ID format",
@@ -98,15 +111,19 @@ def check_id_formats_and_consistency(row_cells: Dict[str, str]) -> List[dict]:
     return issues
 
 
-def check_id_in_docker_and_cli_commands(row_cells: Dict[str, str]) -> List[dict]:
+def check_id_in_docker_and_cli_commands(row_cells: Dict[str, str], known_master_ids: set = frozenset()) -> List[dict]:
     issues = []
     id_col = row_cells["C"]
-    if not ID_HYPHEN_RE.match(id_col):
+    if not ID_HYPHEN_RE.match(id_col) and id_col not in known_master_ids:
         # Format is already flagged elsewhere; skip derived checks on a bad id.
         return issues
 
     underscore_id = to_underscore_id(id_col)
-    docker_cmd, cli_cmd = row_cells["F"], row_cells["G"]
+    # Anything after a "Note:" is guidance for humans (an alternate command
+    # for another platform, a reminder about a special-case argument), not
+    # part of the actual command, so it's ignored here and below.
+    docker_cmd = strip_notes(row_cells["F"])
+    cli_cmd = strip_notes(row_cells["G"])
 
     if underscore_id.lower() not in docker_cmd.lower():
         issues.append({
@@ -146,7 +163,7 @@ def check_id_in_docker_and_cli_commands(row_cells: Dict[str, str]) -> List[dict]
 def check_arg_spacing(row_cells: Dict[str, str]) -> List[dict]:
     issues = []
     for col in ("F", "G"):
-        text = row_cells[col]
+        text = strip_notes(row_cells[col])
         for match in ARG_TOKEN_RE.finditer(text):
             end = match.end()
             if end < len(text) and text[end] not in (" ", "=", "\t"):
@@ -173,23 +190,41 @@ def _d_key_names(text: str) -> set:
 
 def check_args_match_between_d_and_f(row_cells: Dict[str, str]) -> List[dict]:
     issues = []
-    d_text, f_text = row_cells["D"], row_cells["F"]
+    d_text = row_cells["D"]
 
     if normalize(d_text) == normalize(config.NO_ARGS_NOTE):
         return issues  # nothing to cross-check when D explicitly says "no args"
 
     exempt = {a.lower() for a in config.ARGS_EXEMPT_FROM_D_F_CROSS_CHECK}
     exempt |= {a.lower() for a in config.STANDARD_EXECUTION_ARGS_EXEMPT_FROM_D_F_CROSS_CHECK}
-    d_args = _d_key_names(d_text) - exempt
-    f_args = _arg_names(f_text) - exempt
 
-    for missing in sorted(d_args - f_args):
-        issues.append({
-            "severity": "error",
-            "check": "Argument mismatch (D vs F)",
-            "message": f"'--{missing}' is in Column D but not in Column F.",
-        })
-    for missing in sorted(f_args - d_args):
+    d_args = _d_key_names(d_text) - exempt
+    f_primary_text = strip_notes(row_cells["F"])
+
+    # A generic shared script (identified by --manual-code) doesn't need
+    # column D's declared args to show up in F at all - it configures itself
+    # some other way, so the "D but not in F" direction doesn't apply here.
+    # (This must NOT touch d_args itself - it's still needed below to check
+    # the other direction, i.e. whether F's real args are declared in D.)
+    skip_d_not_in_f_check = _flag_present(f_primary_text, SHARED_SCRIPT_MARKERS)
+
+    # An arg D declares only needs to be accounted for SOMEWHERE in F - even
+    # inside a "Note:"/"Example:" aside about when to add it - so this
+    # direction searches the full, untruncated column F text.
+    f_args_anywhere = _arg_names(row_cells["F"]) - exempt
+    # But an arg F's actual command line uses has to be genuinely declared
+    # in D - a mention inside F's own Note/Example doesn't count, so this
+    # direction only looks at the real command (Note-stripped).
+    f_args_primary = _arg_names(f_primary_text) - exempt
+
+    if not skip_d_not_in_f_check:
+        for missing in sorted(d_args - f_args_anywhere):
+            issues.append({
+                "severity": "error",
+                "check": "Argument mismatch (D vs F)",
+                "message": f"'--{missing}' is in Column D but not in Column F.",
+            })
+    for missing in sorted(f_args_primary - d_args):
         issues.append({
             "severity": "error",
             "check": "Argument mismatch (D vs F)",
@@ -200,8 +235,8 @@ def check_args_match_between_d_and_f(row_cells: Dict[str, str]) -> List[dict]:
 
 def check_pics_flag_in_g(row_cells: Dict[str, str]) -> List[dict]:
     issues = []
-    if _flag_present(row_cells["F"], {"pics"}):
-        if not _flag_present(row_cells["G"], set(config.PICS_FLAG_ALIASES_IN_G)):
+    if _flag_present(strip_notes(row_cells["F"]), {"pics"}):
+        if not _flag_present(strip_notes(row_cells["G"]), set(config.PICS_FLAG_ALIASES_IN_G)):
             aliases = " or ".join(f"--{a}" if len(a) > 1 else f"-{a}" for a in config.PICS_FLAG_ALIASES_IN_G)
             issues.append({
                 "severity": "error",
@@ -221,7 +256,7 @@ def check_default_config_flag_in_g(row_cells: Dict[str, str]) -> List[dict]:
         r"(--config|-c)\s+\S+\.json",
         re.IGNORECASE,
     )
-    if not pattern.search(row_cells["G"]):
+    if not pattern.search(strip_notes(row_cells["G"])):
         issues.append({
             "severity": "error",
             "check": "Missing config flag in CLI command",
@@ -238,6 +273,11 @@ def check_arg_spacing_in_d(row_cells: Dict[str, str]) -> List[dict]:
     (real duplicate-space-style issues there are still worth surfacing)."""
     return []  # Brief scopes the spacing rule to F/G only; kept as a hook.
 
+
+ROW_CHECKS_NEEDING_MASTER_IDS = {
+    check_id_formats_and_consistency,
+    check_id_in_docker_and_cli_commands,
+}
 
 ROW_CHECKS = [
     check_no_empty_columns,
@@ -263,11 +303,14 @@ def build_row_cells(raw_row: List[str]) -> Dict[str, str]:
     }
 
 
-def validate_tab1_row(raw_row: List[str]) -> dict:
+def validate_tab1_row(raw_row: List[str], known_master_ids: set = frozenset()) -> dict:
     row_cells = build_row_cells(raw_row)
     issues: List[dict] = []
     for check_fn in ROW_CHECKS:
-        issues.extend(check_fn(row_cells))
+        if check_fn in ROW_CHECKS_NEEDING_MASTER_IDS:
+            issues.extend(check_fn(row_cells, known_master_ids))
+        else:
+            issues.extend(check_fn(row_cells))
     return {
         "test_case_id": row_cells["C"] or "(no id)",
         "cluster": row_cells["A"] or "(no cluster)",
@@ -294,6 +337,12 @@ def _tab2_index(tab2_data_rows: List[List[str]]) -> Dict[str, dict]:
             "execution_type": cell(raw_row, cols["execution_type"]),
         }
     return index
+
+
+def get_tab2_ids(tab2_data_rows: List[List[str]]) -> set:
+    """The set of Test Case IDs that exist in the master tab, used as a
+    fallback source of truth for ID-format checks (see check_id_formats_and_consistency)."""
+    return set(_tab2_index(tab2_data_rows).keys())
 
 
 def cross_check(tab1_rows: List[dict], tab2_data_rows: List[List[str]]) -> dict:
