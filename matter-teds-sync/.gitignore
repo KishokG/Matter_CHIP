@@ -1,0 +1,12 @@
+# Service-account key written locally / by the workflow — never commit
+credentials.json
+
+# Local environments
+results/.venv/
+results/__pycache__/
+scripts/node_modules/
+
+# Generated per run: downloaded CSVs, debug screenshots, HTML reports
+scripts/*.csv
+scripts/*.png
+results/*.html

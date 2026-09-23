@@ -14,13 +14,34 @@
  * Per-release settings (tableUrl, tableHeading, sheetId, tabName) live in
  * config/releases.json instead, since those aren't secrets and are easier
  * to maintain as a checked-in list.
+ *
+ * Each release's optional "kind" picks what gets downloaded:
+ *   "table"     (default) - export the table under tableHeading as CSV
+ *   "tclist"    - download tclistEvent's TCList CSV from the tclistHeading
+ *                 (default "Test Events TCList") table at tclistUrl and
+ *                 upload it as-is (tcid | description | count | dutids)
+ *   "tcSupport" - export the table under activeTcHeading (default "Matter
+ *                 Active TCIDs") at activeTcUrl, download tclistEvent's
+ *                 TCList CSV from the tclistHeading (default "Test Events
+ *                 TCList") table at tclistUrl, and upload a two-column
+ *                 "TC ID | Number of DUTs supported" tab
+ * Set "optional": true on an entry to report its failure as a warning
+ * without failing the whole run.
  */
 
 const path = require("path");
 const fs = require("fs");
 const { chromium } = require("playwright");
-const { loginToKnack, exportTableCsv } = require("./lib/knack");
-const { uploadCsvToSheet } = require("./lib/sheets");
+const { loginToKnack, exportTableCsv, downloadTclistCsv } = require("./lib/knack");
+const { readCsvRows, uploadRowsToSheet } = require("./lib/sheets");
+const { buildTcSupportRows } = require("./lib/tcsupport");
+
+const KINDS = ["table", "tclist", "tcSupport"];
+const REQUIRED_FIELDS = {
+  table: ["name", "tableUrl", "sheetId", "tabName"],
+  tclist: ["name", "tclistUrl", "tclistEvent", "sheetId", "tabName"],
+  tcSupport: ["name", "activeTcUrl", "tclistUrl", "tclistEvent", "sheetId", "tabName"],
+};
 
 const APP_URL = process.env.KNACK_APP_URL;
 const USERNAME = process.env.KNACK_USERNAME;
@@ -54,7 +75,11 @@ function loadReleases() {
     throw new Error(`No releases found in ${CONFIG_PATH}`);
   }
   for (const r of releases) {
-    for (const field of ["name", "tableUrl", "sheetId", "tabName"]) {
+    const kind = r.kind || "table";
+    if (!KINDS.includes(kind)) {
+      throw new Error(`Release "${r.name}" has unknown kind "${kind}" (expected one of: ${KINDS.join(", ")})`);
+    }
+    for (const field of REQUIRED_FIELDS[kind]) {
       if (!r[field]) throw new Error(`Release entry missing required field "${field}": ${JSON.stringify(r)}`);
     }
   }
@@ -81,6 +106,44 @@ function loadReleases() {
   }
 
   return filtered;
+}
+
+// Downloads whatever the release's kind needs and returns the rows to upload.
+async function downloadRelease(page, context, release) {
+  const kind = release.kind || "table";
+  const common = { username: USERNAME, password: PASSWORD, debugDir: DEBUG_DIR };
+
+  if (kind === "table") {
+    const outputPath = path.join(__dirname, `${release.name}.csv`);
+    await exportTableCsv(page, context, {
+      ...common,
+      tableUrl: release.tableUrl,
+      tableHeading: release.tableHeading || "Anonymized DUTs",
+      outputPath,
+    });
+    return readCsvRows(outputPath);
+  }
+
+  const tclistPath = path.join(__dirname, `${release.name}-tclist.csv`);
+  await downloadTclistCsv(page, context, {
+    ...common,
+    pageUrl: release.tclistUrl,
+    tclistHeading: release.tclistHeading || "Test Events TCList",
+    event: release.tclistEvent,
+    outputPath: tclistPath,
+  });
+  if (kind === "tclist") {
+    return readCsvRows(tclistPath);
+  }
+
+  const activePath = path.join(__dirname, `${release.name}-active-tcids.csv`);
+  await exportTableCsv(page, context, {
+    ...common,
+    tableUrl: release.activeTcUrl,
+    tableHeading: release.activeTcHeading || "Matter Active TCIDs",
+    outputPath: activePath,
+  });
+  return buildTcSupportRows(readCsvRows(activePath), readCsvRows(tclistPath));
 }
 
 function appendStepSummary(markdown) {
@@ -115,22 +178,14 @@ async function main() {
     }
 
     for (const release of releases) {
-      const csvPath = path.join(__dirname, `${release.name}.csv`);
       console.log(`\n=== ${release.name} ===`);
-      const detail = { name: release.name, type: release.type || "registration" };
+      const detail = { name: release.name, type: release.type || "registration", optional: !!release.optional };
       try {
-        await exportTableCsv(page, context, {
-          tableUrl: release.tableUrl,
-          tableHeading: release.tableHeading || "Anonymized DUTs",
-          username: USERNAME,
-          password: PASSWORD,
-          outputPath: csvPath,
-          debugDir: DEBUG_DIR,
-        });
+        const rows = await downloadRelease(page, context, release);
         detail.downloadOk = true;
 
-        const uploadResult = await uploadCsvToSheet({
-          csvPath,
+        const uploadResult = await uploadRowsToSheet({
+          rows,
           sheetId: release.sheetId,
           tabName: release.tabName,
           serviceAccountJson: SERVICE_ACCOUNT_JSON,
@@ -140,8 +195,8 @@ async function main() {
         detail.tabWasCreated = uploadResult.tabWasCreated;
         detail.status = "ok";
       } catch (err) {
-        console.error(`Failed to sync "${release.name}":`, err.message);
-        detail.status = "failed";
+        console.error(`${release.optional ? "Skipped optional" : "Failed to sync"} "${release.name}":`, err.message);
+        detail.status = release.optional ? "warning" : "failed";
         detail.error = err.message;
       }
       results.push(detail);
@@ -152,7 +207,8 @@ async function main() {
 
   console.log("\n=== Summary ===");
   for (const r of results) {
-    console.log(`${r.status === "ok" ? "✔" : "✘"} ${r.name}${r.error ? ` — ${r.error}` : ""}`);
+    const mark = { ok: "✔", warning: "⚠" }[r.status] || "✘";
+    console.log(`${mark} ${r.name}${r.error ? ` — ${r.error}` : ""}`);
   }
 
   // Write a GitHub Actions step summary so the run's summary page shows a
@@ -167,15 +223,16 @@ async function main() {
     "|---|---|---|---|---|---|",
   ];
   for (const r of results) {
-    const downloadCell = r.downloadOk ? "✅" : "❌";
-    const importCell = r.uploadOk ? "✅" : "❌";
+    const failCell = r.status === "warning" ? "⚠️" : "❌";
+    const downloadCell = r.downloadOk ? "✅" : failCell;
+    const importCell = r.uploadOk ? "✅" : failCell;
     const rowsCell = r.status === "ok" ? `${r.rowCount} data row${r.rowCount === 1 ? "" : "s"}` : "—";
     const tabCell = r.status === "ok" ? (r.tabWasCreated ? "created" : "updated") : (r.error || "failed");
     summaryLines.push(`| ${r.name} | ${r.type} | ${downloadCell} | ${importCell} | ${rowsCell} | ${tabCell} |`);
   }
   appendStepSummary(summaryLines.join("\n"));
 
-  if (results.some((r) => r.status !== "ok")) {
+  if (results.some((r) => r.status === "failed")) {
     process.exit(1);
   }
 }

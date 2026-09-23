@@ -1,8 +1,9 @@
 /**
  * lib/sheets.js
  *
- * Reusable helper: parse a CSV and write it into a specific Google Sheet tab,
- * creating the tab if it doesn't exist and clearing old content first.
+ * Reusable helpers: parse a CSV and write it (or any row list) into a
+ * specific Google Sheet tab, creating the tab if it doesn't exist and
+ * clearing old content first.
  */
 
 const fs = require("fs");
@@ -31,7 +32,12 @@ function getAuth(serviceAccountJson) {
   return cachedAuth;
 }
 
-async function uploadCsvToSheet({ csvPath, sheetId, tabName, serviceAccountJson }) {
+/**
+ * Reads a CSV into an array of rows. Knack table exports are comma-separated,
+ * but generated files like tclist_matter*.csv use ";" — the delimiter is
+ * picked from whichever appears more often in the header line.
+ */
+function readCsvRows(csvPath) {
   if (!fs.existsSync(csvPath)) {
     throw new Error(`CSV not found at ${csvPath}`);
   }
@@ -39,10 +45,21 @@ async function uploadCsvToSheet({ csvPath, sheetId, tabName, serviceAccountJson 
   let csvContent = fs.readFileSync(csvPath, "utf8");
   // Knack's CSV export includes a UTF-8 BOM, which breaks csv-parse's quote
   // detection on the first field if left in place.
-  csvContent = csvContent.replace(/^\uFEFF/, "");
-  const rows = parse(csvContent, { skip_empty_lines: false, relax_column_count: true });
-  console.log(`Parsed ${rows.length} rows (including header) from ${csvPath}.`);
+  csvContent = csvContent.replace(/^﻿/, "");
+  const headerLine = csvContent.split(/\r?\n/, 1)[0];
+  const count = (ch) => headerLine.split(ch).length - 1;
+  const delimiter = count(";") > count(",") ? ";" : ",";
 
+  return parse(csvContent, { delimiter, skip_empty_lines: false, relax_column_count: true });
+}
+
+// A1 notation needs the tab name quoted (with ' doubled) when it contains
+// spaces/punctuation or could be mistaken for a cell reference.
+function quoteTab(tabName) {
+  return `'${tabName.replace(/'/g, "''")}'`;
+}
+
+async function uploadRowsToSheet({ rows, sheetId, tabName, serviceAccountJson }) {
   const auth = getAuth(serviceAccountJson);
   const sheets = google.sheets({ version: "v4", auth });
 
@@ -57,10 +74,10 @@ async function uploadCsvToSheet({ csvPath, sheetId, tabName, serviceAccountJson 
     });
   }
 
-  await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: `${tabName}` });
+  await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: quoteTab(tabName) });
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
-    range: `${tabName}!A1`,
+    range: `${quoteTab(tabName)}!A1`,
     valueInputOption: "RAW",
     requestBody: { values: rows },
   });
@@ -74,4 +91,10 @@ async function uploadCsvToSheet({ csvPath, sheetId, tabName, serviceAccountJson 
   };
 }
 
-module.exports = { uploadCsvToSheet };
+async function uploadCsvToSheet({ csvPath, sheetId, tabName, serviceAccountJson }) {
+  const rows = readCsvRows(csvPath);
+  console.log(`Parsed ${rows.length} rows (including header) from ${csvPath}.`);
+  return uploadRowsToSheet({ rows, sheetId, tabName, serviceAccountJson });
+}
+
+module.exports = { readCsvRows, uploadRowsToSheet, uploadCsvToSheet };

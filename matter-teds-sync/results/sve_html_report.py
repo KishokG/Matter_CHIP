@@ -94,6 +94,7 @@ def generate_html_report(
         except: return None
 
     ci_tc    = ci("Test Case Name")
+    ci_sup   = ci("Total number of supporting DUT")
     ci_pass  = ci("Pass Count")
     ci_th    = ci("Can TH run be counted?")
     ci_fail  = ci("Fail Count")
@@ -146,7 +147,7 @@ def generate_html_report(
             tc = g(row, ci_tc)
             if tc in PLACEHOLDERS:
                 parts.append(
-                    '<tr class="placeholder-row"><td colspan="10">' + tc + '</td></tr>'
+                    '<tr class="placeholder-row"><td colspan="11">' + tc + '</td></tr>'
                 )
                 continue
             th_display = g(row, ci_th)
@@ -155,6 +156,7 @@ def generate_html_report(
             parts.append(
                 "<tr>"
                 + '<td class="tc-name">'    + tc                                        + "</td>"
+                + '<td class="num">'         + g(row, ci_sup)                            + "</td>"
                 + '<td class="num">'         + g(row, ci_pass)                           + "</td>"
                 + '<td class="num th-col">'  + th_display                                + "</td>"
                 + '<td class="num">'         + g(row, ci_fail)                           + "</td>"
@@ -184,20 +186,21 @@ def generate_html_report(
         out += '<table class="data-table">\n'
         out += (
             "<colgroup>"
-            '<col style="width:30%"/>'
+            '<col style="width:26%"/>'
+            '<col style="width:7%"/>'
             '<col style="width:5%"/>'
             '<col style="width:4%"/>'
             '<col style="width:5%"/>'
             '<col style="width:6%"/>'
             '<col style="width:6%"/>'
             '<col style="width:6%"/>'
-            '<col style="width:14%"/>'
-            '<col style="width:10%"/>'
-            '<col style="width:14%"/>'
+            '<col style="width:13%"/>'
+            '<col style="width:9%"/>'
+            '<col style="width:13%"/>'
             "</colgroup>"
         )
         out += "<thead><tr>"
-        for th in ["Test Case", "Pass", "TH", "Fail", "Not Tested",
+        for th in ["Test Case", "Supporting DUTs", "Pass", "TH", "Fail", "Not Tested",
                    "Runs Req", "Final Runs", "Status", "Type", "Comments"]:
             extra = ' class="tc-name-h"' if th == "Test Case" else (
                     ' class="th-col"'    if th == "TH"          else "")
@@ -368,13 +371,13 @@ def generate_html_report(
         "    });",
         "});",
         "function exportCSV() {",
-        "    var cols = ['Test Case','Pass','TH','Fail','Not Tested','Runs Req','Final Runs','Status','Type','Comments'];",
+        "    var cols = ['Test Case','Supporting DUTs','Pass','TH','Fail','Not Tested','Runs Req','Final Runs','Status','Type','Comments'];",
         "    var rows = [cols.join(',')];",
         "    document.querySelectorAll('.data-table tbody tr:not(.placeholder-row):not(.hidden)').forEach(function(tr) {",
         "        var cells = Array.from(tr.querySelectorAll('td')).map(function(td) {",
         "            return '\"' + td.textContent.trim().replace(/\"/g, '\"\"') + '\"';",
         "        });",
-        "        if (cells.length >= 10) rows.push(cells.join(','));",
+        "        if (cells.length >= 11) rows.push(cells.join(','));",
         "    });",
         "    var blob = new Blob([rows.join('\\n')], {type: 'text/csv'});",
         "    var a = document.createElement('a');",
@@ -429,6 +432,7 @@ def generate_html_report(
         '    <div class="legend-col">',
         '      <h4>Column Descriptions</h4>',
         '      <table class="legend-table">',
+        '        <tr><td>Supporting DUTs</td><td>Number of DUTs registered for the event whose PICS indicate support for this test case</td></tr>',
         '        <tr><td>Pass</td><td>Number of unique companies that successfully passed this test case with at least one device</td></tr>',
         '        <tr><td>TH</td><td>An additional pass credited from a Test Harness run (1 = counted, 0 or blank = not counted)</td></tr>',
         '        <tr><td>Fail</td><td>Number of unique companies where at least one device failed this test case</td></tr>',

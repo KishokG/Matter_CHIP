@@ -5,8 +5,8 @@
   "description": "Downloads a CSV export from the Matter TEDS Knack tool and pushes it into a Google Sheet",
   "type": "commonjs",
   "dependencies": {
-    "playwright": "^1.47.0",
-    "googleapis": "^140.0.1",
-    "csv-parse": "^5.5.6"
+    "csv-parse": "^7.0.2",
+    "googleapis": "^181.0.0",
+    "playwright": "^1.47.0"
   }
 }

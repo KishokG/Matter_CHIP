@@ -164,7 +164,7 @@ def apply_purple_for_sections(sheet, spreadsheet):
                             "startRowIndex": i,
                             "endRowIndex": i + 1,
                             "startColumnIndex": 0,
-                            "endColumnIndex": 14  # Extended to cover new Comments column
+                            "endColumnIndex": len(data[0]) if data else 1
                         },
                         "cell": {
                             "userEnteredFormat": {
@@ -665,6 +665,38 @@ def apply_column_alignments(sheet, spreadsheet):
     except Exception as e:
         print(f"⚠️ Warning: Could not apply column alignments: {e}")
         
+def read_supporting_dut_counts(spreadsheet, tab_name):
+    """
+    Read the TCList tab (tcid | description | count | dutids — the event's
+    "Test Events TCList" CSV synced from TEDS) into
+    { "TC-XXX-1.1": number of DUTs whose PICS support it }.
+    Returns None if the tab isn't configured or can't be found, so the
+    column is left blank rather than showing misleading zeros.
+    """
+    if not tab_name:
+        print("⚠️ Warning: 'picsTcSheet' not configured — 'Total number of supporting DUT' will be blank.")
+        return None
+    try:
+        data = spreadsheet.worksheet(tab_name).get_all_values()
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"⚠️ Warning: TCList tab '{tab_name}' not found — 'Total number of supporting DUT' will be blank.")
+        return None
+    if not data:
+        return {}
+    header = [h.strip().lower() for h in data[0]]
+    tcid_idx = header.index("tcid") if "tcid" in header else 0
+    count_idx = header.index("count") if "count" in header else 2
+    counts = {}
+    for row in data[1:]:
+        if len(row) <= max(tcid_idx, count_idx):
+            continue
+        tcid = row[tcid_idx].strip()
+        if tcid:
+            counts[tcid] = safe_int(row[count_idx], default=0)
+    print(f"📋 Loaded supporting-DUT counts for {len(counts)} test cases from '{tab_name}'.")
+    return counts
+
+
 def safe_int(value, default=0):
     """Safely convert a string to int, returning default if blank or invalid."""
     try:
@@ -681,6 +713,7 @@ def run_analysis(cfg, client):
     master_tc_sheet = cfg["masterTcSheet"]
     summary_sheet_name = cfg["summarySheetName"]
     delta_sheet_name = cfg["deltaSheetName"]
+    pics_tc_sheet = cfg.get("picsTcSheet", "")
     report_title = cfg.get("reportTitle", "SVE Results Summary")
     report_subtitle = cfg.get("reportSubtitle", "")
 
@@ -704,7 +737,7 @@ def run_analysis(cfg, client):
         existing_comments = read_existing_comments(summary_ws)
         clear_backgrounds_except_header(summary_ws)
     except gspread.exceptions.WorksheetNotFound:
-        summary_ws = spreadsheet.add_worksheet(title=summary_sheet_name, rows=2000, cols=10)
+        summary_ws = spreadsheet.add_worksheet(title=summary_sheet_name, rows=2000, cols=15)
         old_summary_data = {}
         existing_comments = {}
 
@@ -721,6 +754,7 @@ def run_analysis(cfg, client):
     #   C: Can TH run be counted?          (0/1/blank; blank = 0)
     #   D: Number of runs in previous SVE  (integer, 0+; blank = 0)
     #   E: New/Legacy                      (text value passed through as-is)
+    #   F: Matter Focus Area
     # ─────────────────────────────────────────────────────────────────────────
     tc_list_ws = spreadsheet.worksheet(master_tc_sheet)
     tc_raw = tc_list_ws.get_all_values()
@@ -753,6 +787,10 @@ def run_analysis(cfg, client):
         matter_focus_area_map[tcid] = matter_focus_area
 
     print(f"📋 Loaded {len(all_test_cases)} test cases from master list.")
+
+    # Only the master-list TCs are looked up, so TCList entries for TCs that
+    # aren't active for this event are ignored.
+    supporting_duts = read_supporting_dut_counts(spreadsheet, pics_tc_sheet)
 
     results_ws = spreadsheet.worksheet(source_sheet_name)
     rows = results_ws.get_all_values()[1:]  # Skip header
@@ -821,11 +859,12 @@ def run_analysis(cfg, client):
 
     # ── Build final summary ───────────────────────────────────────────────────
     # Columns:
-    #   Test Case Name | Pass Count | TH Run Count | Fail Count | Not Tested Count | Total |
+    #   Matter Focus Area | Test Case ID | Test Case Name | Total number of supporting DUT |
+    #   Pass Count | TH Run Count | Fail Count | Not Tested Count | Total |
     #   Total Pass+Fail | Number of runs required | Final # runs required | Certification Status | New/Legacy | Comments
     # ─────────────────────────────────────────────────────────────────────────
     output_data = [[
-        "Matter Focus Area", "Test Case ID", "Test Case Name", "Pass Count", "Can TH run be counted?", "Fail Count", "Not Tested Count",
+        "Matter Focus Area", "Test Case ID", "Test Case Name", "Total number of supporting DUT", "Pass Count", "Can TH run be counted?", "Fail Count", "Not Tested Count",
         "Total", "Total Pass+Fail", "Number of runs required",
         "Final # runs required", "Certification Status", "New/Legacy", "Comments"
     ]]
@@ -860,11 +899,14 @@ def run_analysis(cfg, client):
 
         _m = _re.search(r'\[(TC-[^\]]+)\]', tc)
         tc_id = _m.group(1) if _m else ""
+        # TCs missing from the TCList have no DUT declaring PICS support → 0.
+        supporting = "" if supporting_duts is None else supporting_duts.get(tc_id, 0)
 
         row = [
             matter_focus_area_map.get(tc, ""),
             tc_id,
             tc,
+            supporting,          # Total number of supporting DUT (from PICS)
             counts["Pass"],
             th_run,              # TH Run Count — shown separately
             counts["Fail"],

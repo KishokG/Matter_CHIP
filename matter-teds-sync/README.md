@@ -64,6 +64,25 @@ Each entry looks like:
 
 Add as many entries as you like — one per release/table. `sheetId`/`tabName` can point to the same sheet with different tabs, or entirely different sheets.
 
+#### Entry kinds
+An optional `"kind"` on each entry picks what gets downloaded:
+
+| `kind` | Downloads | Writes to `tabName` | Fields |
+|---|---|---|---|
+| `table` (default) | The table under `tableHeading` at `tableUrl` (Export → CSV) | The CSV as-is | `tableUrl`, `tableHeading` |
+| `tclist` | The TCList CSV for `tclistEvent` (the row whose Event column matches exactly, e.g. `Matter 1.6.1 MVE`) from the "Test Events TCList" table at `tclistUrl` | The file as-is: `tcid`, `description`, `count`, `dutids` | `tclistUrl`, `tclistEvent`, optional `tclistHeading` |
+| `tcSupport` | The "Matter Active TCIDs" table at `activeTcUrl`, **and** the TCList CSV for `tclistEvent` (the row whose Event column matches exactly, e.g. `Matter 1.7 TE#2`) from the "Test Events TCList" table at `tclistUrl` | Two columns: `TC ID`, `Number of DUTs supported` — only active TCIDs; TCs with no PICS support get 0 | `activeTcUrl`, `tclistUrl`, `tclistEvent`, optional `activeTcHeading` / `tclistHeading` |
+
+`"optional": true` reports an entry's failure as ⚠️ in the summary without failing the run.
+
+The registration stage uses `tcSupport` to build the supporting-DUT tab
+(active TCIDs from TEDS). The results stage uses `tclist` to download the
+event's TCList into the results sheet, and the analysis entry's
+`picsTcSheet` points at that tab: the summary's **Total number of
+supporting DUT** column (placed before **Pass Count**) is looked up for the
+`masterTcSheet` test cases only. TCs missing from the TCList get 0; if the
+tab itself is missing, the column is left blank, with a warning.
+
 ### 3. Share every target Sheet with the service account
 Open the service account JSON, copy the `client_email` value, and share each
 Google Sheet referenced in `config/releases.json` with that email as an
