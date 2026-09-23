@@ -48,14 +48,8 @@ real spreadsheet.
    ```bash
    python generate_report.py --spreadsheet-id 1AbCDeFGhijkLMNoPQRstuVWxyz
    ```
-6. Each run writes a new timestamped file under `reports/`, e.g.
-   `reports/validation_report_2026-09-21_13-26-12.html`, so previous runs
-   are never overwritten. `reports/latest.html` is also refreshed every run
-   as a stable link to the newest one. It also tries to open your browser
-   automatically on the file it just wrote; pass `--no-open` to skip that.
-   Use `--reports-dir somewhere-else` to change the history folder, or
-   `--output exact/path.html` to skip the history folder entirely and write
-   to one fixed file (this is what `demo_with_sample_data.py` does).
+6. Open the `validation_report.html` it writes (it also tries to open your
+   browser automatically; pass `--no-open` to skip that).
 
 ## Adjusting the rules
 
