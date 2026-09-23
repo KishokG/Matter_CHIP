@@ -85,12 +85,39 @@ STANDARD_EXECUTION_ARGS_EXEMPT_FROM_D_F_CROSS_CHECK = {
     "discriminator",
     "passcode",
     "storage-path",
+    # Short-flag spellings of the same standard connection args (some rows
+    # use "-m -n -p -d" instead of the long form): -d discriminator,
+    # -m commissioning-method, -n node ID (never has a D-column concept at
+    # all), -p passcode.
+    "d",
+    "m",
+    "n",
+    "p",
     # Several test cases share one generic script (e.g. TC_AccessChecker.py)
-    # and column F picks the specific test with --tests/--tests-list; the
-    # Test Harness handles this itself, so it's never something column D
-    # needs to also list.
+    # and column F picks the specific test with --tests/--tests-list, or a
+    # fixed --manual-code; the Test Harness handles this itself, so it's
+    # never something column D needs to also list.
     "tests",
     "tests-list",
+    "manual-code",
+    # Device/commissioning setup flags the Test Harness (TH) handles on its
+    # own - never product-specific "arguments for UI execution", so they
+    # never belong in column D.
+    "enable-key",
+    "wifi-passphrase",
+    "wifi-ssid",
+    "app-pipe",
+    # The TH falls back to discriminator/passcode when no QR code is given,
+    # so this is never a required column-D argument either.
+    "qr-code",
+    # A same-meaning alternate spelling of --commissioning-method seen on a
+    # few rows.
+    "in-test-commissioning-method",
+    # Thread border-router setup details the Test Harness (TH) handles on
+    # its own - never something column D needs to declare.
+    "thread-dataset-hex",
+    "thread-ba-host",
+    "thread-ba-port",
 }
 
 # Accepted spellings for "the PICS folder" flag in column G, checked when
@@ -100,6 +127,13 @@ PICS_FLAG_ALIASES_IN_G = {"p", "pics-config-folder"}
 # Accepted spellings for "use this config file" in column G, checked when
 # column D has real arguments (i.e. does not contain NO_ARGS_NOTE).
 CONFIG_FLAG_ALIASES_IN_G = {"c", "config"}
+
+# Text from a line starting with this word (case-insensitive) onward is
+# documentation/guidance for humans, not part of the actual command - e.g.
+# "Note: for the ble-wifi pairing, add ..." or a whole alternate-platform
+# example command pasted below the real one. Everything after it is ignored
+# when checking arguments, ID presence, spacing, and flags in columns F/G.
+NOTE_MARKER = "note"
 
 # ---------------------------------------------------------------------------
 # Output
