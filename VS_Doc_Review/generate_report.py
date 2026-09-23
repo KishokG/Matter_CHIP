@@ -51,7 +51,8 @@ def load_tab2_rows(args) -> list:
 
 
 def build_report_data(args, tab1_raw_rows: list, tab2_raw_rows: list) -> dict:
-    validated_rows = [validators.validate_tab1_row(row) for row in tab1_raw_rows]
+    known_master_ids = validators.get_tab2_ids(tab2_raw_rows)
+    validated_rows = [validators.validate_tab1_row(row, known_master_ids) for row in tab1_raw_rows]
     cross = validators.cross_check(validated_rows, tab2_raw_rows)
 
     total_issues = sum(len(r["issues"]) for r in validated_rows)
