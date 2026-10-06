@@ -24,13 +24,13 @@
       "tabName": "Matter_1.6.1_TC_Support"
     },
     {
-      "name": "matter-1.6.1-mve-results",
+      "name": "matter-1.7-te2-results",
       "type": "results",
-      "description": "Anonymized Matter Test Results — feeds the 1.6.1_MVE_Results tab used by analysis/TEDS_results.py",
-      "tableUrl": "https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds#teds-for-matter/my-test-events7/view-test-event-registration-details/6a43593cb69ac5ee0bfbe232/?view_2250_filters=%5B%5D:~:text=Anonymized%20Matter%20Test%20Results",
+      "description": "Anonymized Matter Test Results — feeds the 1.7_TE2_Results tab used by analysis/TEDS_results.py",
+      "tableUrl": "https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds#teds-for-matter/my-test-events7/view-test-event-registration-details/6a8ff906d749ebe7ff3180f0/?view_2250_filters=%5B%5D:~:text=Anonymized%20Matter%20Test%20Results",
       "tableHeading": "Anonymized Matter Test Results",
       "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
-      "tabName": "1.6.1_MVE_Results"
+      "tabName": "1.7_TE2_Results"
     },
     {
       "name": "matter-1.6.1-mve-tclist",
@@ -46,15 +46,15 @@
   ],
   "analyses": [
     {
-      "name": "matter-1.6.1-mve",
+      "name": "matter-1.7-te2",
       "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
-      "sourceSheetName": "1.6.1_MVE_Results",
-      "masterTcSheet": "1.6.1_MVE_TC_List",
-      "picsTcSheet": "1.6.1_MVE_TCList",
-      "summarySheetName": "1.6.1_Summary_sample",
+      "sourceSheetName": "1.7_TE2_Results",
+      "masterTcSheet": "1.7_TE2_TC_List",
+      "picsTcSheet": "1.7_TE2_TCList_PICS",
+      "summarySheetName": "1.7_TE2_Summary",
       "deltaSheetName": "Summary Changes",
-      "reportTitle": "MVE Results Summary",
-      "reportSubtitle": "Matter 1.6.1",
+      "reportTitle": "TE2 Results Summary",
+      "reportSubtitle": "Matter 1.7 TE2",
       "columns": {
         "companyId": 3,
         "dutId": 4,
