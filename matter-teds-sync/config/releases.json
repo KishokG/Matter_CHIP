@@ -10,20 +10,6 @@
       "tabName": "Matter_1.7_reg_data"
     },
     {
-      "name": "matter-1.6.1-tc-support",
-      "type": "registration",
-      "kind": "tcSupport",
-      "optional": true,
-      "description": "Matter 1.6.1 MVE - active TCIDs with the number of DUTs whose PICS support each (Matter Active TCIDs + tclist_matter file)",
-      "activeTcUrl": "https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds#teds-for-matter/my-test-events7/view-test-event-registration-details/6a43593cb69ac5ee0bfbe232/?view_2250_filters=%5B%5D:~:text=Matter%20Active%20TCIDs",
-      "activeTcHeading": "Matter Active TCIDs",
-      "tclistUrl": "https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds#teds-for-matter/my-test-events7/view-test-event-registration-details/6a43593cb69ac5ee0bfbe232/?view_2250_filters=%5B%5D:~:text=Anonymized%20TCLists",
-      "tclistHeading": "Test Events TCList",
-      "tclistEvent": "Matter 1.6.1 MVE",
-      "sheetId": "171Wwn6JCx_zWum9oLiEO_4GCDVKiYsN2cAcr6ubsp5c",
-      "tabName": "Matter_1.6.1_TC_Support"
-    },
-    {
       "name": "matter-1.7-te2-results",
       "type": "results",
       "description": "Anonymized Matter Test Results — feeds the 1.7_TE2_Results tab used by analysis/TEDS_results.py",
@@ -32,17 +18,6 @@
       "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
       "tabName": "1.7_TE2_Results"
     },
-    {
-      "name": "matter-1.6.1-mve-tclist",
-      "type": "results",
-      "kind": "tclist",
-      "description": "Matter 1.6.1 MVE TCList (PICS-based supporting-DUT count per TC) — feeds picsTcSheet in results/TEDS_results.py",
-      "tclistUrl": "https://zigbeecertifiedproducts.knack.com/test-event-data-stockpile-teds#teds-for-matter/my-test-events7/view-test-event-registration-details/6a43593cb69ac5ee0bfbe232/?view_2250_filters=%5B%5D:~:text=Anonymized%20TCLists",
-      "tclistHeading": "Test Events TCList",
-      "tclistEvent": "Matter 1.6.1 MVE",
-      "sheetId": "1kRAZQ8JJmbD6b0w3Mw9SUwXF2RPZO_i_NBq2HxGUI30",
-      "tabName": "1.6.1_MVE_TCList"
-    }
   ],
   "analyses": [
     {
