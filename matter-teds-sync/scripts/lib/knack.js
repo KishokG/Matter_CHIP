@@ -5,8 +5,6 @@
  * tables (by URL + heading) within that same authenticated session.
  */
 
-const fs = require("fs");
-
 async function loginIfPresent(page, { username, password }) {
   const emailField = page.locator(
     'input[type="email"], input[name*="email" i], input[id*="email" i], input[name*="username" i]'
@@ -132,93 +130,4 @@ async function exportTableCsv(page, context, { tableUrl, tableHeading, username,
   console.log(`CSV saved to ${outputPath}`);
 }
 
-function looksLikeTclist(buffer) {
-  const head = buffer.slice(0, 200).toString("utf8").replace(/^\uFEFF/, "").trim().toLowerCase();
-  return head.startsWith("tcid");
-}
-
-/**
- * Downloads the TCList CSV for one event from the "Test Events TCList"
- * table (columns: Event | TCList CSV | TCList JSON), saving to outputPath.
- * The row is picked by an exact match on the Event cell, so it keeps
- * working when the record-id part of the filename changes.
- */
-async function downloadTclistCsv(page, context, { pageUrl, tclistHeading, event, username, password, outputPath, debugDir }) {
-  console.log(`Navigating to ${pageUrl}`);
-  await gotoWithLogin(page, pageUrl, { username, password });
-
-  const fail = async (message) => {
-    if (debugDir) {
-      await page.screenshot({ path: `${debugDir}/debug-tclist.png`, fullPage: true }).catch(() => {});
-    }
-    throw new Error(message);
-  };
-
-  console.log(`Looking for the "${event}" row in the "${tclistHeading}" table...`);
-  const heading = page.locator(`:text-is("${tclistHeading}")`).first();
-  await heading.waitFor({ state: "visible", timeout: 30000 }).catch(() => {});
-  if (!(await heading.isVisible().catch(() => false))) {
-    await fail(`Heading "${tclistHeading}" not found at ${pageUrl}.`);
-  }
-  const table = heading.locator("xpath=following::table[1]");
-  await table.locator("tbody tr").first().waitFor({ state: "visible", timeout: 30000 }).catch(() => {});
-
-  let csvLink = null;
-  const events = [];
-  for (const row of await table.locator("tbody tr").all()) {
-    const rowEvent = (await row.locator("td").first().innerText().catch(() => "")).trim();
-    events.push(rowEvent);
-    if (rowEvent === event) {
-      csvLink = row.locator("a").filter({ hasText: /\.csv\s*$/i }).first();
-      break;
-    }
-  }
-  if (!csvLink || !(await csvLink.count())) {
-    await fail(`No TCList CSV for event "${event}" in "${tclistHeading}". Events listed: ${events.join(", ") || "none"}.`);
-  }
-  const fileName = (await csvLink.innerText()).trim();
-  console.log(`Found ${fileName}`);
-
-  // The link's href points at the stored file, so try fetching it within the
-  // logged-in context first; clicking only opens Knack's file preview.
-  const href = await csvLink.getAttribute("href");
-  if (href && /^https?:|^\//.test(href)) {
-    const response = await context.request.get(new URL(href, page.url()).toString()).catch(() => null);
-    const body = response && response.ok() ? await response.body() : null;
-    if (body && looksLikeTclist(body)) {
-      fs.writeFileSync(outputPath, body);
-      console.log(`${fileName} saved to ${outputPath}`);
-      return;
-    }
-    console.log("Direct fetch of the link didn't return the CSV — using the file preview's Download button.");
-  }
-
-  // Fallback: the click may download straight away, or open the preview
-  // whose "Download" button does.
-  let download = await (async () => {
-    const pending = waitForAnyDownload(page, context, 10000);
-    await csvLink.click();
-    return pending;
-  })();
-  if (!download) {
-    const downloadButton = page
-      .locator('a:has-text("Download"), button:has-text("Download")')
-      .filter({ hasNotText: fileName })
-      .last();
-    if (await downloadButton.isVisible().catch(() => false)) {
-      const pending = waitForAnyDownload(page, context, 20000);
-      await downloadButton.click();
-      download = await pending;
-    }
-  }
-  if (!download) {
-    await fail(`Could not download ${fileName} for event "${event}".`);
-  }
-  await download.saveAs(outputPath);
-  if (!looksLikeTclist(fs.readFileSync(outputPath))) {
-    await fail(`${fileName} was downloaded but doesn't look like a TCList CSV (expected a "tcid" header).`);
-  }
-  console.log(`${fileName} saved to ${outputPath}`);
-}
-
-module.exports = { loginToKnack, exportTableCsv, downloadTclistCsv };
+module.exports = { loginToKnack, exportTableCsv };
