@@ -211,7 +211,66 @@ Exit monitor: `Ctrl+]`
 
 ## 6. Changing the Discriminator (12-bit vs 4-bit test cases)
 
-> Runtime UART config is **not supported** (confirmed by Espressif). Must be set at build time.
+The device has a **12-bit long discriminator**. The **short (4-bit) discriminator** is just
+its top 4 bits: `short = long >> 8`.
+
+- A **QR code** carries the full long discriminator, so commissioning with a QR code
+  always uses the long path.
+- A **manual pairing code** carries only the short discriminator, so commissioning with a
+  manual code uses the short path.
+- To get a short discriminator of `N`, set the long discriminator to `N << 8`
+  (for example short `0xA` needs long `0xA00`, **not** `0xA`).
+
+| Long discriminator | Short | QR code (passcode 20202021) | Manual pairing code |
+|---|---|---|---|
+| `10` (`0x00A`) | `0x0` | `MT:-24J0YX852ZZ.548G00` | `00054912336` |
+| `2560` (`0xA00`) | `0xA` | `MT:-24J0I9U40C60648G00` | `23331712339` |
+| `3840` (`0xF00`, default) | `0xF` | `MT:-24J0I9U40KA0648G00` | `34970112332` |
+| `3857` (`0xF11`) | `0xF` | `MT:-24J0QL051MA0648G00` | `34970112332` |
+
+All codes above use VID `0xFFF1`, PID `0x8001`, passcode `20202021` and the Thread
+rendezvous capability. Note that `0xF00` and `0xF11` share a manual code, because
+they have the same short discriminator.
+
+### Option 1 (easy, recommended): change it at runtime from the device shell
+
+No rebuild or reflash needed.
+
+**1. Open the device console:**
+```bash
+sudo minicom -D /dev/ttyUSB0 -b 115200
+```
+Exit minicom with `Ctrl+A`, then `X`.
+
+**2. Set the discriminator** (decimal value, 12-bit):
+```
+matter config discriminator 10
+```
+
+**3. Confirm:**
+```
+matter config
+```
+Expected output (the discriminator is shown in hex):
+```
+VendorId:        65521 (0xFFF1)
+ProductId:       32769 (0x8001)
+HardwareVersion: 0 (0x0)
+PinCode:         20202021
+Discriminator:   00a
+Done
+```
+
+**4. Use the matching code from the table above.** The QR and manual codes printed in
+the boot log may still show the old values, so do not rely on them after a runtime
+change.
+
+> **Always re-run `matter config` before a test run**, especially after a reboot,
+> factory reset or reflash. If the discriminator is back to the default, set it again.
+
+### Option 2 (advanced): set it at build time
+
+Use this if the runtime command is not available on your firmware.
 
 **1. Create `main/CHIPProjectConfig.h`:**
 ```bash
@@ -225,7 +284,8 @@ Add:
 ```
 Save: `Ctrl+O`, Enter, then exit: `Ctrl+X`.
 
-`0xF11` = 12-bit test case, `0xA` = 4-bit test case.
+The value is the **12-bit long discriminator**. `0xF11` is a 12-bit test case (short `0xF`);
+for a 4-bit test case use `short << 8`, e.g. `0xA00` for short `0xA`.
 
 **2. Add this line to `sdkconfig.defaults.esp32h2.tc`** (one-time):
 ```bash
@@ -300,6 +360,9 @@ python3 TC_SC_TC_2_1.py \
   --no-wildcard-subscription
 ```
 
+`--discriminator` must equal the DUT's long (12-bit) discriminator. Check it with
+`matter config` on the device console (Section 6).
+
 ---
 
 ## 10. Commissioning Commands
@@ -309,6 +372,9 @@ python3 TC_SC_TC_2_1.py \
 ./out/chip-tool/chip-tool pairing thread-meshcop <node-id> \
   hex:<dataset-hex> <manual-pairing-code> \
   --thread-ba-host <pi-ip> --thread-ba-port <port>
+
+# (use a QR code, e.g. MT:-24J0YX852ZZ.548G00, in place of the manual code to take the
+#  long-discriminator path; a manual code takes the short-discriminator path. See Section 6)
 
 # BLE-then-Thread (simpler, uses discriminator + passcode)
 ./out/chip-tool/chip-tool pairing ble-thread <node-id> \
@@ -332,8 +398,9 @@ python3 TC_SC_TC_2_1.py \
 | Thread MeshCoP not working on ESP-IDF | Confirm you're on v5.5.5 or later, not v5.5.1 |
 | DUT jumps straight to `leader`/`router` / logs "Fabric index... retrieved from storage" on boot despite reflashing | Device is still commissioned from a previous run — a reboot or reset-button press does NOT clear this. Run `matter device factoryreset` via UART (`sudo minicom -D /dev/ttyUSB0 -b 115200`), or do a full `idf.py -p <port> erase-flash` |
 | Pressing the board's reset/EN button doesn't un-commission the device | Expected — the reset button only reboots the CPU, it never touches NVS. Use `matter device factoryreset` via UART or `erase-flash` instead |
-| `config discriminator` via UART fails with `Error: <number>` (both get and set) | Not supported on this platform — confirmed by Espressif. Use the build-time `CHIPProjectConfig.h` method instead (Section 6) |
+| `config discriminator` via UART fails with `Error: <number>` | Use the full command with the `matter` prefix: `matter config discriminator <value>` (Section 6, Option 1). If it still fails, use the build-time method (Section 6, Option 2) |
 | `CONFIG_CHIP_...` line added to `sdkconfig.defaults.*` has no effect | The discriminator macro is not a Kconfig symbol — it can't be set directly in a defaults file. It must go in `CHIPProjectConfig.h`; the defaults file only needs the one `CONFIG_CHIP_PROJECT_CONFIG="main/CHIPProjectConfig.h"` line pointing to it |
 | `idf.py menuconfig` arrow keys print `^[OB` / navigation doesn't work over SSH | Terminal escape-sequence mismatch — skip menuconfig, set values directly via `idf.py -D CONFIG_X=Y build`, or add the line manually to the sdkconfig defaults file with a text editor |
 | `idf.py erase-flash`/`build` fails with `ModuleNotFoundError: No module named 'python_path'` / CMake `chip_codegen.cmake` error | Matter environment not sourced in this shell — run `source esp-idf/export.sh` then `source connectedhomeip/scripts/activate.sh`, in that order, in the same terminal, before running `idf.py` |
 | `esptool`/`idf.py` fails with "device reports readiness to read but returned no data (device disconnected or multiple access on port?)" | Another process (commonly a leftover `minicom`/`screen` session) still has the serial port open — check with `sudo lsof /dev/ttyUSB0` and kill/close it, then retry |
+| Short-discriminator test uses the wrong value (e.g. set `10` expecting short `0xA`) | The setting takes the 12-bit long value; `short = long >> 8`. For short `0xA` set long `0xA00` (2560). See the table in Section 6 |
