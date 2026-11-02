@@ -183,6 +183,16 @@ def _arg_names(text: str) -> set:
     return {m.group(0).lstrip("-").lower() for m in ARG_TOKEN_RE.finditer(text)}
 
 
+# A quoted value that starts a token, e.g. the 'ed_extra_args:--wifi --wifipaf
+# freq_list=2437' in `--string-arg 'ed_extra_args:--wifi --wifipaf ...'`.
+# Dashes inside it belong to the value, not to the command's own flags.
+_QUOTED_VALUE_RE = re.compile(r"""(?:(?<=\s)|^)(?:'[^']*'|"[^"]*")""")
+
+
+def _without_quoted_values(text: str) -> str:
+    return _QUOTED_VALUE_RE.sub(" ", text)
+
+
 def _d_key_names(text: str) -> set:
     """Bare key names used JSON-style in column D, e.g. "int-arg": ... """
     return {m.group(1).lower() for m in D_KEY_RE.finditer(text)}
@@ -215,7 +225,10 @@ def check_args_match_between_d_and_f(row_cells: Dict[str, str]) -> List[dict]:
     # But an arg F's actual command line uses has to be genuinely declared
     # in D - a mention inside F's own Note/Example doesn't count, so this
     # direction only looks at the real command (Note-stripped).
-    f_args_primary = _arg_names(f_primary_text) - exempt
+    # Quoted values are skipped here: dashes inside them belong to the value.
+    # (Not done for f_args_anywhere above - a Note may legitimately mention
+    # an arg inside quotes, e.g. add " --int-arg x:0 ", and that should count.)
+    f_args_primary = _arg_names(_without_quoted_values(f_primary_text)) - exempt
 
     if not skip_d_not_in_f_check:
         for missing in sorted(d_args - f_args_anywhere):
