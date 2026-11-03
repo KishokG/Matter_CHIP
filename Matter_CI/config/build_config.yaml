@@ -257,7 +257,7 @@ test_execution:
   retry_on_step_failure: 1             # retries if any test step fails
   # PICS file path — used when python command contains --PICS parameter
   # Set to empty string "" to skip PICS injection
-  pics_folder: "/home/ubuntu/Matter_1_6_Final_PICS_XML_For_RPI"    # e.g. "config/pics/all-clusters.yaml"
+  pics_folder: "/home/ubuntu/Matter_1_7_SVE_PICS_XML_For_RPI"    # e.g. "config/pics/all-clusters.yaml"
 
 # ============================================================
 # YAML certification tests (NEW — additive to the Python suite)
@@ -304,7 +304,7 @@ thcli_tests:
   th_cli_dir:       "/home/ubuntu/certification-tool/cli/th_cli"   # run `th-cli` from here
   th_cli_bin:       "th-cli"                                       # on PATH; or absolute path
   apps_dir:         "/home/ubuntu/apps"                            # PREBUILT sample apps (NOT our build)
-  config_dir:       "/home/ubuntu/sample_config_files"            # per-test -c configs (TC-<ID>.json)
+  config_dir:       "/home/ubuntu/Sample_config_files_1.7_SVE"     # per-test -c configs (TC-<ID>.json)
   output_logs_dir:  "/home/ubuntu/certification-tool/cli/th_cli/output_logs"
   default_config:   "default_config.json"                         # -c fallback when no TC-<ID>.json
   # Commissioning params the sample app must advertise on (must match the -c config).
