@@ -250,6 +250,11 @@
     "enabled": false
   },
   {
+    "tc_id": "TC-CNET-4.11",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": false
+  },
+  {
     "tc_id": "TC-CNET-4.12",
     "cluster": "Network Commissioning Cluster",
     "enabled": false
@@ -290,7 +295,17 @@
     "enabled": false
   },
   {
+    "tc_id": "TC-CNET-4.28",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-CNET-4.29",
+    "cluster": "Network Commissioning Cluster",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-CNET-4.30",
     "cluster": "Network Commissioning Cluster",
     "enabled": false
   },
@@ -316,6 +331,26 @@
   },
   {
     "tc_id": "TC-DA-1.9",
+    "cluster": "Device Attestation",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-DA-1.10",
+    "cluster": "Device Attestation",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-DA-1.11",
+    "cluster": "Device Attestation",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-DA-1.12",
+    "cluster": "Device Attestation",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-DA-1.13",
     "cluster": "Device Attestation",
     "enabled": false
   },
@@ -715,6 +750,11 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-OPCREDS-3.9",
+    "cluster": "Node Operational Credentials Cluster",
+    "enabled": false
+  },
+  {
     "tc_id": "TC-OPSTATE-2.1",
     "cluster": "Operational State Cluster Test Plan",
     "enabled": true
@@ -886,6 +926,16 @@
   },
   {
     "tc_id": "TC-SC-4.3",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-4.6",
+    "cluster": "Secure Channel",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-SC-4.7",
     "cluster": "Secure Channel",
     "enabled": true
   },
@@ -1275,6 +1325,11 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-TSTAT-2.3",
+    "cluster": "Thermostat Cluster",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-TSTAT-4.2",
     "cluster": "Thermostat Cluster",
     "enabled": true
@@ -1286,6 +1341,11 @@
   },
   {
     "tc_id": "TC-TSTAT-4.4",
+    "cluster": "Thermostat Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-TSTAT-4.5",
     "cluster": "Thermostat Cluster",
     "enabled": true
   },
@@ -2095,6 +2155,11 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-ZONEMGMT-2.5",
+    "cluster": "Zone Management Cluster",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-PAVST-2.1",
     "cluster": "Push AV Stream Transport Cluster",
     "enabled": true
@@ -2161,6 +2226,11 @@
   },
   {
     "tc_id": "TC-PAVST-2.14",
+    "cluster": "Push AV Stream Transport Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-PAVST-2.15",
     "cluster": "Push AV Stream Transport Cluster",
     "enabled": true
   },
@@ -2290,13 +2360,28 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-DGSW-2.1",
+    "cluster": "Software Diagnostics Cluster",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-DGSW-2.2",
     "cluster": "Software Diagnostics Cluster",
     "enabled": true
   },
   {
-    "tc_id": "TC-DGSW-2.1",
+    "tc_id": "TC-DGSW-2.3",
     "cluster": "Software Diagnostics Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DGWIFI-2.2",
+    "cluster": "Wi-Fi Network Diagnostics Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-DLOG-2.1",
+    "cluster": "Diagnostic Logs Cluster",
     "enabled": true
   },
   {
@@ -2315,6 +2400,11 @@
     "enabled": false
   },
   {
+    "tc_id": "TC-DD-1.11",
+    "cluster": "Device Discovery",
+    "enabled": false
+  },
+  {
     "tc_id": "TC-DD-3.23",
     "cluster": "Device Discovery",
     "enabled": false
@@ -2325,12 +2415,32 @@
     "enabled": false
   },
   {
+    "tc_id": "TC-DD-3.25",
+    "cluster": "Device Discovery",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-DD-3.26",
+    "cluster": "Device Discovery",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-DD-3.27",
+    "cluster": "Device Discovery",
+    "enabled": false
+  },
+  {
     "tc_id": "TC-SU-2.2",
     "cluster": "OTA Software Update",
     "enabled": false
   },
   {
-    "tc_id": "TC-SU-2.7",
+    "tc_id": "TC-SU-2.4",
+    "cluster": "OTA Software Update",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-SU-2.5",
     "cluster": "OTA Software Update",
     "enabled": false
   },
@@ -2680,7 +2790,17 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-CONTENTLAUNCHER-10.8",
+    "cluster": "Content Launcher Cluster",
+    "enabled": true
+  },
+  {
     "tc_id": "TC-CONTENTLAUNCHER-10.9",
+    "cluster": "Content Launcher Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-CONTENTLAUNCHER-10.10",
     "cluster": "Content Launcher Cluster",
     "enabled": true
   },
@@ -2900,6 +3020,16 @@
     "enabled": true
   },
   {
+    "tc_id": "TC-PROXR-3.1",
+    "cluster": "Proximity Ranging Cluster",
+    "enabled": false
+  },
+  {
+    "tc_id": "TC-PROXR-3.2",
+    "cluster": "Proximity Ranging Cluster",
+    "enabled": false
+  },
+  {
     "tc_id": "TC-SC-TC-2.1",
     "cluster": "Thread Commissioning Protocol",
     "enabled": false
@@ -2937,6 +3067,41 @@
   {
     "tc_id": "TC-TSTATM-3.4",
     "cluster": "Thermostat Mode Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MEDIAFILEMANAGEMENT-1.1",
+    "cluster": "Media File Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MEDIAFILEMANAGEMENT-2.1",
+    "cluster": "Media File Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MEDIAFILEMANAGEMENT-2.2",
+    "cluster": "Media File Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MEDIAFILEMANAGEMENT-3.1",
+    "cluster": "Media File Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MEDIAFILEMANAGEMENT-3.2",
+    "cluster": "Media File Management Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MEDIAPLAYBACK-6.11",
+    "cluster": "Media Playback Cluster",
+    "enabled": true
+  },
+  {
+    "tc_id": "TC-MEDIAPLAYBACK-6.12",
+    "cluster": "Media Playback Cluster",
     "enabled": true
   }
 ]
