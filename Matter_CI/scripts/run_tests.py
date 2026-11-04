@@ -100,6 +100,55 @@ SKIP      = "SKIP"     # intentionally not run (e.g. TH-CLI can't drive it unatt
 
 
 # =============================================================================
+# Log cleanup — saved logs are plain text, without terminal colour/control codes
+# =============================================================================
+# CSI (colours "\x1b[0;32m", clear-screen "\x1b[0J", …), OSC (titles/links) and
+# lone 2-byte escapes. The DUT apps, the CHIP controller and th-cli's pty output
+# all emit these, which turned "════" into "\x1b[36m\x1b[1m════\x1b[0m" in the logs.
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
+
+
+def strip_ansi(text: str) -> str:
+    """Drop ANSI escape sequences and normalise pty '\\r\\n' line endings."""
+    text = _ANSI_RE.sub("", text or "")
+    return re.sub(r"\r+\n", "\n", text).replace("\r", "\n")
+
+
+def strip_ansi_file(path) -> None:
+    """Rewrite a FINISHED log in place without escape codes. Call only after its
+    writer has exited and closed it. Never fails the test."""
+    try:
+        p = Path(path)
+        if not p.is_file():
+            return
+        raw = p.read_text(encoding="utf-8", errors="replace")
+        if "\x1b" in raw or "\r" in raw:
+            p.write_text(strip_ansi(raw), encoding="utf-8")
+    except OSError:
+        pass
+
+
+# TH-CLI logs state the Test Harness + SDK they ran with, e.g.
+#   TH Version: v2.16-beta3+winter2026 | TH SHA: 987d960 | TH SDK SHA: 8862cba
+#   Python Test Version: 8862cba105e5351fcd0ff695c331214d90376070  (Python tests only)
+def parse_th_versions(text: str) -> dict:
+    """TH log → {th_version, th_sha, commit} (only the keys found)."""
+    info = {}
+    m = re.search(r"TH Version:\s*(\S+)", text or "")
+    if m:
+        info["th_version"] = m.group(1)
+    m = re.search(r"TH SHA:\s*([0-9a-fA-F]+)", text or "")
+    if m:
+        info["th_sha"] = m.group(1)
+    # Full SDK SHA from a Python test; YAML tests only carry the short TH SDK SHA.
+    m = (re.search(r"Python Test Version:\s*([0-9a-fA-F]{7,40})\b", text or "")
+         or re.search(r"TH SDK SHA:\s*([0-9a-fA-F]{7,40})\b", text or ""))
+    if m:
+        info["commit"] = m.group(1)
+    return info
+
+
+# =============================================================================
 # Log parser — Multi-signal pass/fail detection
 #
 # Signal priority:
@@ -729,6 +778,7 @@ class TestRunner:
         self.execution_mode = (os.environ.get("EXECUTION_MODE", "").strip().lower()
                                or str(cfg.get("thcli_tests", {}).get("default_mode", "native")).lower())
         self._thcli_project_id = None      # resolved once per run (lazy)
+        self._th_info: dict = {}           # TH version/SHA + SDK SHA seen in TH logs
         # The connectedhomeip venv is a NATIVE-mode requirement only. TH-CLI mode
         # uses the RPi's own Test Harness SDK, so don't require our venv there.
         if self.execution_mode != "thcli" and not self.venv_python.exists():
@@ -1514,6 +1564,7 @@ class TestRunner:
             launched, launch_err = dut.launch_scripted(fsa_cmd, dut_log, stdin_pipe=fsa_pipe)
             if not launched:
                 elapsed = round(time.time() - start, 2)
+                strip_ansi_file(dut_log)
                 return ERROR, {}, launch_err, elapsed
         elif not has_dut_app:
             # No DUT to launch — the test manages its own apps. Just clear stale
@@ -1526,6 +1577,7 @@ class TestRunner:
             if not launched:
                 elapsed = round(time.time() - start, 2)
                 c = {"stragglers_before": dut.last_straggler_count} if dut.last_straggler_count else {}
+                strip_ansi_file(dut_log)
                 return ERROR, c, launch_err, elapsed
 
         # The DUT app creates the FIFO only AFTER its Matter stack finishes init,
@@ -1549,6 +1601,7 @@ class TestRunner:
                 print(f"  [PIPE] ❌ {reason}")
                 dut.stop()
                 self._clean_storage()
+                strip_ansi_file(dut_log)
                 return ERROR, {"app_pipe": True}, reason, elapsed
             print(f"  [PIPE] {app_pipe} ready "
                   f"({round(time.time() - start, 1)}s after launch).")
@@ -1672,6 +1725,11 @@ class TestRunner:
             if crash:
                 status = ERROR
                 reason = crash + (f" | {reason}" if reason else "")
+
+        # All parsing of this attempt's logs is done and the DUT + test processes
+        # are stopped — save them as plain text (no colour codes).
+        strip_ansi_file(log_path)
+        strip_ansi_file(dut_log)
 
         elapsed = round(time.time() - start, 2)
         return status, counts, reason, elapsed
@@ -2309,16 +2367,21 @@ class TestRunner:
             rc, rerr = self._thcli_drive(argv, thc.get("th_cli_dir", "."), lf,
                                          int(thc.get("test_timeout_seconds", 900)))
         elapsed = round(time.time() - t0, 2)
+        # Cleaned after th-cli exits, not live: pexpect's read chunks can split an
+        # escape sequence, so a streaming filter would leak fragments.
+        strip_ansi_file(log_path)
 
-        self._thcli_stop_app(app_proc)
+        self._thcli_stop_app(app_proc)        # also closes the DUT log
+        strip_ansi_file(dut_log)
 
         thlog, th_text = self._thcli_locate_log(tc_id, start), ""
         if thlog:
             try:
-                th_text = thlog.read_text(errors="replace")
+                th_text = strip_ansi(thlog.read_text(errors="replace"))
                 th_log_copy.write_text(th_text)
             except OSError:
                 pass
+        self._record_th_info(th_text)
 
         status, counts, reason = self.parse_thcli_log(th_text, tc_id, rc, rerr)
         counts["executed_dut_command"]    = f"DUT app: {app_full or '(none)'}"
@@ -2328,6 +2391,27 @@ class TestRunner:
         rs = f" | {reason[:70]}" if reason else ""
         print(f"  [{status}] {tc_id} — {elapsed}s  {shown}{rs}")
         return self._thcli_result(tc, status, counts, elapsed, log_path, reason)
+
+    def _record_th_info(self, th_text):
+        """Keep the TH version/SHA + SDK SHA from the TH logs and write them to
+        logs/build-info.json — TH-CLI runs skip the bundle prep that normally writes
+        it, so without this the report/email/archive had no (or a stale) SDK commit.
+        A later Python test upgrades a short YAML-only SDK SHA to the full one."""
+        merged = dict(self._th_info)
+        for k, v in parse_th_versions(th_text).items():
+            if k == "commit" and len(v) <= len(merged.get("commit", "")):
+                continue                      # keep the longer (full) SHA
+            merged[k] = v
+        if merged == self._th_info:
+            return
+        self._th_info = merged
+        info = {"source": "th-cli", **merged}
+        if merged.get("commit"):
+            info["commit_short"] = merged["commit"][:9]
+        try:
+            (PROJECT_ROOT / "logs" / "build-info.json").write_text(json.dumps(info, indent=2))
+        except OSError as e:
+            print(f"  [TH] ⚠️  Could not write build-info.json: {e}")
 
     def _thcli_result(self, tc, status, counts, elapsed, log_path, note):
         res = self._result(tc, status, counts, elapsed, log_path, note=note)
@@ -2615,6 +2699,7 @@ class TestRunner:
                 (self.log_dir / f"{tc_id}_steps.log").write_text(concise)
             except OSError:
                 pass
+        strip_ansi_file(log_path)
 
         counts["executed_dut_command"]    = f"DUT app: {app_note}"
         counts["executed_python_command"] = executed
@@ -3056,7 +3141,17 @@ def generate_report(results: list[dict], cfg: dict = None,
         footer_status = f"{passed + pass_warn}/{total} passed{skip_txt}"; foot_dot = "#f59e0b"
     else:
         footer_status = f"{failed} failed · {errors} error(s){skip_txt}"; foot_dot = "#ef4444"
-    built_txt = bi_date if bi_date else "—"
+    # Header chips. Native: SDK commit · branch · build date of the bundle.
+    # TH-CLI: the TH's own SDK SHA · TH version · TH SHA (from the TH logs) — the
+    # run uses the TH's SDK, so a branch/build date would be misleading.
+    if is_thcli or bi.get("source") == "th-cli":
+        head_commit = f"SDK {bi_commit}"
+        head_branch = f"TH {html.escape(str(bi.get('th_version') or 'unknown'))}"
+        head_built  = f"TH SHA {html.escape(str(bi.get('th_sha') or 'unknown'))}"
+    else:
+        head_commit = bi_commit
+        head_branch = bi_branch
+        head_built  = f"built {bi_date if bi_date else '—'}"
 
     _TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
@@ -3232,7 +3327,7 @@ def generate_report(results: list[dict], cfg: dict = None,
       <div class="header-meta">
         <span class="chip">__COMMIT__</span>
         <span class="branch">__BRANCH__</span>
-        <span class="built">built __BUILT__</span>
+        <span class="built">__BUILT__</span>
       </div>
     </div>
     <div class="header-right">
@@ -3399,9 +3494,9 @@ def generate_report(results: list[dict], cfg: dict = None,
                 .replace("__TYPE_FILTER__", type_filter_html)
                 .replace("__REPORT_KIND__", report_kind)
                 .replace("__FOOT_DOT__", foot_dot)
-                .replace("__COMMIT__", str(bi_commit))
-                .replace("__BRANCH__", str(bi_branch))
-                .replace("__BUILT__", str(built_txt))
+                .replace("__COMMIT__", str(head_commit))
+                .replace("__BRANCH__", str(head_branch))
+                .replace("__BUILT__", str(head_built))
                 .replace("__RUN_TIME__", str(run_time))
                 .replace("__FOOTER_STATUS__", footer_status)
                 .replace("__TILES__", stat_tiles)

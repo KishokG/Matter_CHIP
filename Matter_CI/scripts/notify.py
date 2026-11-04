@@ -556,9 +556,19 @@ def _exec_status(s: dict) -> str:
     return "success"
 
 
+def _version_label(branch: str, th: dict = None) -> tuple[str, str]:
+    """(label, value) for the email's 2nd metadata field: the TH version for a
+    TH-CLI run (it runs the TH's own SDK, so our branch is irrelevant), else branch."""
+    if th:
+        ver = th.get("th_version") or "unknown"
+        return "TH version", (f"{ver} (SHA {th['th_sha']})" if th.get("th_sha") else ver)
+    return "Branch", branch
+
+
 def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
-                    run_url: str, run_id: str, s: dict) -> str:
+                    run_url: str, run_id: str, s: dict, th: dict = None) -> str:
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M IST")
+    ver_lbl, ver_val = _version_label(branch, th)
     verdict  = _exec_status(s)
     accent   = {"success": "#1a7f37", "partial": "#9a6700",
                 "failed": "#b42318", "empty": "#6E7681"}[verdict]
@@ -693,7 +703,7 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
     <table class="meta" role="presentation">
       <tr>
         <td><span class="meta-lbl">Run</span><span class="meta-val">#{run_id}</span></td>
-        <td><span class="meta-lbl">Branch</span><span class="meta-val">{branch}</span></td>
+        <td><span class="meta-lbl">{ver_lbl}</span><span class="meta-val">{ver_val}</span></td>
         <td><span class="meta-lbl">SDK commit</span><span class="meta-val mono">{commit}</span></td>
       </tr>
     </table>
@@ -716,7 +726,8 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
 
 
 def build_test_plain(commit: str, branch: str, drive_link: str,
-                     run_url: str, run_id: str, s: dict) -> str:
+                     run_url: str, run_id: str, s: dict, th: dict = None) -> str:
+    ver_lbl, ver_val = _version_label(branch, th)
     lines = [
         (f"Matter CI — TH-CLI Validation Results (Run #{run_id})"
          if s.get("is_thcli") else
@@ -724,7 +735,7 @@ def build_test_plain(commit: str, branch: str, drive_link: str,
         "=" * 48,
         f"Verdict     : {_exec_status(s).upper()}",
         f"Pass rate   : {s['pct']}%  ({s['accepted']}/{s['total']} accepted)",
-        f"Branch      : {branch}",
+        f"{ver_lbl:<12}: {ver_val}",
         f"SDK commit  : {commit}",
         "",
         f"Total {s['total']} | Pass {s['passed']} | Pass* {s['pass_warn']} | "
@@ -848,27 +859,45 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(Path(args.config))
+
+    # ── Test-execution email ──────────────────────────────────────────────
+    if args.mode == "execution":
+        # Commit under test = the build-info.json saved WITH the results (TH-CLI
+        # runs write it from the TH logs). Never fall back to the Mac mini's
+        # ~/matter-output/build-info.json: that is the last nightly BUILD, not what
+        # was tested (it made TH-CLI emails show a wrong commit + "master").
+        bi = {}
+        bi_file = Path(args.results).parent / "build-info.json"
+        if bi_file.exists():
+            try:
+                bi = json.loads(bi_file.read_text())
+            except Exception:
+                pass
+        th = bi if bi.get("source") == "th-cli" else None
+        commit = (args.commit or bi.get("commit_short")
+                  or (bi.get("commit") or "")[:9] or "unknown")
+        branch = args.branch or bi.get("branch") or "unknown"
+
+        s = compute_test_summary(Path(args.results))
+        verdict = _exec_status(s)
+        icons = {"success": "✅", "partial": "⚠️", "failed": "🔴", "empty": "⚪"}
+        kind = "TH-CLI Validation" if s.get("is_thcli") else "Tests"
+        subject = (f"{icons[verdict]} Matter CI {kind} #{args.run_id} — "
+                   f"{s['accepted']}/{s['total']} passed ({s['pct']}%) | "
+                   f"{('TH ' + th.get('th_version', '?')) if th else branch} | {commit}")
+        html_body  = build_test_html(cfg, commit, branch, args.drive_link,
+                                     args.run_url, args.run_id, s, th)
+        plain_body = build_test_plain(commit, branch, args.drive_link,
+                                      args.run_url, args.run_id, s, th)
+        send_email(cfg, subject, html_body, plain_body)
+        return
+
     commit, branch = get_git_info(cfg)
     # Explicit args win over the auto-derived values.
     if args.commit:
         commit = args.commit
     if args.branch:
         branch = args.branch
-
-    # ── Test-execution email ──────────────────────────────────────────────
-    if args.mode == "execution":
-        s = compute_test_summary(Path(args.results))
-        verdict = _exec_status(s)
-        icons = {"success": "✅", "partial": "⚠️", "failed": "🔴", "empty": "⚪"}
-        kind = "TH-CLI Validation" if s.get("is_thcli") else "Tests"
-        subject = (f"{icons[verdict]} Matter CI {kind} #{args.run_id} — "
-                   f"{s['accepted']}/{s['total']} passed ({s['pct']}%) | {branch} | {commit}")
-        html_body  = build_test_html(cfg, commit, branch, args.drive_link,
-                                     args.run_url, args.run_id, s)
-        plain_body = build_test_plain(commit, branch, args.drive_link,
-                                      args.run_url, args.run_id, s)
-        send_email(cfg, subject, html_body, plain_body)
-        return
 
     # ── Build email (default) ─────────────────────────────────────────────
     build_status   = load_build_status()

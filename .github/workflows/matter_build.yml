@@ -716,7 +716,14 @@ jobs:
             COMMIT=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('commit_short') or d.get('commit','unknown'))")
             BRANCH=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('branch','unknown'))")
             BDATE=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('date',''))")
-            echo "**SDK commit under test:** \`${COMMIT}\` (branch \`${BRANCH}\`${BDATE:+, built ${BDATE}})" >> $GITHUB_STEP_SUMMARY
+            # TH-CLI runs: build-info comes from the TH logs (TH's own SDK) — no branch/date.
+            THVER=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('th_version','') if d.get('source')=='th-cli' else '')")
+            if [[ -n "${THVER}" ]]; then
+              THSHA=$(python3 -c "import json;d=json.load(open('Matter_CI/logs/build-info.json'));print(d.get('th_sha',''))")
+              echo "**SDK commit under test:** \`${COMMIT}\` (TH \`${THVER}\`${THSHA:+, TH SHA \`${THSHA}\`})" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "**SDK commit under test:** \`${COMMIT}\` (branch \`${BRANCH}\`${BDATE:+, built ${BDATE}})" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           if [[ -f Matter_CI/logs/test_results.json ]]; then
