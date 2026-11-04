@@ -65,4 +65,4 @@ python3 "$CI_DIR/scripts/run_tests.py" --config "$CONFIG" --commands "$CMDS"
 
 echo
 echo "Done. Report      : $CI_DIR/logs/report.html"
-echo "Per-test logs     : $CI_DIR/logs/test_runs/  (<TC>.log, <TC>_dut.log, <TC>_th.log)"
+echo "Per-test logs     : $CI_DIR/logs/test_runs/  (cli_logs/<TC>.log, dut_logs/<TC>_dut.log, th_logs/<TC>_th.log)"

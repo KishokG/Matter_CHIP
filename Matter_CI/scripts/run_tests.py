@@ -2332,9 +2332,13 @@ class TestRunner:
     def run_one_thcli(self, tc):
         tc_id       = tc["test_case_id"]
         thc         = self._thcli()
-        log_path    = self.log_dir / f"{tc_id}.log"        # th-cli console (our combined log)
-        dut_log     = self.log_dir / f"{tc_id}_dut.log"    # sample-app output
-        th_log_copy = self.log_dir / f"{tc_id}_th.log"     # copy of TH's own output_logs file
+        # One subfolder per log type (test_runs/cli_logs|th_logs|dut_logs) so each
+        # kind is easy to browse; the report links into these (generate_report).
+        log_path    = self.log_dir / "cli_logs" / f"{tc_id}.log"      # th-cli console output
+        dut_log     = self.log_dir / "dut_logs" / f"{tc_id}_dut.log"  # sample-app output
+        th_log_copy = self.log_dir / "th_logs"  / f"{tc_id}_th.log"   # copy of TH's own output_logs file
+        for p in (log_path, dut_log, th_log_copy):
+            p.parent.mkdir(parents=True, exist_ok=True)
         print(f"\n── {tc_id} (TH-CLI) ──────────────────────────")
 
         # Skip tests TH-CLI can't run unattended (don't run → no mass failures).
@@ -3020,20 +3024,27 @@ def generate_report(results: list[dict], cfg: dict = None,
         # Native YAML has no separate DUT log (run_test_suite interleaves it) — we
         # surface a concise per-step view (_steps.log) instead. TH-CLI rows always
         # have a DUT log AND the harness's own detailed log (_th.log).
-        dut_log  = (log_file.parent / f"{tc_id}_dut.log"
+        # TH-CLI logs live in per-type subfolders of test_runs/ (cli_logs/,
+        # dut_logs/, th_logs/); older runs and native runs keep them flat.
+        split = is_thcli and log_file.parent.name == "cli_logs"
+        runs_dir = log_file.parent.parent if split else log_file.parent
+        sub = {"ctrl": "cli_logs/", "dut": "dut_logs/", "th": "th_logs/"} if split \
+            else {"ctrl": "", "dut": "", "th": ""}
+        dut_log  = (runs_dir / sub["dut"] / f"{tc_id}_dut.log"
                     if (log_file.name and (is_thcli or not is_yaml)) else None)
         steps_log = (log_file.parent / f"{tc_id}_steps.log"
                      if (log_file.name and is_yaml and not is_thcli) else None)
-        th_log   = (log_file.parent / f"{tc_id}_th.log"
+        th_log   = (runs_dir / sub["th"] / f"{tc_id}_th.log"
                     if (log_file.name and is_thcli) else None)
+        ctrl_lbl = "CLI Log" if is_thcli else "Ctrl Log"
 
         # HTML-safe copies for interpolation (tc_id/cluster come from the Sheet,
         # reason from raw test output — all untrusted for HTML purposes).
         e_tc_id   = html.escape(str(tc_id))
         e_cluster = html.escape(str(cluster))
         e_status  = html.escape(str(status))
-        e_ctrl    = html.escape(log_file.name)
-        e_dut     = html.escape(dut_log.name) if dut_log else ""
+        e_ctrl    = html.escape(sub["ctrl"] + log_file.name)
+        e_dut     = html.escape(sub["dut"] + dut_log.name) if dut_log else ""
 
         if log_file.name:
             tcid_html = (f'<a class="tcid-link mono" href="test_runs/{e_ctrl}" '
@@ -3044,7 +3055,7 @@ def generate_report(results: list[dict], cfg: dict = None,
         log_links = ""
         if log_file.name:
             log_links += (f'<a href="test_runs/{e_ctrl}" target="_blank" '
-                          f'class="log-link ctrl-log">Ctrl Log</a>')
+                          f'class="log-link ctrl-log">{ctrl_lbl}</a>')
         if dut_log and dut_log.name:
             log_links += (f'<a href="test_runs/{e_dut}" target="_blank" '
                           f'class="log-link dut-log">DUT Log</a>')
@@ -3052,7 +3063,7 @@ def generate_report(results: list[dict], cfg: dict = None,
             log_links += (f'<a href="test_runs/{html.escape(steps_log.name)}" '
                           f'target="_blank" class="log-link dut-log">Steps</a>')
         if th_log and th_log.exists():
-            log_links += (f'<a href="test_runs/{html.escape(th_log.name)}" '
+            log_links += (f'<a href="test_runs/{html.escape(sub["th"] + th_log.name)}" '
                           f'target="_blank" class="log-link dut-log">TH Log</a>')
 
         reason = html.escape(status_reason(r))
@@ -3080,7 +3091,7 @@ def generate_report(results: list[dict], cfg: dict = None,
           <td class="reason-cell">{reason_cell}</td>
         </tr>"""
 
-    # ---- Stat tiles (single row of 7) ----
+    # ---- Stat tiles (single row of 8) ----
     _TILES = [
         ("t-total", "Total", total, "ALL",
          "Total test cases in this run. Click to clear the status filter."),
@@ -3099,6 +3110,9 @@ def generate_report(results: list[dict], cfg: dict = None,
          "Check the Ctrl Log for the traceback."),
         ("t-cancel", "Cancelled", cancelled, "CANCEL",
          "Run was cancelled (SIGTERM / GitHub Actions cancel). These TCs did not execute."),
+        ("t-skip", "Skipped", skipped_tc, "SKIP",
+         "Intentionally not run — e.g. TH-CLI can't drive operator/app-pipe tests "
+         "unattended. Excluded from the pass rate; see the Reason column."),
     ]
     stat_tiles = "".join(
         f'<div class="tile {cls}" data-filter="{filt}" onclick="setStatus(\'{filt}\')">'
@@ -3185,7 +3199,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     .header-right .val { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; color: #c7cfdd; margin-top: 3px; }
 
     /* ---- Stat tiles (always one row of 7) ---- */
-    .tiles { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; padding: 20px 32px; }
+    .tiles { display: grid; grid-template-columns: repeat(8, 1fr); gap: 12px; padding: 20px 32px; }
     .tile {
       position: relative; border-radius: 12px; padding: 15px 18px; cursor: pointer; border: 1px solid rgba(255,255,255,.05);
       transition: transform .12s ease, box-shadow .12s ease; user-select: none;
@@ -3212,6 +3226,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     .t-rerun  { background: #2B1E0F; } .t-rerun .num  { color: #FBBF24; }
     .t-err    { background: #1B222E; } .t-err .num    { color: #94A3B8; }
     .t-cancel { background: #241531; } .t-cancel .num { color: #C084FC; }
+    .t-skip   { background: #1F2430; } .t-skip .num   { color: #9CA3AF; }
 
     /* ---- Filters ---- */
     .filters {
@@ -3311,7 +3326,7 @@ def generate_report(results: list[dict], cfg: dict = None,
     .footer .foot-dot { width: 8px; height: 8px; border-radius: 50%; background: __FOOT_DOT__; display: inline-block; }
 
     @media (max-width: 900px) {
-      .tiles { grid-template-columns: repeat(7, minmax(90px, 1fr)); overflow-x: auto; }
+      .tiles { grid-template-columns: repeat(8, minmax(90px, 1fr)); overflow-x: auto; }
     }
   </style>
 </head>
@@ -3366,6 +3381,7 @@ def generate_report(results: list[dict], cfg: dict = None,
       <option value="RERUN">RERUN</option>
       <option value="ERROR">ERROR</option>
       <option value="CANCEL">CANCELLED</option>
+      <option value="SKIP">SKIPPED</option>
     </select>
 
     <div class="search">
@@ -3464,7 +3480,7 @@ def generate_report(results: list[dict], cfg: dict = None,
       var rows = Array.from(tbody.querySelectorAll('tr.tc-row'));
       var dir = (sortState.col === col && sortState.dir === 'asc') ? 'desc' : 'asc';
       sortState = { col: col, dir: dir };
-      var sev = { FAIL:0, ERROR:1, RERUN:2, 'PASS*':3, CANCEL:4, PASS:5 };
+      var sev = { FAIL:0, ERROR:1, RERUN:2, 'PASS*':3, CANCEL:4, PASS:5, SKIP:6 };
       rows.sort(function(a, b) {
         var av, bv;
         if (type === 'num') { av = parseFloat(a.dataset.time) || 0; bv = parseFloat(b.dataset.time) || 0; }

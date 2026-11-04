@@ -541,6 +541,7 @@ def compute_test_summary(results_path: Path) -> dict:
         "total": total, "passed": passed, "pass_warn": pass_warn,
         "failed": failed, "errored": errored, "rerun": rerun,
         "cancelled": cancelled, "skipped": skipped, "accepted": accepted, "pct": pct,
+        "executed": denom,                   # pct denominator (total minus SKIP)
         "failing": failing, "is_thcli": is_thcli,
     }
 
@@ -590,7 +591,11 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
         + stat("#b42318", s["failed"], "Fail")
         + stat("#b42318", s["errored"], "Error")
         + stat("#6E7681", s["rerun"] + s["cancelled"], "Rerun/Cxl")
+        + stat("#6E7681", s["skipped"], "Skip")
     )
+    # Pass % excludes SKIP (not run) — show that denominator, not the raw total.
+    rate_of  = f"{s['accepted']}/{s['executed']} executed"
+    skip_txt = f" · {s['skipped']} skipped" if s["skipped"] else ""
 
     # Failing-TC rows (cap at 25 to keep the email compact).
     fail_rows = ""
@@ -691,7 +696,7 @@ def build_test_html(cfg: dict, commit: str, branch: str, drive_link: str,
                        letter-spacing:0.5px">{icon} {label}</span>
           <span style="display:block;font-size:30px;font-weight:800;color:#fff;margin-top:4px">
             {s['pct']}% <span style="font-size:15px;font-weight:600;color:rgba(255,255,255,0.85)">
-            pass &nbsp;({s['accepted']}/{s['total']})</span></span>
+            pass &nbsp;({rate_of}{skip_txt})</span></span>
         </td>
       </tr>
     </table>
@@ -734,13 +739,14 @@ def build_test_plain(commit: str, branch: str, drive_link: str,
          f"Matter CI — Test Execution Results (Run #{run_id})"),
         "=" * 48,
         f"Verdict     : {_exec_status(s).upper()}",
-        f"Pass rate   : {s['pct']}%  ({s['accepted']}/{s['total']} accepted)",
+        f"Pass rate   : {s['pct']}%  ({s['accepted']}/{s['executed']} executed"
+        + (f", {s['skipped']} skipped)" if s["skipped"] else ")"),
         f"{ver_lbl:<12}: {ver_val}",
         f"SDK commit  : {commit}",
         "",
         f"Total {s['total']} | Pass {s['passed']} | Pass* {s['pass_warn']} | "
         f"Fail {s['failed']} | Error {s['errored']} | Rerun {s['rerun']} | "
-        f"Cancelled {s['cancelled']}",
+        f"Cancelled {s['cancelled']} | Skipped {s['skipped']}",
         "",
     ]
     if s["failing"]:
@@ -883,7 +889,7 @@ def main():
         icons = {"success": "✅", "partial": "⚠️", "failed": "🔴", "empty": "⚪"}
         kind = "TH-CLI Validation" if s.get("is_thcli") else "Tests"
         subject = (f"{icons[verdict]} Matter CI {kind} #{args.run_id} — "
-                   f"{s['accepted']}/{s['total']} passed ({s['pct']}%) | "
+                   f"{s['accepted']}/{s['executed']} passed ({s['pct']}%) | "
                    f"{('TH ' + th.get('th_version', '?')) if th else branch} | {commit}")
         html_body  = build_test_html(cfg, commit, branch, args.drive_link,
                                      args.run_url, args.run_id, s, th)
