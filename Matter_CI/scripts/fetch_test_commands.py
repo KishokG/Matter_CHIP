@@ -569,6 +569,9 @@ def load_yaml_tests(cfg: dict) -> list[dict]:
             "cluster":        cluster,
             "yaml_target":    target,
             "app":            str(e.get("app", "")).strip(),   # authoritative; "" = SDK picks
+            # Optional extra DUT args for TH-CLI mode (e.g. "--device flow-sensor");
+            # empty = taken from the YAML's own CI: block for this app.
+            "app_args":       str(e.get("app_args", "")).strip(),
             "pics":           str(e.get("pics", "")).strip(),
             "dut_command":    "",   # run_test_suite.py launches the app itself
             "python_command": f"run_test_suite.py --target {target}",

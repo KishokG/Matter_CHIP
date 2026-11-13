@@ -15,11 +15,24 @@ Usage:
 """
 
 import datetime
+import html
 
 # Section header constants — must match the main script
 SECTION_NOT_EXECUTED = "---- Not Executed Yet----"
 SECTION_LOW_PASS     = "---- Pass Count < Required ----"
 SECTION_PASSED       = "---- Passed Rule of Three ----"
+
+# Label used in the report for test cases with no Matter Focus Area set
+BLANK_AREA = "(Not specified)"
+
+# Report table columns, in display order (also used for the CSV export)
+TABLE_COLUMNS = [
+    "Focus Area", "Test Case", "Pass", "Fail", "Not Tested", "Runs Req",
+    "TH Run", "Final Runs Req", "Status", "Type", "Comments",
+]
+
+# Tooltip for the "i" icon on the Final Runs Req header
+FINAL_RUNS_TIP = "Final Runs Req = Runs Req - (Pass + TH Run)"
 
 # Fixed UTC+5:30 offset for IST. Using a fixed offset (rather than relying on
 # the system timezone or the zoneinfo/tzdata database) keeps this correct
@@ -93,6 +106,7 @@ def generate_html_report(
         try:    return header.index(name)
         except: return None
 
+    ci_area  = ci("Matter Focus Area")
     ci_tc    = ci("Test Case Name")
     ci_pass  = ci("Pass Count")
     ci_th    = ci("Can TH run be counted?")
@@ -146,20 +160,22 @@ def generate_html_report(
             tc = g(row, ci_tc)
             if tc in PLACEHOLDERS:
                 parts.append(
-                    '<tr class="placeholder-row"><td colspan="10">' + tc + '</td></tr>'
+                    '<tr class="placeholder-row"><td colspan="11">' + tc + '</td></tr>'
                 )
                 continue
             th_display = g(row, ci_th)
             if th_display == "0":
                 th_display = ""
+            area = g(row, ci_area) or BLANK_AREA
             parts.append(
-                "<tr>"
+                '<tr data-area="' + html.escape(area, quote=True) + '">'
+                + '<td class="area-col">'   + html.escape(area)                         + "</td>"
                 + '<td class="tc-name">'    + tc                                        + "</td>"
                 + '<td class="num">'         + g(row, ci_pass)                           + "</td>"
-                + '<td class="num th-col">'  + th_display                                + "</td>"
                 + '<td class="num">'         + g(row, ci_fail)                           + "</td>"
                 + '<td class="num muted">'   + g(row, ci_nt)                             + "</td>"
                 + '<td class="num">'         + g(row, ci_runs)                           + "</td>"
+                + '<td class="num th-col">'  + th_display                                + "</td>"
                 + '<td class="num">'         + runs_pill(g(row, ci_final))               + "</td>"
                 + "<td>"                     + (cert_badge(g(row, ci_cert)) if g(row, ci_cert) else "") + "</td>"
                 + "<td>"                     + nl_tag(g(row, ci_nl))                     + "</td>"
@@ -178,34 +194,62 @@ def generate_html_report(
         out += '<summary class="section-header sec-' + key + '">\n'
         out += '<span class="sec-emoji">' + s["emoji"] + "</span>\n"
         out += '<span class="sec-label">' + s["label"] + "</span>\n"
-        out += '<span class="sec-count">' + str(cnt) + " test case" + plural + "</span>\n"
+        out += ('<span class="sec-count" data-total="' + str(cnt) + '">'
+                + str(cnt) + " test case" + plural + "</span>\n")
         out += "</summary>\n"
         out += '<div class="table-wrap">\n'
         out += '<table class="data-table">\n'
         out += (
             "<colgroup>"
-            '<col style="width:30%"/>'
-            '<col style="width:5%"/>'
-            '<col style="width:4%"/>'
-            '<col style="width:5%"/>'
-            '<col style="width:6%"/>'
-            '<col style="width:6%"/>'
-            '<col style="width:6%"/>'
-            '<col style="width:14%"/>'
-            '<col style="width:10%"/>'
-            '<col style="width:14%"/>'
+            '<col style="width:10%"/>'   # Focus Area
+            '<col style="width:24%"/>'   # Test Case
+            '<col style="width:5%"/>'    # Pass
+            '<col style="width:5%"/>'    # Fail
+            '<col style="width:6%"/>'    # Not Tested
+            '<col style="width:6%"/>'    # Runs Req
+            '<col style="width:5%"/>'    # TH Run
+            '<col style="width:7%"/>'    # Final Runs Req
+            '<col style="width:12%"/>'   # Status
+            '<col style="width:9%"/>'    # Type
+            '<col style="width:11%"/>'   # Comments
             "</colgroup>"
         )
         out += "<thead><tr>"
-        for th in ["Test Case", "Pass", "TH", "Fail", "Not Tested",
-                   "Runs Req", "Final Runs", "Status", "Type", "Comments"]:
-            extra = ' class="tc-name-h"' if th == "Test Case" else (
-                    ' class="th-col"'    if th == "TH"          else "")
-            out += "<th" + extra + ">" + th + "</th>"
+        for th in TABLE_COLUMNS:
+            extra = {
+                "Focus Area": ' class="area-h"',
+                "Test Case":  ' class="tc-name-h"',
+                "TH Run":     ' class="th-col"',
+            }.get(th, "")
+            label = th
+            if th == "Final Runs Req":
+                label += (' <span class="info-tip" tabindex="0" role="note" '
+                          'aria-label="' + FINAL_RUNS_TIP + '" '
+                          'data-tip="' + FINAL_RUNS_TIP + '">i</span>')
+            out += "<th" + extra + ">" + label + "</th>"
         out += "</tr></thead>\n"
         out += "<tbody>\n" + build_rows(s["rows"]) + "\n</tbody>\n"
         out += "</table></div></details>\n"
         return out
+
+    # ── Matter Focus Area filter options ───────────────────────────────────
+    area_counts = {}
+    for s in sections.values():
+        for r in s["rows"]:
+            if g(r, ci_tc) in PLACEHOLDERS:
+                continue
+            a = g(r, ci_area) or BLANK_AREA
+            area_counts[a] = area_counts.get(a, 0) + 1
+
+    area_options = "\n".join(
+        '<label class="filter-opt">'
+        '<input type="checkbox" value="' + html.escape(a, quote=True) + '"/>'
+        '<span class="opt-label">' + html.escape(a) + '</span>'
+        '<span class="opt-count">' + str(n) + '</span>'
+        '</label>'
+        for a, n in sorted(area_counts.items(),
+                           key=lambda kv: (kv[0] == BLANK_AREA, kv[0].lower()))
+    ) or '<div class="filter-empty">No focus areas found</div>'
 
     # ── CSS ────────────────────────────────────────────────────────────────
     css = "\n".join([
@@ -240,7 +284,7 @@ def generate_html_report(
         ".topbar-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: #fff; }",
         ".topbar-title span { color: #93c5fd; }",
         ".topbar-ts { font-size: 11px; color: #9ca3af; font-family: 'IBM Plex Mono', monospace; }",
-        ".page { max-width: 1400px; margin: 0 auto; padding: 28px 24px 60px; }",
+        ".page { max-width: 1600px; margin: 0 auto; padding: 28px 24px 60px; }",
         ".stats-row { display: flex; gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }",
         ".stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 22px; flex: 1; min-width: 160px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }",
         ".stat-card .val { font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 600; line-height: 1; }",
@@ -251,6 +295,30 @@ def generate_html_report(
         ".stat-card.s-never .val { color: #dc2626; }",
         ".controls { display: flex; gap: 12px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }",
         ".search-wrap { position: relative; flex: 1; min-width: 220px; }",
+        ".filter-wrap { position: relative; }",
+        ".filter-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; font-size: 13px; }",
+        ".filter-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }",
+        ".filter-badge { display: none; background: var(--accent); color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 20px; }",
+        ".filter-btn.active .filter-badge { display: inline-block; }",
+        ".filter-caret { font-size: 9px; color: var(--muted); }",
+        ".filter-panel { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; width: 320px; max-width: calc(100vw - 32px); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md); }",
+        ".filter-panel.open { display: block; }",
+        ".filter-panel-head { padding: 10px; border-bottom: 1px solid var(--border); }",
+        "#area-search { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-family: 'IBM Plex Sans', sans-serif; font-size: 12.5px; outline: none; }",
+        "#area-search:focus { border-color: var(--accent); }",
+        ".filter-actions { display: flex; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid var(--border); }",
+        ".filter-link { background: none; border: none; color: var(--accent); font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; padding: 2px 0; }",
+        ".filter-link:hover { text-decoration: underline; }",
+        ".filter-list { max-height: 300px; overflow-y: auto; padding: 4px 0; }",
+        ".filter-opt { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; }",
+        ".filter-opt:hover { background: var(--accent-soft); }",
+        ".filter-opt input { accent-color: var(--accent); flex-shrink: 0; }",
+        ".filter-opt .opt-label { flex: 1; }",
+        ".filter-opt .opt-count { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }",
+        ".filter-opt.hidden { display: none; }",
+        ".filter-empty { padding: 12px; color: var(--muted); font-size: 12px; text-align: center; }",
+        ".area-col { font-size: 11.5px; text-align: left !important; word-break: break-word; }",
+        ".data-table th.area-h { text-align: left; }",
         ".search-wrap svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); }",
         "#search { width: 100%; padding: 9px 12px 9px 36px; border: 1px solid var(--border); border-radius: var(--radius); font-family: 'IBM Plex Sans', sans-serif; font-size: 13px; background: var(--surface); outline: none; transition: border-color .15s; }",
         "#search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }",
@@ -272,7 +340,11 @@ def generate_html_report(
         ".table-wrap { overflow-x: auto; }",
         ".data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }",
         ".data-table thead tr { background: #f8f9fb; border-bottom: 2px solid var(--border); }",
-        ".data-table th { padding: 10px 12px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); white-space: normal; word-break: break-word; cursor: pointer; user-select: none; }",
+        ".data-table th { padding: 10px 8px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; line-height: 1.35; color: var(--muted); white-space: normal; word-break: normal; overflow-wrap: normal; hyphens: none; cursor: pointer; user-select: none; }",
+        ".info-tip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; margin-left: 3px; border-radius: 50%; border: 1px solid currentColor; font-family: Georgia, serif; font-size: 10px; font-style: italic; font-weight: 700; text-transform: none; letter-spacing: 0; line-height: 1; vertical-align: middle; cursor: help; }",
+        ".info-tip:hover, .info-tip:focus { color: var(--accent); outline: none; }",
+        ".info-tip::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 320px; padding: 7px 10px; border-radius: 6px; background: #1f232b; color: #fff; font-family: 'IBM Plex Sans', sans-serif; font-size: 11.5px; font-style: normal; font-weight: 500; line-height: 1.4; text-align: left; white-space: normal; box-shadow: var(--shadow-md); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .15s; z-index: 20; }",
+        ".info-tip:hover::after, .info-tip:focus::after { opacity: 1; visibility: visible; }",
         ".data-table th.tc-name-h { text-align: left; }",
         ".data-table th:hover { color: var(--accent); }",
         ".data-table th.sorted-asc::after  { content: ' \u2191'; color: var(--accent); }",
@@ -327,20 +399,71 @@ def generate_html_report(
 
     # ── JS ─────────────────────────────────────────────────────────────────
     js = "\n".join([
-        "document.getElementById('search').addEventListener('input', function() {",
-        "    var q = this.value.toLowerCase().trim();",
+        "var activeAreas = new Set();",
+        "function applyFilters() {",
+        "    var q = document.getElementById('search').value.toLowerCase().trim();",
+        "    var filtering = q !== '' || activeAreas.size > 0;",
         "    document.querySelectorAll('.data-table tbody tr').forEach(function(tr) {",
         "        if (tr.classList.contains('placeholder-row')) return;",
         "        var tc = tr.querySelector('.tc-name');",
         "        if (!tc) return;",
-        "        tr.classList.toggle('hidden', q !== '' && !tc.textContent.toLowerCase().includes(q));",
+        "        var matchQ = q === '' || tc.textContent.toLowerCase().includes(q);",
+        "        var matchA = activeAreas.size === 0 || activeAreas.has(tr.dataset.area);",
+        "        tr.classList.toggle('hidden', !(matchQ && matchA));",
         "    });",
-        "    if (q) {",
-        "        document.querySelectorAll('.section-block').forEach(function(d) {",
-        "            var vis = d.querySelectorAll('tbody tr:not(.placeholder-row):not(.hidden)').length > 0;",
-        "            if (vis) d.setAttribute('open', '');",
-        "        });",
-        "    }",
+        "    document.querySelectorAll('.section-block').forEach(function(d) {",
+        "        var vis = d.querySelectorAll('tbody tr:not(.placeholder-row):not(.hidden)').length;",
+        "        var cnt = d.querySelector('.sec-count');",
+        "        var total = parseInt(cnt.dataset.total, 10);",
+        "        var noun = ' test case' + (total !== 1 ? 's' : '');",
+        "        cnt.textContent = filtering ? (vis + ' of ' + total + noun) : (total + noun);",
+        "        if (filtering && vis > 0) d.setAttribute('open', '');",
+        "    });",
+        "}",
+        "document.getElementById('search').addEventListener('input', applyFilters);",
+        "function updateAreaButton() {",
+        "    var btn = document.getElementById('area-btn');",
+        "    btn.classList.toggle('active', activeAreas.size > 0);",
+        "    document.getElementById('area-badge').textContent = activeAreas.size;",
+        "}",
+        "function syncAreasFromCheckboxes() {",
+        "    activeAreas = new Set();",
+        "    document.querySelectorAll('#area-list input[type=checkbox]:checked').forEach(function(cb) {",
+        "        activeAreas.add(cb.value);",
+        "    });",
+        "    updateAreaButton();",
+        "    applyFilters();",
+        "}",
+        "document.querySelectorAll('#area-list input[type=checkbox]').forEach(function(cb) {",
+        "    cb.addEventListener('change', syncAreasFromCheckboxes);",
+        "});",
+        "function toggleAreaPanel(e) {",
+        "    e.stopPropagation();",
+        "    var panel = document.getElementById('area-panel');",
+        "    panel.classList.toggle('open');",
+        "    if (panel.classList.contains('open')) document.getElementById('area-search').focus();",
+        "}",
+        "function selectAllAreas() {",
+        "    document.querySelectorAll('#area-list .filter-opt:not(.hidden) input[type=checkbox]').forEach(function(cb) { cb.checked = true; });",
+        "    syncAreasFromCheckboxes();",
+        "}",
+        "function clearAreas() {",
+        "    document.querySelectorAll('#area-list input[type=checkbox]').forEach(function(cb) { cb.checked = false; });",
+        "    syncAreasFromCheckboxes();",
+        "}",
+        "document.getElementById('area-search').addEventListener('input', function() {",
+        "    var q = this.value.toLowerCase().trim();",
+        "    document.querySelectorAll('#area-list .filter-opt').forEach(function(opt) {",
+        "        var label = opt.querySelector('.opt-label').textContent.toLowerCase();",
+        "        opt.classList.toggle('hidden', q !== '' && !label.includes(q));",
+        "    });",
+        "});",
+        "document.getElementById('area-panel').addEventListener('click', function(e) { e.stopPropagation(); });",
+        "document.addEventListener('click', function() {",
+        "    document.getElementById('area-panel').classList.remove('open');",
+        "});",
+        "document.addEventListener('keydown', function(e) {",
+        "    if (e.key === 'Escape') document.getElementById('area-panel').classList.remove('open');",
         "});",
         "function expandAll() {",
         "    document.querySelectorAll('.section-block').forEach(function(d) { d.setAttribute('open', ''); });",
@@ -348,6 +471,9 @@ def generate_html_report(
         "function collapseAll() {",
         "    document.querySelectorAll('.section-block').forEach(function(d) { d.removeAttribute('open'); });",
         "}",
+        "document.querySelectorAll('.info-tip').forEach(function(tip) {",
+        "    tip.addEventListener('click', function(e) { e.stopPropagation(); });",
+        "});",
         "document.querySelectorAll('.data-table th').forEach(function(th, colIdx) {",
         "    var asc = true;",
         "    th.addEventListener('click', function() {",
@@ -368,13 +494,13 @@ def generate_html_report(
         "    });",
         "});",
         "function exportCSV() {",
-        "    var cols = ['Test Case','Pass','TH','Fail','Not Tested','Runs Req','Final Runs','Status','Type','Comments'];",
+        "    var cols = " + repr(TABLE_COLUMNS) + ";",
         "    var rows = [cols.join(',')];",
         "    document.querySelectorAll('.data-table tbody tr:not(.placeholder-row):not(.hidden)').forEach(function(tr) {",
         "        var cells = Array.from(tr.querySelectorAll('td')).map(function(td) {",
         "            return '\"' + td.textContent.trim().replace(/\"/g, '\"\"') + '\"';",
         "        });",
-        "        if (cells.length >= 10) rows.push(cells.join(','));",
+        "        if (cells.length >= 11) rows.push(cells.join(','));",
         "    });",
         "    var blob = new Blob([rows.join('\\n')], {type: 'text/csv'});",
         "    var a = document.createElement('a');",
@@ -412,6 +538,21 @@ def generate_html_report(
         '    <div class="stat-card"><div class="val" style="color:#6b21a8">' + str(n_passed) + '</div><div class="lbl">Passed Rule of Three</div></div>',
         "  </div>",
         '  <div class="controls">',
+        '    <div class="filter-wrap">',
+        '      <button type="button" class="btn filter-btn" id="area-btn" onclick="toggleAreaPanel(event)">',
+        '        Matter Focus Area <span class="filter-badge" id="area-badge">0</span> <span class="filter-caret">&#9660;</span>',
+        '      </button>',
+        '      <div class="filter-panel" id="area-panel">',
+        '        <div class="filter-panel-head"><input id="area-search" type="text" placeholder="Search focus areas..."/></div>',
+        '        <div class="filter-actions">',
+        '          <button type="button" class="filter-link" onclick="selectAllAreas()">Select all</button>',
+        '          <button type="button" class="filter-link" onclick="clearAreas()">Clear all</button>',
+        '        </div>',
+        '        <div class="filter-list" id="area-list">',
+        area_options,
+        '        </div>',
+        '      </div>',
+        '    </div>',
         '    <div class="search-wrap">',
         '      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>',
         '      <input id="search" type="text" placeholder="Search test case name..."/>',
@@ -429,21 +570,22 @@ def generate_html_report(
         '    <div class="legend-col">',
         '      <h4>Column Descriptions</h4>',
         '      <table class="legend-table">',
+        '        <tr><td>Focus Area</td><td>The Matter feature area the test case belongs to. Use the Matter Focus Area filter next to the search box to show only selected areas</td></tr>',
         '        <tr><td>Pass</td><td>Number of unique companies that successfully passed this test case with at least one device</td></tr>',
-        '        <tr><td>TH</td><td>An additional pass credited from a Test Harness run (1 = counted, 0 or blank = not counted)</td></tr>',
         '        <tr><td>Fail</td><td>Number of unique companies where at least one device failed this test case</td></tr>',
         '        <tr><td>Not Tested</td><td>Number of results reported as Not Tested — test was not executed for those entries</td></tr>',
         '        <tr><td>Runs Req</td><td>How many passing companies are needed for certification. Reduced if passes were already recorded in a previous SVE event</td></tr>',
-        '        <tr><td>Final Runs</td><td>How many more passing companies are still needed to reach the required count</td></tr>',
+        '        <tr><td>TH Run</td><td>An additional pass credited from a Test Harness run (1 = counted, 0 or blank = not counted)</td></tr>',
+        '        <tr><td>Final Runs Req</td><td>How many more passing companies are still needed to reach the required count: Final Runs Req = Runs Req - (Pass + TH Run), never below 0</td></tr>',
         '        <tr><td>Status</td><td>Current certification readiness of the test case — see descriptions on the right</td></tr>',
         '        <tr><td>Type</td><td>Whether this test case is newly introduced (New) or existed in a prior release (Legacy)</td></tr>',
-        '        <tr><td>Comments</td><td>Additional context — for example, if passes carried over from a previous SVE event</td></tr>',
+        '        <tr><td>Comments</td><td>Additional context — for example, if passes carried over from a previous SVE event, or if the test case was marked Certifiable by considering the TH pass run</td></tr>',
         '      </table>',
         '    </div>',
         '    <div class="legend-col">',
         '      <h4>Certification Status</h4>',
         '      <div class="legend-status">',
-        '        <div class="legend-status-item"><span class="badge badge-cert">Certifiable</span><p>This test case has received enough passing results (including any TH credit and previous SVE runs) to meet certification requirements</p></div>',
+        '        <div class="legend-status-item"><span class="badge badge-cert">Certifiable</span><p>This test case has received enough passing results (including any TH credit and previous SVE runs) to meet certification requirements. If it is Certifiable only because of the TH credit, the Comments column says &quot;Marked as Certifiable by considering the TH pass run&quot;</p></div>',
         '        <div class="legend-status-item"><span class="badge badge-prov">Provisional</span><p>Some companies have passed but the required number has not been reached yet</p></div>',
         '        <div class="legend-status-item"><span class="badge badge-new">New Changes - Provisional</span><p>This is a newly introduced change in a legacy test case that requires at least one pass — none received yet</p></div>',
         '      </div>',

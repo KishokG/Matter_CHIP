@@ -26,7 +26,7 @@
       "sourceSheetName": "1.7_TE2_Results",
       "masterTcSheet": "1.7_TE2_TC_List",
       "picsTcSheet": "1.7_TE2_TCList_PICS",
-      "summarySheetName": "1.7_TE2_Summary",
+      "summarySheetName": "1.7_TE2_Summary_Test",
       "deltaSheetName": "Summary Changes",
       "reportTitle": "TE2 Results Summary",
       "reportSubtitle": "Matter 1.7 TE2",

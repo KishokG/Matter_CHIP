@@ -2043,20 +2043,59 @@ class TestRunner:
         app = str(tc.get("app", "")).strip()
         if not app:
             return ""
+        args = self._thcli_yaml_app_args(tc, app)
         apps_dir = Path(self._thcli().get("apps_dir", "/home/ubuntu/apps"))
         for pat in (f"chip-{app}-app", f"{app}-app", f"matter-{app}-app", f"chip-{app}", app):
             if (apps_dir / pat).exists():
-                return f"./{pat}"
+                return f"./{pat} {args}".strip()
         if apps_dir.exists():                       # fuzzy: any executable containing the key
             key = app.replace("-", "")
             for p in sorted(apps_dir.rglob("*")):
                 if p.is_file() and os.access(p, os.X_OK) and key in p.name.replace("-", ""):
-                    return f"./{p.name}"
-        return f"./chip-{app}-app"                   # best-effort default
+                    return f"./{p.name} {args}".strip()
+        return f"./chip-{app}-app {args}".strip()    # best-effort default
 
-    def _thcli_launch_app(self, dut_command, dut_log):
-        """Advertise the sample app (fresh KVS → commissionable) on the TH
-        discriminator, from apps_dir. Returns (proc|None, full_cmd, err)."""
+    def _thcli_yaml_app_args(self, tc, app):
+        """Extra DUT args for a YAML test's app, e.g. all-devices needs
+        `--device flow-sensor` — without it the default device lacks the cluster
+        and every read fails UNSUPPORTED_CLUSTER (FLW/RH/SWTCH/LVL/BOOL/ILL/…).
+        An explicit `app_args` in yaml_tests.json wins; otherwise take the `args`
+        of the YAML's own CI: entry for this app (as run_test_suite does in native
+        mode). Searches TH's sdk_checkout first (same SDK TH runs), then ours."""
+        if tc.get("app_args"):
+            return str(tc["app_args"]).strip()
+        target = tc.get("yaml_target") or ""
+        index = getattr(self, "_thcli_yaml_index", None)
+        if index is None:
+            index = self._thcli_yaml_index = {}
+            bases = []
+            pt = self._thcli().get("python_tests_dir")
+            if pt:
+                bases.append(Path(pt).parent)        # …/sdk_checkout
+            bases.append(self.sdk_dir / "src" / "app" / "tests" / "suites")
+            for base in bases:
+                if base.is_dir():
+                    for p in base.rglob("Test_TC_*.yaml"):
+                        index.setdefault(p.stem, p)   # first base wins
+        yp = index.get(target)
+        if yp is None:
+            return ""
+        try:
+            import yaml
+            ci = (yaml.safe_load(yp.read_text(errors="replace")) or {}).get("CI")
+        except Exception:
+            return ""
+        for e in (ci if isinstance(ci, list) else []):
+            if isinstance(e, dict) and str(e.get("app", "")).strip() == app:
+                a = e.get("args") or []
+                return " ".join(shlex.quote(str(x)) for x in a) if isinstance(a, list) else str(a)
+        return ""
+
+    def _thcli_launch_app(self, dut_command, dut_log, fresh=True, append=False):
+        """Advertise the sample app on the TH discriminator, from apps_dir.
+        fresh=True wipes the KVS first (commissionable); fresh=False keeps it —
+        a DUT "reboot" that stays on its fabrics. append=True adds to dut_log
+        instead of truncating it. Returns (proc|None, full_cmd, err)."""
         if not dut_command:
             return None, "", "no DUT app configured for this test"
         binary, err = self._thcli_find_app(dut_command)
@@ -2068,13 +2107,20 @@ class TestRunner:
         # Force the discriminator TH commissions on (must match the -c config).
         cmd = apply_discriminator(dut_command, str(self._thcli().get("discriminator", "3840")))
         m = re.search(r"\./([^\s]+)", cmd)
-        full = cmd.replace(m.group(0), str(binary))
-        if "rm -rf" not in full:                     # fresh KVS so a NO-reuse re-commission works
-            full = "rm -rf /tmp/chip_* && " + full
+        app_cmd = re.sub(r"^\s*(?:rm -rf [^&]*&&\s*)+", "", cmd.replace(m.group(0), str(binary)))
+        full = ("rm -rf /tmp/chip_* && " if fresh else "") + app_cmd
         dut_log.parent.mkdir(parents=True, exist_ok=True)
-        fh = open(dut_log, "w")
+        fh = open(dut_log, "a" if append else "w")
+        if append:
+            fh.write(f"\n[CI] ===== DUT {'factory-reset' if fresh else 'reboot'} relaunch =====\n")
+            fh.flush()
+        # stdin = a pipe we hold open and never write. Apps built with the CHIP
+        # shell (tv-app, …) read stdin; inheriting the runner's closed/null stdin
+        # made the shell hit EOF and the app EXIT ~0.4s after start — so every
+        # chip-tv-app test was CANCELLED ("Failed to pair with DUT").
         proc = subprocess.Popen(full, shell=True, stdout=fh, stderr=subprocess.STDOUT,
-                                preexec_fn=os.setsid, cwd=str(binary.parent))
+                                stdin=subprocess.PIPE, preexec_fn=os.setsid,
+                                cwd=str(binary.parent))
         proc._logfh = fh
         print(f"  [TH][DUT] {full}")
         time.sleep(self.cfg["test_execution"].get("dut_settle_wait", 2))
@@ -2092,10 +2138,10 @@ class TestRunner:
             except Exception:
                 try: os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 except (ProcessLookupError, OSError): pass
-            fh = getattr(proc, "_logfh", None)
-            if fh:
-                try: fh.close()
-                except OSError: pass
+            for fh in (getattr(proc, "_logfh", None), proc.stdin):
+                if fh:
+                    try: fh.close()
+                    except OSError: pass
         subprocess.run(f"pkill -f '{apps_dir}/' 2>/dev/null || true", shell=True)
 
     def _thcli_run_cli(self, args, timeout=60):
@@ -2191,15 +2237,30 @@ class TestRunner:
         return argv
 
     def _thcli_answer_for(self, text, responses, default_ans):
-        tail = (text or "")[-1000:].lower()
+        """Answer for a numbered-options prompt. A configured answer may be the
+        option number or its label (e.g. "CANCEL"). If the answer isn't one of the
+        offered options (e.g. "1" on a "4: RETRY / 5: CANCEL" prompt), pick CANCEL
+        (else the first option) — an invalid answer just re-prompts until TH times
+        out (~3 min wasted per test, then CANCELLED anyway)."""
+        tail = strip_ansi(text or "")[-1000:]
+        block = tail.rsplit("=====", 1)[-1]               # just the current prompt
+        options = {lbl.strip().upper(): num
+                   for num, lbl in re.findall(r"^\s*(\d+):\s*(\S[^\n]*?)\s*$", block, re.M)}
+        ans = default_ans
         for r in responses:
             m = str(r.get("match", "")).lower()
-            if m and m in tail:
-                return str(r.get("answer", default_ans))
-        return default_ans
+            if m and m in tail.lower():
+                ans = str(r.get("answer", default_ans))
+                break
+        if options and ans not in options.values():
+            ans = options.get(ans.upper()) or options.get("CANCEL") or next(iter(options.values()))
+        return ans
 
-    def _thcli_drive(self, argv, cwd, log_fh, timeout):
+    def _thcli_drive(self, argv, cwd, log_fh, timeout, on_text_prompt=None):
         """Run th-cli over a pty, auto-answering the interactive prompts.
+        Numbered-option prompts → _thcli_answer_for. Free-text prompts
+        ("Reboot the DUT. Press Enter when ready." → "Enter value [default: y]:")
+        → on_text_prompt(prompt_text) performs the DUT action, then we submit.
         Returns (rc, err). All th-cli output is streamed into log_fh."""
         try:
             import pexpect
@@ -2216,10 +2277,12 @@ class TestRunner:
             log_fh.write(f"\n[CI] failed to spawn th-cli: {e}\n")
             return 127, f"spawn failed: {e}"
         child.logfile_read = log_fh
-        trig = r"enter a number for an option above"
+        trig      = r"enter a number for an option above"
+        text_trig = r"Enter value(?: \[default: [^\]\r\n]*\])?: "
         while True:
             try:
-                idx = child.expect([trig, pexpect.EOF, pexpect.TIMEOUT], timeout=timeout)
+                idx = child.expect([trig, text_trig, pexpect.EOF, pexpect.TIMEOUT],
+                                   timeout=timeout)
             except Exception as e:
                 log_fh.write(f"\n[CI] pexpect error: {e}\n")
                 try: child.close(force=True)
@@ -2229,6 +2292,13 @@ class TestRunner:
                 ans = self._thcli_answer_for(child.before or "", responses, default_ans)
                 log_fh.write(f"\n[CI][PROMPT → {ans}]\n"); log_fh.flush()
                 try: child.sendline(ans)
+                except Exception: break
+            elif idx == 1:
+                prompt = strip_ansi(child.before or "").rsplit("=====", 1)[-1].strip()
+                action = on_text_prompt(prompt) if on_text_prompt else ""
+                log_fh.write(f"\n[CI][TEXT PROMPT → y]{' ' + action if action else ''}\n")
+                log_fh.flush()
+                try: child.sendline("y")       # "Submit anything to continue"
                 except Exception: break
             else:
                 break                          # EOF (done) or TIMEOUT (hung)
@@ -2254,11 +2324,13 @@ class TestRunner:
         'Test Case/Run Completed [..]' marker; steps from 'Test Step Completed'."""
         if not text:
             return ERROR, {}, (rerr or "TH-CLI produced no output log.")[:200]
-        m = (re.search(r"Test Case Completed \[(PASSED|FAILED|ERROR|CANCELLED)\]", text)
-             or re.search(r"Test Run Completed \[(PASSED|FAILED|ERROR|CANCELLED)\]", text))
+        m = (re.search(r"Test Case Completed \[([A-Z_]+)\]", text)
+             or re.search(r"Test Run Completed \[([A-Z_]+)\]", text))
         verdict = m.group(1) if m else None
+        # NOT_APPLICABLE = TH decided the test doesn't apply to this DUT/PICS — not
+        # an error (was reported as "No TH verdict" ERROR, e.g. TC-BRBINFO-3.1).
         status  = {"PASSED": PASS, "FAILED": FAIL, "ERROR": ERROR,
-                   "CANCELLED": CANCEL}.get(verdict, ERROR)
+                   "CANCELLED": CANCEL, "NOT_APPLICABLE": SKIP}.get(verdict, ERROR)
         step_pass = len(re.findall(r"Test Step Completed \[PASSED\]", text))
         step_fail = len(re.findall(r"Test Step Completed \[FAILED\]", text))
         step_skip = len(re.findall(r"\bSkipping\b", text))
@@ -2267,10 +2339,17 @@ class TestRunner:
                   "executed": 1, "passed": 1 if status == PASS else 0,
                   "failed": 1 if status == FAIL else 0, "skipped": 0, "error": 0}
         reason = ""
-        if status != PASS:
+        if status == SKIP:
+            reason = "TH reported NOT_APPLICABLE (test does not apply to this DUT/PICS)."
+        elif status != PASS:
             pm = re.search(r"problem:\s*(.+)", text)
+            # TH's own one-line cause, e.g. "Test Step Error: … Prompt timed out."
+            em = re.search(r"Test (?:Suite|Step|Case) Error:\s*(?:Error occurred during "
+                           r"(?:setup of test suite|execution of test case)\s*.+?\.\s+)?(.+)", text)
             if pm:
                 reason = pm.group(1).strip()[:200]
+            elif em:
+                reason = em.group(1).strip()[:200]
             elif verdict is None:
                 reason = "No TH verdict in log — run may have crashed or timed out."
             else:
@@ -2353,9 +2432,27 @@ class TestRunner:
                                       "TH-CLI: could not resolve or create a project.")
 
         dut_command = self._thcli_dut_command(tc)
-        app_proc, app_full, aerr = self._thcli_launch_app(dut_command, dut_log)
+        app = {}                              # current DUT process (replaced on reboot/reset)
+        app["proc"], app_full, aerr = self._thcli_launch_app(dut_command, dut_log)
         if aerr and dut_command:
             print(f"  [TH][DUT] ⚠️  {aerr}")
+
+        def on_text_prompt(prompt):
+            """TH asks the operator to reboot / factory-reset the DUT mid-test —
+            do it, so the test continues unattended (native mode does the same via
+            the restart flag). Reboot keeps the KVS (stays commissioned); factory
+            reset wipes it (back to commissionable). Other text prompts: no action."""
+            low = prompt.lower()
+            reset = "factory reset" in low or "factory-reset" in low
+            if not dut_command or not (reset or "reboot" in low):
+                return ""
+            kind = "factory reset" if reset else "reboot"
+            print(f"  [TH][DUT] TH requested a DUT {kind} — relaunching the app")
+            self._thcli_stop_app(app["proc"])
+            app["proc"], _, err = self._thcli_launch_app(dut_command, dut_log,
+                                                         fresh=reset, append=True)
+            time.sleep(self.cfg["test_execution"].get("dut_startup_wait", 4))
+            return f"(DUT {kind}{' FAILED: ' + err if err else ' done'})"
 
         argv     = self._thcli_build_argv(tc, pid)
         executed = " ".join(shlex.quote(a) for a in argv)
@@ -2369,13 +2466,14 @@ class TestRunner:
         with open(log_path, "w") as lf:
             lf.write(header); lf.flush()
             rc, rerr = self._thcli_drive(argv, thc.get("th_cli_dir", "."), lf,
-                                         int(thc.get("test_timeout_seconds", 900)))
+                                         int(thc.get("test_timeout_seconds", 900)),
+                                         on_text_prompt=on_text_prompt)
         elapsed = round(time.time() - t0, 2)
         # Cleaned after th-cli exits, not live: pexpect's read chunks can split an
         # escape sequence, so a streaming filter would leak fragments.
         strip_ansi_file(log_path)
 
-        self._thcli_stop_app(app_proc)        # also closes the DUT log
+        self._thcli_stop_app(app["proc"])     # also closes the DUT log
         strip_ansi_file(dut_log)
 
         thlog, th_text = self._thcli_locate_log(tc_id, start), ""

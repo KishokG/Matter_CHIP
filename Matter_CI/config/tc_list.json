@@ -2062,22 +2062,22 @@
   {
     "tc_id": "TC-WEBRTC-1.1",
     "cluster": "WebRTC Transport",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-WEBRTC-1.2",
     "cluster": "WebRTC Transport",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-WEBRTC-1.3",
     "cluster": "WebRTC Transport",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-WEBRTC-1.4",
     "cluster": "WebRTC Transport",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-WEBRTC-1.5",
@@ -2752,17 +2752,17 @@
   {
     "tc_id": "TC-COMPRO-2.2",
     "cluster": "Commissioning Proxy Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-COMPRO-2.3",
     "cluster": "Commissioning Proxy Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-COMPRO-2.4",
     "cluster": "Commissioning Proxy Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-COMPRO-2.5",
@@ -2772,17 +2772,17 @@
   {
     "tc_id": "TC-COMPRO-2.6",
     "cluster": "Commissioning Proxy Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-COMPRO-2.7",
     "cluster": "Commissioning Proxy Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-COMPRO-2.8",
     "cluster": "Commissioning Proxy Cluster",
-    "enabled": true
+    "enabled": false
   },
   {
     "tc_id": "TC-COMPRO-2.9",

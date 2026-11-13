@@ -343,4 +343,9 @@ thcli_tests:
     - { match: "reuse the previous commissioning", answer: "2" }  # NO → always fresh commission
     - { match: "Should the DUT be commissioned",   answer: "1" }  # YES
     - { match: "Commissioning Mode",               answer: "1" }  # DONE
+    - { match: "select the 'RETRY' option",        answer: "CANCEL" }  # pairing failed → stop now, don't loop to TH timeout
+  # An answer may be the option number or its label. If it isn't an offered option,
+  # CANCEL (else the first option) is chosen instead of re-prompting to timeout.
+  # Free-text prompts ("Reboot the DUT / Factory reset the DUT. Press Enter") are
+  # handled in code: the DUT app is relaunched (reboot keeps its KVS), then "y" is sent.
   default_prompt_answer: "1"                                       # unmatched prompt → safe default (logged)

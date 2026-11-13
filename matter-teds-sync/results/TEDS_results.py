@@ -23,6 +23,11 @@ SECTION_NOT_EXECUTED = "---- Not Executed Yet----"
 SECTION_LOW_PASS = "---- Pass Count < Required ----"
 SECTION_PASSED = "---- Passed Rule of Three ----"
 
+# Auto-comment added when a test case only reaches "Certifiable" thanks to
+# the TH run credit ("Can TH run be counted?" = 1), i.e. without enough
+# actual pass results of its own.
+TH_CERTIFIABLE_COMMENT = "Marked as Certifiable by considering the TH pass run"
+
 # === GOOGLE SHEETS AUTH ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
           "https://www.googleapis.com/auth/drive"]
@@ -346,6 +351,22 @@ def merge_comment(old_comment, auto_comment):
         # existing (manually-edited) text — don't duplicate it.
         return old_comment
     return f"{old_comment} | {auto_comment}"
+
+
+def strip_th_certifiable_comment(comment):
+    """
+    Remove TH_CERTIFIABLE_COMMENT from a preserved comment so the note is
+    only present while it is still true (e.g. it disappears once real pass
+    results arrive). Any other text in the comment is kept as-is.
+    """
+    comment = (comment or "").strip()
+    if TH_CERTIFIABLE_COMMENT not in comment:
+        return comment
+    parts = [p.strip() for p in comment.split("|")]
+    parts = [p for p in parts if p and p != TH_CERTIFIABLE_COMMENT]
+    cleaned = " | ".join(parts)
+    # Fallback for manually edited text where the note isn't a separate part
+    return cleaned.replace(TH_CERTIFIABLE_COMMENT, "").strip(" |")
 
 
 def compare_deltas(old, new, filtered_cases):
@@ -852,11 +873,18 @@ def run_analysis(cfg, client):
         # Comments column — combine the auto-generated note with whatever
         # was previously in this test case's Comments cell (which may
         # include manual edits made directly in the sheet).
+        auto_notes = []
         if prev_sve > 0:
-            auto_comment = f"Had {prev_sve} run{'s' if prev_sve > 1 else ''} in Previous SVE"
-        else:
-            auto_comment = ""
-        comment = merge_comment(existing_comments.get(tc, ""), auto_comment)
+            auto_notes.append(f"Had {prev_sve} run{'s' if prev_sve > 1 else ''} in Previous SVE")
+        # Certifiable only because the TH run was counted — actual passes
+        # alone don't meet the requirement.
+        if cert_status == "Certifiable" and th_run >= 1 and counts["Pass"] < adjusted_runs_req:
+            auto_notes.append(TH_CERTIFIABLE_COMMENT)
+        # Drop a stale TH note first, then merge each auto note on its own so
+        # notes already present in the cell aren't duplicated on re-runs.
+        comment = strip_th_certifiable_comment(existing_comments.get(tc, ""))
+        for note in auto_notes:
+            comment = merge_comment(comment, note)
 
         _m = _re.search(r'\[(TC-[^\]]+)\]', tc)
         tc_id = _m.group(1) if _m else ""
