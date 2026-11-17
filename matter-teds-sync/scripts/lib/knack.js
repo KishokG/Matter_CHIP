@@ -45,7 +45,7 @@ function waitForAnyDownload(page, context, timeout) {
 // only waited for briefly — callers wait for the element they need anyway.
 async function gotoAndSettle(page, url) {
   await page.goto(url, { waitUntil: "domcontentloaded" });
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 25000 }).catch(() => {});
 }
 
 async function gotoWithLogin(page, url, { username, password }) {
@@ -74,16 +74,16 @@ async function exportTableCsv(page, context, { tableUrl, tableHeading, username,
 
   console.log(`Looking for the "${tableHeading}" table...`);
   const heading = page.locator(`:text-is("${tableHeading}")`).first();
-  await heading.waitFor({ state: "visible", timeout: 30000 });
+  await heading.waitFor({ state: "visible", timeout: 50000 });
   await heading.scrollIntoViewIfNeeded();
 
   const exportButton = heading.locator(
     'xpath=following::*[self::button or self::a][contains(translate(normalize-space(string(.)), "EXPORT", "export"), "export")][1]'
   );
-  await exportButton.waitFor({ state: "visible", timeout: 30000 });
+  await exportButton.waitFor({ state: "visible", timeout: 50000 });
   console.log(`Clicking "Export" for the "${tableHeading}" table...`);
 
-  const firstDownload = waitForAnyDownload(page, context, 15000);
+  const firstDownload = waitForAnyDownload(page, context, 25000);
   await exportButton.click();
   let download = await firstDownload;
 
@@ -109,7 +109,7 @@ async function exportTableCsv(page, context, { tableUrl, tableHeading, username,
     for (const candidate of candidates) {
       if (await candidate.count().catch(() => 0)) {
         console.log("Trying the Commas (.csv) export link...");
-        const nextDownload = waitForAnyDownload(page, context, 20000);
+        const nextDownload = waitForAnyDownload(page, context, 30000);
         await candidate.first().click().catch(() => {});
         download = await nextDownload;
         if (download) break;
