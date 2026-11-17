@@ -886,7 +886,8 @@ def run_analysis(cfg, client):
         for note in auto_notes:
             comment = merge_comment(comment, note)
 
-        _m = _re.search(r'\[(TC-[^\]]+)\]', tc)
+
+        _m = _re.search(r'\[([^\]]+)\]', tc)
         tc_id = _m.group(1) if _m else ""
 
         row = [
